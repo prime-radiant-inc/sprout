@@ -97,6 +97,19 @@ export const AMBIENT_METHODS = [
  * JSON-severed inside the context (host promises/objects never leak their
  * prototype to the cell), and timer ids are opaque context integers mapping to
  * host timer handles held in the closure.
+ *
+ * SECURITY POSTURE — THE node:vm CEILING (Phase 7, for operators and
+ * reviewers): this realm is a confused-deputy bar, NOT a hard sandbox. What it
+ * guarantees is that correctly-executing JS in the cell cannot reach host
+ * capabilities: no Bun/process/require/fetch, no store credentials, no channel
+ * token — every effect flows through the parent-mediated ambient API at cell
+ * privilege. What it does NOT guarantee is containment of a determined
+ * attacker who brings a V8/JSC engine exploit: the worker is a same-UID
+ * process sharing the engine with its own host-side JS, and node:vm is
+ * documented as not a security mechanism against hostile code with an engine
+ * escape. In that scenario this boundary fails OPEN. The fails-closed design
+ * is the QuickJS-WASM port (interpreter compiled to WASM, engine bugs land
+ * inside the WASM heap), tracked as GitHub issue prime-radiant-inc/sprout#1.
  */
 function buildCellBootstrap(): string {
 	const ambientList = JSON.stringify([...AMBIENT_METHODS]);

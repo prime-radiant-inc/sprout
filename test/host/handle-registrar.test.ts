@@ -12,6 +12,7 @@ import {
 	mintToken,
 	type ObserverRemit,
 } from "../../src/host/handle-registry.ts";
+import { SessionBudget } from "../../src/host/session-budget.ts";
 
 const TRUSTED = "host";
 
@@ -57,6 +58,100 @@ describe("HostHandleRegistrar (in-process trusted path)", () => {
 				depth: 1,
 			}),
 		).rejects.toThrow(/handle registration failed: duplicate/);
+	});
+});
+
+describe("HostHandleRegistrar session budget (Phase 7)", () => {
+	test("rejects registration once the sub-call budget is exhausted", async () => {
+		const registry = new HandleRegistry({ trustedRegistrarId: TRUSTED });
+		const budget = new SessionBudget({ maxSubCalls: 1, maxTokens: 1_000_000 });
+		const registrar = new HostHandleRegistrar(registry, TRUSTED, budget);
+
+		await registrar.registerChild({
+			handleId: "h-first",
+			tokenHash: hashToken(mintToken()),
+			ownerId: "h-root",
+			depth: 1,
+		});
+
+		await expect(
+			registrar.registerChild({
+				handleId: "h-second",
+				tokenHash: hashToken(mintToken()),
+				ownerId: "h-root",
+				depth: 1,
+			}),
+		).rejects.toThrow(/session sub-call budget exceeded/);
+		// The rejected spawn was never registered.
+		expect(registry.get("h-second")).toBeUndefined();
+	});
+
+	test("rejects registration once the token budget is exceeded", async () => {
+		const registry = new HandleRegistry({ trustedRegistrarId: TRUSTED });
+		const budget = new SessionBudget({ maxSubCalls: 100, maxTokens: 500 });
+		const registrar = new HostHandleRegistrar(registry, TRUSTED, budget);
+		budget.recordTokens(501);
+
+		await expect(
+			registrar.registerChild({
+				handleId: "h-child",
+				tokenHash: hashToken(mintToken()),
+				ownerId: "h-root",
+				depth: 1,
+			}),
+		).rejects.toThrow(/session token budget exceeded/);
+		expect(registry.get("h-child")).toBeUndefined();
+	});
+
+	test("without a budget, registration is unchanged", async () => {
+		const registry = new HandleRegistry({ trustedRegistrarId: TRUSTED });
+		const registrar = new HostHandleRegistrar(registry, TRUSTED);
+		await registrar.registerChild({
+			handleId: "h-child",
+			tokenHash: hashToken(mintToken()),
+			ownerId: "h-root",
+			depth: 1,
+		});
+		expect(registry.get("h-child")).toBeDefined();
+	});
+});
+
+describe("makeRegisterHandleHandler session budget (over the channel)", () => {
+	test("mid-tree registration is rejected once the sub-call budget is exhausted", async () => {
+		const registry = new HandleRegistry({ trustedRegistrarId: TRUSTED });
+		const budget = new SessionBudget({ maxSubCalls: 0, maxTokens: 1_000_000 });
+		const parentToken = mintToken();
+		registry.registerHandle({
+			handleId: "h-parent",
+			tokenHash: hashToken(parentToken),
+			registrarId: TRUSTED,
+			ownerId: "h-root",
+			depth: 1,
+		});
+		const server = new AuthChannelServer({ port: 0, registry });
+		server.onRequest(REGISTER_HANDLE_REQUEST, makeRegisterHandleHandler(registry, budget));
+		await server.start();
+		const parentClient = new AuthChannelClient({
+			url: server.url,
+			handleId: "h-parent",
+			token: parentToken,
+		});
+		await parentClient.connect();
+		try {
+			const registrar = new ChannelHandleRegistrar(parentClient);
+			await expect(
+				registrar.registerChild({
+					handleId: "h-grandchild",
+					tokenHash: hashToken(mintToken()),
+					ownerId: "h-parent",
+					depth: 2,
+				}),
+			).rejects.toThrow(/session sub-call budget exceeded/);
+			expect(registry.get("h-grandchild")).toBeUndefined();
+		} finally {
+			await parentClient.disconnect();
+			await server.stop();
+		}
 	});
 });
 

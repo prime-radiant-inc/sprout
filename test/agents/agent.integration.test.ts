@@ -235,6 +235,12 @@ describe("Agent with Genome Integration", () => {
 		const events = new AgentEventEmitter();
 		const rootSpec = genome.getAgent("root")!;
 
+		// Root needs the agent tree to reach a file-capable delegate
+		// (root → tech-lead → editor); without it root has no write path — its
+		// own tool surface is delegation-only, and ungranted primitive dispatch
+		// is denied (Phase 7 hardening).
+		const rootDir = join(import.meta.dir, "../../root");
+		const agentTree = await scanAgentTree(rootDir);
 		const agent = new Agent({
 			spec: rootSpec,
 			env,
@@ -244,6 +250,10 @@ describe("Agent with Genome Integration", () => {
 			genome,
 			events,
 			depth: 0,
+			rootDir,
+			agentTree,
+			agentTreeChildren: [...agentTree.keys()].filter((p) => !p.includes("/")),
+			agentTreeSelfPath: "",
 			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 			modelsByProvider: resolverContext.modelsByProvider,

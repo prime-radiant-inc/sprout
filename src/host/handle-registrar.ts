@@ -1,5 +1,6 @@
 import type { AuthChannelClient, AuthRequestHandler } from "./auth-channel.ts";
 import type { HandleRegistry, ObserverRemit } from "./handle-registry.ts";
+import type { SessionBudget } from "./session-budget.ts";
 
 /**
  * Registration authority for the handle bootstrap (sap spec §1 Transport, §3
@@ -25,6 +26,22 @@ export const REGISTER_HANDLE_REQUEST = "register_handle";
  * refuses to register any handle claiming it.
  */
 export const TRUSTED_REGISTRAR_ID = "sprout:host";
+
+/**
+ * Enforce the per-session sub-call/token budget (Phase 7) at the registration
+ * boundary. Every subprocess spawn registers here BEFORE launch, and the
+ * spawner aborts the launch on rejection, so a thrown budget error surfaces to
+ * the delegating agent as a normal failed delegation outcome
+ * (infrastructure_error) — never a crash or a silent drop. No budget = no cap
+ * (budget-less test/registrar setups are unchanged).
+ */
+function admitAgainstBudget(budget: SessionBudget | undefined): void {
+	if (!budget) return;
+	const admission = budget.admitSubCall();
+	if (!admission.ok) {
+		throw new Error(admission.reason);
+	}
+}
 
 /**
  * What a spawner supplies to register one child handle. It deliberately carries
@@ -63,13 +80,16 @@ export interface HandleRegistrar {
 export class HostHandleRegistrar implements HandleRegistrar {
 	private readonly registry: HandleRegistry;
 	private readonly trustedRegistrarId: string;
+	private readonly budget?: SessionBudget;
 
-	constructor(registry: HandleRegistry, trustedRegistrarId: string) {
+	constructor(registry: HandleRegistry, trustedRegistrarId: string, budget?: SessionBudget) {
 		this.registry = registry;
 		this.trustedRegistrarId = trustedRegistrarId;
+		this.budget = budget;
 	}
 
 	async registerChild(input: RegisterChildInput): Promise<void> {
+		admitAgainstBudget(this.budget);
 		const result = this.registry.registerHandle({
 			...input,
 			registrarId: this.trustedRegistrarId,
@@ -111,9 +131,13 @@ export class ChannelHandleRegistrar implements HandleRegistrar {
  * `ownerId === registrarId` (unless trusted). Any `registrarId` a crafted
  * payload might carry is ignored entirely.
  */
-export function makeRegisterHandleHandler(registry: HandleRegistry): AuthRequestHandler {
+export function makeRegisterHandleHandler(
+	registry: HandleRegistry,
+	budget?: SessionBudget,
+): AuthRequestHandler {
 	return (ctx, payload) => {
 		const input = parseRegisterChildInput(payload);
+		admitAgainstBudget(budget);
 		// A channel registrar is never the trusted registrar (that identity is
 		// reserved and unregisterable), so constrain what it may claim about
 		// its child: depth exactly one below its own — depth feeds

@@ -191,6 +191,24 @@ program syncs into the genome and loads.
 typed error; a granted script tool cannot reach an unpermitted shell; the ceiling is documented
 where an operator will find it.
 
+### Security posture (recorded 2026-07-20)
+
+- **Cell isolation is a confused-deputy bar, not a hard sandbox.** The `node:vm` realm
+  guarantees that correctly-executing cell JS cannot reach host capabilities (no
+  Bun/process/require/fetch, no store credentials, no channel token; every effect flows through
+  the parent-mediated ambient API at cell privilege). It does NOT contain a determined same-UID
+  attacker holding a JS-engine exploit — the worker shares the engine with its own host-side JS,
+  and against an engine escape the boundary fails open. The fails-closed design is the
+  QuickJS-WASM port, tracked as GitHub issue #1 (prime-radiant-inc/sprout#1).
+- **Memory limiting is a best-effort RSS watchdog, not a hard cap.** A 250 ms poll SIGKILLs the
+  worker over budget; a burst allocation can outrun the poll. The budget clock likewise kills a
+  runaway cell rather than preventing one. Both bound accidents, not adversaries.
+- **The per-session sub-call/token budget is a variance cap**, host-enforced at the handle
+  registration boundary; it stops runaway delegation loops, not a hostile host-level actor.
+
+The in-code versions of these statements live in `src/cell/cell-worker.ts` (realm doc) and
+`src/cell/cell-host.ts` (guard doc).
+
 ## Phase 8 — Recorded cross-phase deferrals
 
 The coherent, recorded deferrals from the sap build, finished here:

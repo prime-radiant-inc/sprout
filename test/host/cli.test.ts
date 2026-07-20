@@ -1897,6 +1897,80 @@ describe("startBusInfrastructure", () => {
 		}
 	});
 
+	test("exposes the session budget and feeds it llm_end token usage from the session topic", async () => {
+		const genomePath = join(tempDir, "genome-budget");
+		await mkdir(join(genomePath, ".git"), { recursive: true });
+
+		const infra = await startBusInfrastructure({
+			genomePath,
+			sessionId: "test-session-budget",
+		});
+
+		try {
+			expect(infra.sessionBudget).toBeDefined();
+
+			// Publish an llm_end event on the session-wide topic from a separate
+			// bus connection, as any agent subprocess would; the host-side budget
+			// must accumulate its usage. (The server never echoes to the sender,
+			// so this must not be the host's own client.)
+			const { sessionEvents } = await import("../../src/bus/topics.ts");
+			const { BusClient } = await import("../../src/bus/client.ts");
+			const childBus = new BusClient(infra.server.url);
+			await childBus.connect();
+			try {
+				await childBus.publish(
+					sessionEvents("test-session-budget"),
+					JSON.stringify({
+						kind: "event",
+						handle_id: "h-child",
+						event: {
+							kind: "llm_end",
+							timestamp: Date.now(),
+							agent_id: "child",
+							depth: 1,
+							data: { input_tokens: 120, output_tokens: 30 },
+						},
+					}),
+				);
+				await new Promise((resolve) => setTimeout(resolve, 100));
+				expect(infra.sessionBudget?.tokens).toBe(150);
+			} finally {
+				await childBus.disconnect();
+			}
+		} finally {
+			await infra.cleanup();
+		}
+	});
+
+	test("a spawn beyond the sub-call budget aborts before launch with the typed reason", async () => {
+		const genomePath = join(tempDir, "genome-budget-cap");
+		await mkdir(join(genomePath, ".git"), { recursive: true });
+		process.env.SPROUT_SESSION_MAX_SUB_CALLS = "0";
+		try {
+			const infra = await startBusInfrastructure({
+				genomePath,
+				sessionId: "test-session-budget-cap",
+			});
+			try {
+				await expect(
+					infra.spawner.spawnAgent({
+						agentName: "worker",
+						genomePath,
+						caller: { agentName: "root", depth: 0, handleId: "root", agentId: "root" },
+						goal: "do a thing",
+						blocking: false,
+						shared: false,
+						workDir: genomePath,
+					}),
+				).rejects.toThrow(/session sub-call budget exceeded/);
+			} finally {
+				await infra.cleanup();
+			}
+		} finally {
+			delete process.env.SPROUT_SESSION_MAX_SUB_CALLS;
+		}
+	});
+
 	test("starts the authenticated channel and exposes its URL and registry", async () => {
 		const genomePath = join(tempDir, "genome-auth");
 		await mkdir(join(genomePath, ".git"), { recursive: true });

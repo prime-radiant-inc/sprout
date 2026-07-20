@@ -2633,9 +2633,14 @@ export class Agent {
 			}
 		}
 
-		// Load workspace tools created by the quartermaster for this agent
+		// Load workspace tools created by the quartermaster for this agent.
+		// Never in code mode (Phase 7 hardening): code mode's tool surface is
+		// exactly `cell`, and a registered-but-unoffered script tool would still
+		// be a shell escape one hallucinated tool call away. Skipping the load
+		// (and the PATH additions that only serve script tools) keeps the
+		// stripped-realm premise honest.
 		let wsToolDefs: import("../genome/genome.ts").AgentToolDefinition[] = [];
-		if (this.genome) {
+		if (this.genome && !this.codeMode) {
 			wsToolDefs = this.rootDir
 				? await this.genome.loadAgentToolsWithRoot(this.spec.name, this.rootDir, this.agentTree)
 				: await this.genome.loadAgentTools(this.spec.name);
@@ -2951,6 +2956,10 @@ export class Agent {
 			if (result.output !== undefined) lastOutput = result.output;
 		}
 
+		// The dispatchable primitive surface = exactly what this agent was
+		// offered (granted primitives, cell, and its own workspace tools).
+		const allowedDispatchNames = new Set(this.resolvedTools().map((tool) => tool.name));
+
 		// Execute primitives sequentially (they're fast, may depend on each other)
 		for (const call of toolCalls) {
 			if (
@@ -2968,6 +2977,33 @@ export class Agent {
 				display_name: displayName,
 				args: call.arguments,
 			});
+
+			// Phase 7 hardening: dispatch only what this agent was actually
+			// offered. The registry holds every registered primitive (kernel
+			// primitives, workspace script tools, save_tool, ...), so executing by
+			// bare name would let any agent — including a code-mode agent whose
+			// surface is "exactly cell" — reach ungranted tools with one
+			// hallucinated or injected tool call. Script tools run through
+			// exec_command, so this is the line between "granted script tool" and
+			// "silent shell escape".
+			if (!allowedDispatchNames.has(call.name)) {
+				const errorMsg =
+					`Tool '${call.name}' is not in this agent's granted tool surface ` +
+					`(granted: ${[...allowedDispatchNames].join(", ") || "none"}).`;
+				const toolResultMsg = Msg.toolResult(call.id, `Error: ${errorMsg}`, true);
+				resultByCallId.set(call.id, toolResultMsg);
+				this.emitAndLog("primitive_end", agentId, this.depth, {
+					name: call.name,
+					display_name: displayName,
+					success: false,
+					stumbled: true,
+					output: "",
+					error: errorMsg,
+					tool_result_message: toolResultMsg,
+				});
+				stumbles++;
+				continue;
+			}
 
 			// Flag-off (spec §6): capture fields (bind:/publish:) are data-plane
 			// fields — reject loudly naming the flag rather than passing them as

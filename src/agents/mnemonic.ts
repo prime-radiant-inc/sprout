@@ -10,7 +10,11 @@ export interface MnemonicContext {
 }
 
 function isReplayVcrClient(client: Client): boolean {
-	return (client as Client & { __sproutVcrMode?: string }).__sproutVcrMode === "replay";
+	// Record must skip exactly what replay skips: a codename call captured into
+	// a cassette would shift every subsequent sequential replay entry off by
+	// one, corrupting the replayed conversation.
+	const mode = (client as Client & { __sproutVcrMode?: string }).__sproutVcrMode;
+	return mode === "replay" || mode === "record";
 }
 
 /**

@@ -13,6 +13,15 @@
  *   `ps -o rss=` elsewhere), SIGKILL over the memory budget (default 512 MB).
  *
  * A killed worker respawns lazily on the next cell.
+ *
+ * SECURITY POSTURE (Phase 7, for operators and reviewers): the RSS watchdog
+ * is BEST-EFFORT memory limiting, not a hard cap — a burst allocation can
+ * outrun the 250 ms poll before the SIGKILL lands, and RSS is only a proxy for
+ * true commitment. Likewise the budget clock kills a runaway cell; it does not
+ * prevent one. These guards bound accidents and runaways from model-authored
+ * code; they are not a defense against a determined same-UID attacker (see the
+ * realm doc in cell-worker.ts). The fails-closed replacement is the
+ * QuickJS-WASM port, tracked as prime-radiant-inc/sprout#1.
  */
 
 import { readFile } from "node:fs/promises";

@@ -8848,6 +8848,27 @@ describe("spawner delegation outcome envelope (Slice B)", () => {
 		expect(outcome.reason).toContain("transport down");
 	});
 
+	test("a budget-rejected spawn surfaces the typed reason as infrastructure_error (Phase 7)", async () => {
+		// The host registrar rejects registration once the session budget is
+		// exhausted; the spawn aborts before launch and the rejection must reach
+		// the delegating agent as a normal failed outcome — no crash, no hang.
+		const harness = envelopeHarness({
+			spawnAgent: async () => {
+				throw new Error(
+					"handle registration failed: session sub-call budget exceeded: 1000 sub-calls used, ceiling is 1000",
+				);
+			},
+		});
+		const outcome = await runCore(harness)(
+			{ call_id: "c-budget", agent_name: "leaf", goal: "x" },
+			"root",
+			{ cellSpawn: true },
+		);
+		expect(outcome.kind).toBe("infrastructure_error");
+		if (outcome.kind !== "infrastructure_error") throw new Error("unreachable");
+		expect(outcome.reason).toContain("session sub-call budget exceeded");
+	});
+
 	test("a failed child RESOLVES as completed with ok false", async () => {
 		const harness = envelopeHarness({
 			spawnAgent: async () => ({

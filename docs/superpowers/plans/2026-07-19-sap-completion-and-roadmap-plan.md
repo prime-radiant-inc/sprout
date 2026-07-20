@@ -74,8 +74,17 @@ Fable review in fresh context → fix findings → commit → update this plan. 
   not enforced by the architecture test; a snapshot tempdir can leak on a mid-setup error.
 - [ ] **Phase 6 — Curator generalization + parameterization + root sync.** Curate agents/memories;
   infer typed params in fabrication; `programs/` in bootstrap manifest + `syncRoot`.
-- [ ] **Phase 7 — Security hardening.** Per-session sub-call/token budget; script-tool
-  shell-exposure tightening; document the `node:vm` ceiling.
+- [x] **Phase 7 — Security hardening.** Per-session sub-call/token budget; script-tool
+  shell-exposure tightening; document the `node:vm` ceiling. Budget: `src/host/session-budget.ts`
+  (defaults 1000 sub-calls / 50M tokens; `SPROUT_SESSION_MAX_SUB_CALLS` /
+  `SPROUT_SESSION_MAX_TOKENS` overrides), enforced host-side in the handle registrar (both the
+  trusted in-process path and the channel handler) so every subprocess spawn is admitted before
+  launch; token feed = `llm_end` usage off the session-wide events topic; rejection surfaces as a
+  normal `infrastructure_error` delegation outcome. Script tools: primitive dispatch is now
+  restricted to the agent's OFFERED tool surface (previously ANY registered primitive — exec,
+  save_tool, every workspace script tool — executed by bare name), and code-mode agents no longer
+  load/register workspace script tools at all. `node:vm` ceiling documented in cell-worker.ts
+  (realm doc), cell-host.ts (guard doc), and the spec's Phase 7 "Security posture" subsection.
 - [ ] **Phase 8 — Recorded cross-phase deferrals.** Host-side deadlock detection; scoped observer
   store reads; shared-handle wait-graph pairing; scope announcements + post-compaction manifest
   event; `value_lines`/`value_publish`; manifest-pull relaxation. Each ships with a test or is
@@ -131,3 +140,16 @@ Fable review in fresh context → fix findings → commit → update this plan. 
   over eval-mode snapshots) to enforce the invariant in the live loop — this is the
   live-measurement step, out of scope for the offline wiring. The capability number
   (multi-task/multi-model eval vs baseline) is likewise still pending.
+- **2026-07-20 (Phase 7):** Closing the dispatch surface invalidated three VCR cassettes
+  (e2e bootstrap, e2e multi-step, agent-integration bootstrap): the recorded root sessions
+  (root has `tools: []`) had created files by calling `write_file` directly — the recordings
+  depended on the ungranted-primitive hole. All three re-recorded live against the enforced
+  surface. Enablers fixed in the VCR helper along the way: record mode now resolves real model
+  ids (the stubbed catalog pinned "test-model" and 404'd every live call), skips mnemonic and
+  subcortical calls symmetrically with replay (recording them shifted sequential replay off by
+  one), and pushes stream recordings in a `finally` so early-exiting consumers still capture
+  entries. The agent-integration test now constructs root with the agent tree (as the factory
+  does) — without it root has no file-capable delegate, which the old recording papered over
+  via the hole. Featherweight spawns are not counted as sub-calls (they skip handle
+  registration, cannot recurse, and their tokens still count); the budget spans the host
+  process lifetime — `/clear` does not reset it, matching the handle registry.

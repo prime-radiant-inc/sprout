@@ -35,6 +35,8 @@ export interface BusInfrastructure {
 	genome: import("../genome/genome.ts").Genome;
 	/** Session store worker client (sap spec §1), when store wiring is active. */
 	store?: import("../store/store-client.ts").StoreWorkerClient;
+	/** Per-session sub-call/token budget (Phase 7), enforced at handle registration. */
+	sessionBudget?: import("./session-budget.ts").SessionBudget;
 	cleanup: () => Promise<void>;
 }
 
@@ -65,12 +67,17 @@ export async function startBusInfrastructure(
 		makePingHandler,
 		PING_REQUEST,
 	} = await import("./liveness.ts");
+	const { sessionBudgetFromEnv } = await import("./session-budget.ts");
 	const { StoreWorkerClient } = await import("../store/store-client.ts");
 	const { DirectStoreAccess } = await import("../store/store-access.ts");
 	const { registerStoreHandlers } = await import("./store-channel.ts");
 
 	const server = new BusServer({ port: 0, hostname: "127.0.0.1" });
 	const handleRegistry = new HandleRegistry({ trustedRegistrarId: TRUSTED_REGISTRAR_ID });
+	// Per-session sub-call/token budget (Phase 7): host-side counters checked at
+	// the handle-registration boundary, so no spawn — root's or a mid-tree
+	// agent's — can bypass them from a child process.
+	const sessionBudget = sessionBudgetFromEnv();
 	const authServer = new AuthChannelServer({
 		port: 0,
 		hostname: "127.0.0.1",
@@ -91,7 +98,10 @@ export async function startBusInfrastructure(
 	try {
 		await server.start();
 		await authServer.start();
-		authServer.onRequest(REGISTER_HANDLE_REQUEST, makeRegisterHandleHandler(handleRegistry));
+		authServer.onRequest(
+			REGISTER_HANDLE_REQUEST,
+			makeRegisterHandleHandler(handleRegistry, sessionBudget),
+		);
 		authServer.onRequest(PING_REQUEST, makePingHandler(handleRegistry));
 		authServer.onRequest(LIVENESS_REQUEST, makeLivenessHandler(handleRegistry));
 		registerStoreHandlers(authServer, store, {
@@ -125,13 +135,27 @@ export async function startBusInfrastructure(
 			undefined,
 			{
 				url: authServer.url,
-				registrar: new HostHandleRegistrar(handleRegistry, TRUSTED_REGISTRAR_ID),
+				registrar: new HostHandleRegistrar(handleRegistry, TRUSTED_REGISTRAR_ID, sessionBudget),
 				probe: new HostLivenessProbe(handleRegistry),
 				store: new DirectStoreAccess(store, rootScopeId),
 			},
 		);
 
+		// Token feed for the session budget: every agent subprocess publishes its
+		// events on the session-wide topic; llm_end carries per-call usage. The
+		// counter lives host-side, so model-authored code cannot unwind it. (The
+		// root agent's own turns run in this process and are bounded by its
+		// max_turns; the cap targets the delegation subtree where runaways live.)
+		const unsubscribeBudgetFeed = await spawner.subscribeSessionEvents((eventMsg) => {
+			const ev = eventMsg.event;
+			if (ev.kind !== "llm_end") return;
+			const input = typeof ev.data.input_tokens === "number" ? ev.data.input_tokens : 0;
+			const output = typeof ev.data.output_tokens === "number" ? ev.data.output_tokens : 0;
+			sessionBudget.recordTokens(input + output);
+		});
+
 		const cleanup = async () => {
+			unsubscribeBudgetFeed();
 			await genomeService?.stop();
 			await spawner?.shutdown();
 			if (bus) {
@@ -151,6 +175,7 @@ export async function startBusInfrastructure(
 			genomeService,
 			genome,
 			store,
+			sessionBudget,
 			cleanup,
 		};
 	} catch (error) {
