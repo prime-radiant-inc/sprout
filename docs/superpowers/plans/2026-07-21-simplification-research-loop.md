@@ -38,7 +38,7 @@ flight at that point.
 - [x] src/kernel (cycle 4)
 - [x] src/agents (cycle 5)
 - [x] src/cell (cycle 6)
-- [ ] src/learn + src/llm (eval harnesses, adapters, client)
+- [x] src/learn + src/llm (cycle 7)
 - [ ] src/genome + src/web (memory tools, recall, server)
 
 ## Cycle log
@@ -345,6 +345,79 @@ RISKY/decisions — recorded for Jesse, not touched:
   collapses to budget+headroom + migration-window comment block; ENGINES vm
   arm + vm-branch RSS test; bench selector plumbing.
 - JSONL line-split loop ×4 across cell/store (S7) — queued util dedup.
+
+### Cycle 7 — src/learn + src/llm (both reviewers; a bug-rich cycle)
+
+FIXED (TDD, all committed):
+- FINISH-REASON DRIFT CLUSTER (both reviewers' top item; 4 paths, 3 wrong):
+  the agent loop special-cases finish_reason "length" (break into smaller
+  steps), but 3 of 4 adapter parse paths reported stop/tool_calls on a
+  max_tokens truncation, so a half-parsed tool call executed with garbage
+  {raw} args. Fixed: gemini stream now maps candidates[0].finishReason
+  (MAX_TOKENS→length) as complete() does; openai chat stream+complete only
+  override to tool_calls when NOT length; openai responses-complete mirrors
+  the responses-stream terminal-status guard. (responses-stream was already
+  correct — f81edb7/06d60ae.)
+- CACHED REJECTED PROMISES (both reviewers; the class from f0e84f7):
+  LocalEmbeddingProvider.load and ProviderRegistry.getEntry both memoized a
+  rejected load — one transient cold-start fetch / locked-keychain read
+  disabled embedding / poisoned a provider for the process lifetime. Both
+  now evict the slot on rejection.
+- TORN METRICS LINE bricking startup (B, proven): metrics.jsonl is
+  append-only; a crash mid-append left a partial last line, and load()
+  (awaited by createAgent) did a bare JSON.parse per line → SyntaxError, no
+  agent could start. One shared parseMetricsEntries tolerates torn lines.
+
+Done (SAFE): deleted dead LearnProcessOptions.logger (lying doc, passed into
+the void) and Request.system (silently dropped by all 4 adapters; only
+setter was compaction's system:"").
+
+DECOMPOSITION (mandate 4b): learn-process.ts (875) seams MAPPED by both
+reviewers but NOT extracted (cycle window spent on the bug cluster) — queued:
+mutations.ts (~120, also un-tangles live-mutation-gate's import of the
+process class it gates), pending-evaluations.ts (~150, co-locate with the C2/F3
+fix), quartermaster-wiring.ts (~120), improvement-reasoner.ts (~120). Only
+function >80 lines: reasonAboutImprovement (~114). quartermaster.ts's
+param-inference lexer (~250) is a clean standalone move.
+
+RISKY / DESIGN — recorded for Jesse, NOT implemented:
+- PENDING-EVAL LEDGER (A-C2/C7 + B-F3, proven): non-agent mutations
+  (agentName "learn"/program-name/retired-agent) can NEVER reach the ≥5-action
+  gate (actions only recorded under live agent ids), so they persist forever
+  in pending-evaluations.json, rescanned every startup (O(entries×filesize)),
+  and the promised rollback net never runs for them. AND gate-approved agent
+  mutations re-enter the single-delta legacy rollback the gate was built to
+  replace — the noisy delta can undo a 100-run verdict. Contradicts the file's
+  own doc. Needs a decision: don't enqueue non-agent/gated mutations, or expire
+  them.
+- QUARTERMASTER curation inert under its own gate (A-C1 + B-F7): retiring a
+  never-invoked program can't move pinned-eval fitness except by noise, so
+  curation proposals essentially never pass — live-cost, dead-outcome — and
+  re-pay a full N-run A/B (~100 real model sessions) per proposal per signal,
+  with no rejection memo; a program fabricated in step 1 gets proposed for
+  retirement in step 3 of the SAME pass. Gate is opt-in, so inert today, but
+  the cost blows up the moment it's enabled. Needs a cheaper rot-retirement
+  criterion or rejection memoization.
+- STREAMING USAGE ZERO for openai-compatible/openrouter (A-C3 + B-F8):
+  streamChatCompletions never sends stream_options:{include_usage:true}, so
+  spec-conforming servers (vLLM) yield no usage → cost accounting + the
+  just-fixed compaction threshold both read 0 on streamed runs. Fix is 2
+  lines BUT changes wire behavior to third-party servers and a strict server
+  could reject the param — reviewers hedged ("server-dependent"). Jesse's call.
+- C8 (A): a catalog resolving best but not the memory extraction tier makes
+  EVERY learn signal error and the reasoner unreachable (constructor tolerates
+  the missing model, extract hard-throws before reason runs). Fail-loud-once
+  vs skip-gracefully is a design call.
+- Gemini synthetic call-id map is per-instance (A-C10 + B-F6): cross-process
+  resume replays functionResponse name "unknown" and can collide ids. Derive
+  the name from the paired tool_call in the request instead of adapter state.
+
+QUEUED SAFE (smaller, not reached): shouldAcceptMutation unwired (3 comments
+claim it's the gate; compareGenomes reimplements it inline); canariesPassed
+dead; asRecord copy-pasted 4× across adapters; ReasonedLearnMutation alias;
+retry.ts retry_after branch has no producer; loggingMiddleware doc claims it
+logs "every" call but only wraps complete() (agents stream). learn_end
+mislabels quartermaster-only cycles.
 
 ## Decision-queue from Jesse's Q&A round 2 (2026-07-21, ~18:25Z)
 
