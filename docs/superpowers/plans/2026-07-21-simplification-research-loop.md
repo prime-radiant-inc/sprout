@@ -39,7 +39,7 @@ flight at that point.
 - [x] src/agents (cycle 5)
 - [x] src/cell (cycle 6)
 - [x] src/learn + src/llm (cycle 7)
-- [ ] src/genome + src/web (memory tools, recall, server)
+- [x] src/genome + src/web (cycle 8)
 
 ## Cycle log
 
@@ -418,6 +418,122 @@ dead; asRecord copy-pasted 4× across adapters; ReasonedLearnMutation alias;
 retry.ts retry_after branch has no producer; loggingMiddleware doc claims it
 logs "every" call but only wraps complete() (agents stream). learn_end
 mislabels quartermaster-only cycles.
+
+### Cycle 8 — src/genome + src/web (both reviewers; 3 PROVEN bugs, heavy convergence)
+
+FIXED (TDD, committed):
+- WORKSPACE PATH TRAVERSAL (B-B2, proven): saveAgentTool/saveAgentFile joined
+  a model-authored name straight into the agent's dir — '../../pwned' wrote
+  outside the workspace and git-added it. Names now validated as a single
+  plain path component.
+- READ-ONLY GENOME BLOCKLIST DRIFT (both reviewers, proven 5/5): six mutators
+  added in later phases (addProgram, removeProgram, retireMemory,
+  compactMemoryLog, compactMemoryLogIfDue, applyMemoryAndProjectActivity
+  Mutation) + memory removeArchivedOrSuperseded were missing from the proxy's
+  Sets, so the "read-only" genome committed them to git. Added; regression
+  test pins all seven. (Minimal-safe fix — kept the blocklist shape; both
+  reviewers noted an allowlist would stop the rot permanently — RISKY, queued.)
+
+Done (SAFE): deleted dead classifyMemoryRelationships (batch) +
+loadMemoryConsolidationPrompt; fixed renderMemories' <memories> comment
+(emits <memory_context>).
+
+DECOMPOSITION (mandate 4b): genome.ts (1890, the repo's largest) seams MAPPED
+by both reviewers, NOT extracted (window spent on the proven bugs + F7/B9
+needs care). Queued, most-mechanical-first: the trailing free-function block
+(~115, snapshot/restore/stage helpers → genome-mutation-io.ts), root-sync
+(~200), agent-workspace (~135), prompt delegates (~70). The keystone internal
+refactor: the commit-or-restore template is copy-pasted 12× (B9/F7) with
+measurable drift (no-op in-lock merges in addMemories/addSegmentWithMemories;
+status-guard present in 7 of 12; restore-without-rebuild on the project path)
+— one runCommittedFileMutation helper, then Seam 1. RISKY (variants need
+3-4 flags); do the extraction with a helper that reproduces each copy exactly.
+
+RISKY / correctness — recorded for Jesse, NOT implemented:
+- TORN GENOME JSONL bricks startup (both reviewers, proven): a corrupt line
+  in memories/segments/projects.jsonl throws from loadFromDisk → no agent
+  starts — same class as the metrics fix (996bb20), but these are SOURCE OF
+  TRUTH, not derived telemetry. loadFromDisk already warn+skips bad agent/
+  program entries; memory/segment/project loads propagate. Both reviewers say
+  the policy is a deliberate call (skip+warn vs quarantine vs a
+  recovery-guidance error naming the file + "restore from git"). Production
+  never tears these (atomic rewrite); realistic vector is a hand-edit/botched
+  merge. Fail-loud on source-of-truth is your stated preference — recommend a
+  recovery-guidance error rather than silent skip. Your call.
+- SCORING ARCHIVES PROTECTED USER MEMORIES (A-F2): applyMemoryScores archives
+  anything scoring <0.1 with NO isProtectedManualMemory check, and weekly
+  compaction then physically deletes it — while every OTHER destructive path
+  (archivist tool, consolidation) protects source:"user" memories. A rarely-
+  recalled "always deploy with X" user memory decays to ~0 and is deleted
+  within a week; the same archive via the tool would be REFUSED. Fix is one
+  condition using existing isProtectedManualMemory (no new machinery). Real,
+  but changes archival behavior on a live genome — flagging for your sign-off.
+- SERIAL LLM CALLS INSIDE THE MEMORY-WRITE LOCK (A-F3): up to 12+ blocking
+  relationship-classify calls run while holding withMemoryWriteLock; other
+  acquirers time out at 30s, and recall's markMemoriesUsed has no try/catch in
+  Agent.run → concurrent sessions' recalls kill the run. Fix restructures the
+  atomicity window (classify on a snapshot outside the lock) — RISKY.
+- STALE-LOCK RECLAIM TOCTOU (A-F4): reclaimStaleLock does read-owner→decide→rm
+  with no re-validation, so two waiters can both end up holding the lock and
+  both rewrite memories.jsonl (last-rename-wins). ~15-line fix (re-check owner
+  before rm). Needs a crashed holder + 2 waiters racing in the 25ms window.
+- WEB dev UI never connects under StrictMode (A-F5, dev-only): the memoized
+  WebSocketClient is permanently disposed by StrictMode's mount/unmount/mount.
+- UNBOUNDED event accumulation both ends (A-F6): client disables the EVENT_CAP
+  trim after one loadOlderEvents; server historyCache is uncapped.
+- Program sync results computed then dropped — "up to date" lies when a program
+  was added/conflicted (A-F11).
+- /api/session + /api/models skip the token+origin checks /api/events enforces
+  (both reviewers, minor — low-sensitivity data, no CORS so browser-exfil
+  blocked, direct requests aren't).
+- sanitizeGitEnv strips repo-selection vars but not GIT_CONFIG_* injection
+  (B-B11) — reviewer explicitly DEFERRED to you on the no-blocklist principle.
+- Seeded synthetic task_update skews history pagination by one (A-F15).
+
+QUEUED SAFE (smaller, not reached): byte-identical duplicate helpers
+sessionLifecycleApplies≡sessionScopedEventApplies in server.ts AND
+useEvents.ts (4 copies, home is src/shared/session-event-scope.ts both already
+import); repairJson×5 / stripCodeFence×4 / cosine×4 / entity-type-list×6 across
+genome (→ one llm-json.ts + shared consts); MemoryToolContext.genome dead
+members (addMemory/recordMemoryMentions/getById/segments.all); test-only
+mutation lanes (Genome.addMemory et al. ~60 sites, the classify/heal/review
+lanes, write-only index tables) — each needs a keep/kill ruling (F8/F9/B7/B8);
+memory_synthesize_answer "Archivist-only" description lie (served to every
+agent); sap-metrics.ts "consumed by the harness" comment (no consumer).
+
+## Loop summary (rotation COMPLETE — 8 cycles, 2026-07-21 15:38Z→19:10Z)
+
+Every subsystem covered: store(1) bus(2) host(3) kernel(4) agents(5) cell(6)
+learn+llm(7) genome+web(8). Protocol held every cycle: 2 adversarial reviewers
+→ personal verification → TDD fixes through the FULL pre-commit hook → commit.
+
+REAL BUGS FOUND AND FIXED (13, most reviewer-proven, all with regression pins):
+compaction read uncached input_tokens (caching silently disabled threshold
+compaction); registry rebuild disarmed capture-all on every root run; cell
+ambient path had no generation guard (proven cross-cell corruption + wrong-data
+delivery); finish-reason drift across 3 of 4 LLM adapters (garbage tool args on
+truncation); code-mode dispatch gate covered only primitives; QuickJS rejected-
+module-load wedge; QuickJS detached-path host-fault containment gap; 3 cached-
+rejected-promise outages (embeddings, provider-registry, quickjs); torn
+metrics.jsonl bricked startup; recovery-clamp preview-match fail-open; stderr-
+companion bind voided the main capture; observer digest missed fan-outs;
+workspace path traversal; read-only genome blocklist drift.
+
+DECOMPOSITION: primitives.ts 1046→~470 (apply-patch, workspace-primitives,
+registry-gate seams); agent.ts 3704→~3600 (delegation-render seam + helper
+dedup); cell-host.ts 850→~800 (worker-process seam). genome.ts (1890) and
+agent.ts's larger seams MAPPED precisely, queued.
+
+STILL PARKED for Jesse (design calls, none implemented unilaterally): the
+pending-eval ledger; quartermaster cost blowup; streaming-usage-zero; the two
+featherweight divergences (ruled FIX BOTH, queued); in-process delegation
+deletion (ruled DELETE, queued — test migration); genome JSONL corruption
+policy; scoring-archives-protected-memories; the memory-write-lock liveness
+bug; providerIdOverride (~65 mechanical sites); the 12× genome commit-template
+helper; the test-only mutation-lane keep/kill rulings.
+
+NEXT (per standing decision): the QuickJS cutover with live canaries, using the
+deletion inventory in the cycle-6 log.
 
 ## Decision-queue from Jesse's Q&A round 2 (2026-07-21, ~18:25Z)
 
