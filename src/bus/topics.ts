@@ -1,7 +1,6 @@
 // Bus topic builders for the agent messaging system.
 // Topics follow "session/{session_id}/..." namespace conventions.
 
-
 // --- Builders ---
 
 export function agentInbox(sessionId: string, handleId: string): string {

@@ -95,7 +95,6 @@ describe("BusLearnForwarder", () => {
 		// Should not throw
 		forwarder.recordAction("some-agent");
 	});
-
 });
 
 /** Poll until a condition is true or timeout. */

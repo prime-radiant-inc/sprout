@@ -31,7 +31,6 @@ export class BusServer {
 	/** ws -> set of topics it's subscribed to (for cleanup on disconnect) */
 	private clientTopics = new Map<ServerWebSocket<undefined>, Set<string>>();
 
-
 	constructor(options: BusServerOptions) {
 		this.options = options;
 	}
