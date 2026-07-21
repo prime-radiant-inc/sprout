@@ -144,7 +144,7 @@ export class StoreWorkerClient {
 	async slice(
 		scopeId: string,
 		ref: string,
-		options: { startLine: number; lineCount: number; maxBytes?: number },
+		options: { startLine: number; lineCount: number },
 	): Promise<string> {
 		return (await this.issue({ id: ulid(), op: "slice", scopeId, ref, ...options })) as string;
 	}

@@ -37,13 +37,13 @@ export interface ValueMetadata {
 	/** Deterministic preview, computed once at bind, stable forever. */
 	preview: string;
 	/** Bind timestamp (ms since epoch). */
-	createdAt?: number;
+	createdAt: number;
 }
 
 export type ValidateNameResult = { ok: true } | { ok: false; reason: string };
 
 const NAME_PATTERN = /^[a-z_][a-z0-9_]*$/;
-const NAME_MAX_LENGTH = 64;
+export const NAME_MAX_LENGTH = 64;
 
 /**
  * Validate a value name (sap spec §1 Naming #4). Names are validated data,

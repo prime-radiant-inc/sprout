@@ -501,10 +501,6 @@ describe("SapStore", () => {
 			await expect(store.slice(ROOT_SCOPE, "wide", { startLine: 1, lineCount: 3 })).rejects.toThrow(
 				/slice budget exceeded.*16/,
 			);
-			// A per-call maxBytes overrides the option default.
-			await expect(
-				store.slice(ROOT_SCOPE, "wide", { startLine: 1, lineCount: 3, maxBytes: 1024 }),
-			).resolves.toBe("0123456789\nabcdefghij\nklmnopqrst");
 		});
 
 		it("rejects bytes values", async () => {
@@ -598,7 +594,7 @@ describe("SapStore", () => {
 		it("fails cleanly with 'grep budget exceeded' when the deadline passes between chunks", async () => {
 			// Many chunks (tiny grepChunkBytes) with a zero budget: the very
 			// first between-chunk deadline check must fire.
-			const store = makeStore({ grepChunkBytes: 16 });
+			const store = makeStore({ grepChunkBytes: 16, opBudgetMs: 0 });
 			const content = Array.from({ length: 500 }, (_, i) => `line ${i}`).join("\n");
 			await store.bind({
 				scopeId: ROOT_SCOPE,
@@ -608,7 +604,7 @@ describe("SapStore", () => {
 				provenance: prov(),
 				explicit: true,
 			});
-			await expect(store.grep(ROOT_SCOPE, "slow", "nomatch", { deadlineMs: 0 })).rejects.toThrow(
+			await expect(store.grep(ROOT_SCOPE, "slow", "nomatch")).rejects.toThrow(
 				/^grep budget exceeded/,
 			);
 		});

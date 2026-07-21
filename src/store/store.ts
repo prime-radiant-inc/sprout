@@ -17,6 +17,7 @@ import {
 } from "./journal.ts";
 import {
 	computePreview,
+	NAME_MAX_LENGTH,
 	type ValueMetadata,
 	type ValueProvenance,
 	type ValueType,
@@ -63,7 +64,6 @@ const DEFAULT_OPTIONS: SapStoreOptions = {
 	reservedNames: new Set(),
 };
 
-const NAME_MAX_LENGTH = 64;
 const DEFAULT_GREP_MAX_RESULTS = 1000;
 
 export interface SapStoreInit {
@@ -152,7 +152,6 @@ export class SapStore {
 	private readonly scopes = new Map<string, ScopeState>();
 	private readonly values = new Map<string, ValueEntry>();
 	/** Last publish seq per handle, rebuilt from publish records on resume. */
-	private readonly publishSeqs = new Map<string, number>();
 	/** Publish records per handle, in seq order — manifest deltas read these. */
 	private readonly publishRecords = new Map<string, { seq: number; ulids: string[] }[]>();
 	/**
@@ -229,10 +228,6 @@ export class SapStore {
 				});
 				scope.valueCount++;
 			} else if (record.kind === "publish") {
-				store.publishSeqs.set(
-					record.handle,
-					Math.max(store.publishSeqs.get(record.handle) ?? 0, record.seq),
-				);
 				store.recordPublish(record.handle, record.seq, record.ulids);
 			} else if (record.kind === "grant") {
 				const scope = store.scopes.get(record.recipient);
@@ -375,7 +370,7 @@ export class SapStore {
 			provenance: args.provenance,
 			preview: metadata.preview,
 			explicit: args.explicit,
-			createdAt: metadata.createdAt as number,
+			createdAt: metadata.createdAt,
 			body,
 		};
 		await this.journal.append(record);
@@ -410,7 +405,9 @@ export class SapStore {
 					`cannot publish a value from another scope: ${ref} belongs to scope ${entry.metadata.scopeId}`,
 				);
 			}
-			const seq = (this.publishSeqs.get(scopeId) ?? 0) + 1;
+			// The next seq derives from the ordered record list — one bookkeeping
+			// structure, not two (engine-written per-handle seqs strictly increase).
+			const seq = (this.publishRecords.get(scopeId)?.at(-1)?.seq ?? 0) + 1;
 			const record = {
 				kind: "publish" as const,
 				handle: scopeId,
@@ -419,7 +416,6 @@ export class SapStore {
 			};
 			await this.journal.append(record);
 			await this.chargeJournalBytes([record]);
-			this.publishSeqs.set(scopeId, seq);
 			this.recordPublish(scopeId, seq, [entry.metadata.ulid]);
 		});
 	}
@@ -482,9 +478,10 @@ export class SapStore {
 			);
 			if (delta.length === 0) return { delivered: [], throughSeq: cursor };
 
+			// ONE staging array: the grant records and name-table writes are pure
+			// projections of `delivered`, derived after the loop — never a second
+			// or third parallel array to keep in lockstep.
 			const delivered: ManifestDeltaValue[] = [];
-			const grants: GrantRecord[] = [];
-			const aliases: { name: string; ulid: string }[] = [];
 			// In-batch bookkeeping: a repeat of the SAME source name is a version
 			// update of that staged entry; a DIFFERENT source name colliding with
 			// a staged alias suffixes — distinct published values never collapse.
@@ -501,23 +498,13 @@ export class SapStore {
 					if (stagedAt !== undefined) {
 						// Same source republished within the batch: the staged entry
 						// version-updates in place, keeping its assigned alias.
-						const alias = aliases[stagedAt]!.name;
 						delivered[stagedAt] = {
-							name: alias,
+							name: delivered[stagedAt]!.name,
 							sourceName: name,
 							ulid: valueUlid,
 							size: entry.metadata.size,
 							preview: entry.metadata.preview,
 						};
-						grants[stagedAt] = {
-							kind: "grant",
-							granter: args.publisherHandle,
-							recipient: args.recipientScopeId,
-							name: alias,
-							ulid: valueUlid,
-							via: "manifest",
-						};
-						aliases[stagedAt] = { name: alias, ulid: valueUlid };
 						continue;
 					}
 					const existing = scope.names.get(name);
@@ -539,18 +526,17 @@ export class SapStore {
 						size: entry.metadata.size,
 						preview: entry.metadata.preview,
 					});
-					grants.push({
-						kind: "grant",
-						granter: args.publisherHandle,
-						recipient: args.recipientScopeId,
-						name: alias,
-						ulid: valueUlid,
-						via: "manifest",
-					});
-					aliases.push({ name: alias, ulid: valueUlid });
 				}
 			}
 
+			const grants: GrantRecord[] = delivered.map((d) => ({
+				kind: "grant",
+				granter: args.publisherHandle,
+				recipient: args.recipientScopeId,
+				name: d.name,
+				ulid: d.ulid,
+				via: "manifest",
+			}));
 			const throughSeq = delta[delta.length - 1]!.seq;
 			// One atomic multi-append: grants + cursor durable together.
 			const records = [
@@ -564,11 +550,11 @@ export class SapStore {
 			];
 			await this.journal.append(records);
 			await this.chargeJournalBytes(records);
-			for (const alias of aliases) {
-				scope.names.set(alias.name, {
+			for (const d of delivered) {
+				scope.names.set(d.name, {
 					explicit: false,
 					agentHandleId: args.publisherHandle,
-					ulid: alias.ulid,
+					ulid: d.ulid,
 					manifestFrom: args.publisherHandle,
 				});
 			}
@@ -724,13 +710,13 @@ export class SapStore {
 
 	/**
 	 * 1-based line range of a text/json value; a start past EOF is empty. The
-	 * result is capped at maxBytes (default sliceBudgetBytes) — over-budget
-	 * results throw rather than returning an unbounded string.
+	 * result is capped at sliceBudgetBytes — over-budget results throw rather
+	 * than returning an unbounded string.
 	 */
 	async slice(
 		scopeId: string,
 		ref: string,
-		options: { startLine: number; lineCount: number; maxBytes?: number },
+		options: { startLine: number; lineCount: number },
 	): Promise<string> {
 		return this.serialize(async () => {
 			const entry = this.resolve(scopeId, ref);
@@ -740,7 +726,7 @@ export class SapStore {
 			const lines = splitLines(new TextDecoder().decode(await this.loadBody(entry)));
 			const start = Math.max(0, options.startLine - 1);
 			const text = lines.slice(start, start + options.lineCount).join("\n");
-			const budget = options.maxBytes ?? this.options.sliceBudgetBytes;
+			const budget = this.options.sliceBudgetBytes;
 			const size = new TextEncoder().encode(text).length;
 			if (size > budget) {
 				throw new Error(
@@ -766,7 +752,7 @@ export class SapStore {
 		scopeId: string,
 		ref: string,
 		pattern: string,
-		options: { maxResults?: number; signal?: AbortSignal; deadlineMs?: number } = {},
+		options: { maxResults?: number; signal?: AbortSignal } = {},
 	): Promise<GrepResult> {
 		return this.serialize(() => this.grepSerialized(scopeId, ref, pattern, options));
 	}
@@ -775,7 +761,7 @@ export class SapStore {
 		scopeId: string,
 		ref: string,
 		pattern: string,
-		options: { maxResults?: number; signal?: AbortSignal; deadlineMs?: number },
+		options: { maxResults?: number; signal?: AbortSignal },
 	): Promise<GrepResult> {
 		const entry = this.resolve(scopeId, ref);
 		let regex: RegExp;
@@ -785,7 +771,7 @@ export class SapStore {
 			throw new Error(`invalid grep pattern: ${(err as Error).message}`);
 		}
 		const maxResults = options.maxResults ?? DEFAULT_GREP_MAX_RESULTS;
-		const budgetMs = options.deadlineMs ?? this.options.opBudgetMs;
+		const budgetMs = this.options.opBudgetMs;
 		const deadline = Date.now() + budgetMs;
 		const outputBudget = this.options.grepOutputBudgetBytes;
 		const text = new TextDecoder().decode(await this.loadBody(entry));
@@ -962,7 +948,7 @@ function envGrantKey(recipientHandle: string, alias: string): string {
 
 /** Cursor-map key for one publisherHandle×recipientScope pair. */
 function deliveryCursorKey(publisherHandle: string, recipientScopeId: string): string {
-	return `${publisherHandle} ${recipientScopeId}`;
+	return `${publisherHandle}\0${recipientScopeId}`;
 }
 
 /** Inline journal encoding: utf8 passthrough for text/json, base64 for bytes. */

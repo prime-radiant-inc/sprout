@@ -43,7 +43,6 @@ export type StoreWorkerRequest =
 			ref: string;
 			startLine: number;
 			lineCount: number;
-			maxBytes?: number;
 	  }
 	| { id: string; op: "grep"; scopeId: string; ref: string; pattern: string; maxResults?: number }
 	| { id: string; op: "publish"; scopeId: string; ref: string }
@@ -203,7 +202,6 @@ async function dispatch(store: SapStore, request: StoreWorkerRequest): Promise<u
 			return store.slice(request.scopeId, request.ref, {
 				startLine: request.startLine,
 				lineCount: request.lineCount,
-				...(request.maxBytes !== undefined ? { maxBytes: request.maxBytes } : {}),
 			});
 		case "grep":
 			return store.grep(request.scopeId, request.ref, request.pattern, {

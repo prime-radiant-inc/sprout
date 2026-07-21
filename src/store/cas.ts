@@ -76,11 +76,6 @@ export class ContentStore {
 		return new Uint8Array(await file.arrayBuffer());
 	}
 
-	async has(sha: string): Promise<boolean> {
-		assertValidSha(sha);
-		return pathExists(this.objectPath(sha));
-	}
-
 	/** Total bytes stored — the CAS side of the session disk quota. */
 	async totalBytes(): Promise<number> {
 		let total = 0;

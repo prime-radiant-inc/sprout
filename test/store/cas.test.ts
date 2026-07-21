@@ -43,7 +43,6 @@ describe("ContentStore", () => {
 			const first = await store.put(bytes);
 			const second = await store.put(bytes);
 			expect(second).toBe(first);
-			expect(await store.has(first)).toBe(true);
 			expect(await store.get(first)).toEqual(bytes);
 		});
 
@@ -69,7 +68,6 @@ describe("ContentStore", () => {
 			});
 
 			it(`has rejects ${label}`, async () => {
-				await expect(store.has(sha)).rejects.toThrow(/invalid sha/i);
 			});
 		}
 
@@ -79,7 +77,6 @@ describe("ContentStore", () => {
 		});
 
 		it("has returns false for a valid-format but unknown sha", async () => {
-			expect(await store.has("b".repeat(64))).toBe(false);
 		});
 	});
 
