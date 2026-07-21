@@ -35,7 +35,7 @@ flight at that point.
 - [x] src/store (cycle 1)
 - [x] src/bus (cycle 2)
 - [x] src/host (cycle 3)
-- [ ] src/kernel (primitives, truncation, capture, redaction, cell-primitive)
+- [x] src/kernel (cycle 4)
 - [ ] src/agents (agent.ts — the giant, plan, loader, delegation)
 - [ ] src/cell (cell-host, engines, worker, bootstrap)
 - [ ] src/learn + src/llm (eval harnesses, adapters, client)
@@ -145,6 +145,61 @@ RISKY — recorded for Jesse, not touched:
   option would close it. Flagged as a likely bug, needs a decision.
 - PublishRecord.ulids array with only single-element producers: scalarizing changes the
   durable journal format — not worth it.
+
+### Cycle 4 — src/kernel (both reviewers; REAL BUG found and fixed first)
+
+HEADLINE (reviewer B, proof test adopted): every primitive-registry rebuild —
+start of every root run, every continue, every steering drain — silently
+DISARMED capture-all: rebuildPrimitiveRegistryForCurrentAgent never re-applied
+the withCapture wraps nor setCaptureStore, so genome-carrying agents ran with
+the spec's whole capture path off. Root cause was registry assembly duplicated
+between the constructor and the rebuild; fixed with one shared
+armCaptureOnRegistry() + the reviewer's proof test as a regression pin.
+
+Also fixed (C1, TDD): a stderr-companion bind failure voided the whole capture
+with a false "content not captured" banner; the companion now fails alone.
+
+Done (SAFE batch): unexported the five vestigial "shared with the capture
+wrapper" symbols + parseGrepOutput + buildWorkspacePrimitives and fixed the
+lying comments (sharing died in 47f7f32; captureSource is the mechanism now);
+dead sk-ant regex alternation (provably subsumed, byte-identical); typed
+PreviewBudgets rows required → deleted the four scattered hardcoded fallback
+copies (result-gate, agent, cell-host, primitives); captureSource STRIPPED at
+the gate (raw unredacted content no longer rides out on results — TDD);
+saveAgent dynamic yaml/types imports → static + 5× repeated string → local;
+buildPrimitives unused env param; truncateToolOutputDetailed().text →
+truncateToolOutput.
+
+DECOMPOSITION (mandate 4b) — primitives.ts 1046 → 599:
+- done — apply-patch.ts (219): v4a parser/applier, self-contained; duplicated
+  workdir-resolution ternary → one helper.
+- done — workspace-primitives.ts (239): GenomeContext + save_* builders +
+  memory tools behind buildGenomePrimitives(ctx, evalMode); primitives.ts
+  sheds all ../genome/ imports.
+- queued — seam 3: registry gate closure (~107 lines) → named function/module;
+  types.ts memory-family split; exec_command (~112) and saveAgent.execute
+  (~105) helper extractions.
+
+Queued (SAFE, smaller): truncateOutput/truncateLines/PassResult test-only
+wrappers (nominal library API — Jesse's call); TruncationOverrides machinery
+(no production caller); FakeStore dup across capture/registry-gate tests +
+the duplicated value_* bypass test; SUMMARY_BUDGET_CHARS fold into the
+delegate row (spec-named — Jesse's call); setCaptureStore optionality.
+
+RISKY — recorded for Jesse, not touched:
+- ExecOptions.env_vars + file_exists: production-dead exec surface (env
+  injection write-path into child shells with zero callers). A says strip,
+  B says report — needs a call.
+- edit_file/apply_patch resolve paths WITHOUT ~-expansion but write through
+  env.write_file WHICH EXPANDS ~ — a literal "~" dir under the workdir reads
+  one file and writes another. Aligning on env.resolvePath changes behavior.
+- value_get passes its 50k-char budget as maxBytes (multi-byte values refuse
+  early). Cosmetic mislabel; already in the decision queue as C3.
+- types.ts:646-659 host re-exports: A called dead, B proved it's the
+  sanctioned web-boundary bridge (useEvents via @kernel/types + architecture
+  test). MUST STAY — reconcile with cycle-3's C2 claim before any C2 work.
+- test/kernel/types.test.ts construction-tests assert compile-time facts at
+  runtime (coverage-rule judgment call).
 
 ## Decision-queue from Jesse's Q&A (2026-07-21)
 
