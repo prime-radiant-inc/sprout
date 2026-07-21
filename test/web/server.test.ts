@@ -263,10 +263,15 @@ describe("WebServer", () => {
 			expect(body.status).toBe("idle");
 		});
 
-		function writeSessionMeta(dataDir: string, id: string, status = "idle"): void {
-			mkdirSync(join(dataDir, "sessions"), { recursive: true });
+		function writeProjectSessionMeta(
+			projectsRoot: string,
+			project: string,
+			id: string,
+			status = "idle",
+		): void {
+			mkdirSync(join(projectsRoot, project, "sessions"), { recursive: true });
 			writeFileSync(
-				join(dataDir, "sessions", `${id}.meta.json`),
+				join(projectsRoot, project, "sessions", `${id}.meta.json`),
 				JSON.stringify({
 					sessionId: id,
 					agentSpec: "root",
@@ -281,30 +286,36 @@ describe("WebServer", () => {
 			);
 		}
 
-		test("GET /api/sessions returns all session summaries and flags the live one", async () => {
-			const dataDir = mkdtempSync(join(tmpdir(), "sprout-web-sessions-"));
-			writeSessionMeta(dataDir, "01AAAAAAAAAAAAAAAAAAAAAAAA");
-			writeSessionMeta(dataDir, "01BBBBBBBBBBBBBBBBBBBBBBBB");
+		test("GET /api/sessions aggregates across all projects and flags the current/live one", async () => {
+			const projectsRoot = mkdtempSync(join(tmpdir(), "sprout-web-projects-"));
+			writeProjectSessionMeta(projectsRoot, "-home-jesse-alpha", "01AAAAAAAAAAAAAAAAAAAAAAAA");
+			writeProjectSessionMeta(projectsRoot, "-home-jesse-alpha", "01BBBBBBBBBBBBBBBBBBBBBBBB");
+			writeProjectSessionMeta(projectsRoot, "-home-jesse-beta", "01CCCCCCCCCCCCCCCCCCCCCCCC");
 			const s = new WebServer({
 				bus,
 				port: 0,
 				staticDir,
 				sessionId: "01BBBBBBBBBBBBBBBBBBBBBBBB",
-				projectDataDir: dataDir,
+				projectDataDir: join(projectsRoot, "-home-jesse-alpha"),
 			});
 			await s.start();
 			try {
 				const resp = await fetch(`http://localhost:${s.getPort()}/api/sessions`);
 				expect(resp.status).toBe(200);
 				const body = (await resp.json()) as {
-					sessions: Array<{ sessionId: string; agentSpec: string }>;
+					sessions: Array<{ sessionId: string; project: string }>;
 					liveSessionId: string;
+					currentProject: string;
 				};
 				expect(body.sessions.map((x) => x.sessionId).sort()).toEqual([
 					"01AAAAAAAAAAAAAAAAAAAAAAAA",
 					"01BBBBBBBBBBBBBBBBBBBBBBBB",
+					"01CCCCCCCCCCCCCCCCCCCCCCCC",
 				]);
+				const beta = body.sessions.find((x) => x.sessionId === "01CCCCCCCCCCCCCCCCCCCCCCCC");
+				expect(beta?.project).toBe("-home-jesse-beta");
 				expect(body.liveSessionId).toBe("01BBBBBBBBBBBBBBBBBBBBBBBB");
+				expect(body.currentProject).toBe("-home-jesse-alpha");
 			} finally {
 				await s.stop();
 			}
@@ -319,14 +330,14 @@ describe("WebServer", () => {
 		});
 
 		test("GET /api/sessions requires a valid token when one is configured", async () => {
-			const dataDir = mkdtempSync(join(tmpdir(), "sprout-web-sessions-auth-"));
-			writeSessionMeta(dataDir, "01AAAAAAAAAAAAAAAAAAAAAAAA");
+			const projectsRoot = mkdtempSync(join(tmpdir(), "sprout-web-sessions-auth-"));
+			writeProjectSessionMeta(projectsRoot, "-home-jesse-alpha", "01AAAAAAAAAAAAAAAAAAAAAAAA");
 			const s = new WebServer({
 				bus,
 				port: 0,
 				staticDir,
 				sessionId: "01AAAAAAAAAAAAAAAAAAAAAAAA",
-				projectDataDir: dataDir,
+				projectDataDir: join(projectsRoot, "-home-jesse-alpha"),
 				webToken: "secret-token",
 			});
 			await s.start();

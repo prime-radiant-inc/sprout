@@ -468,6 +468,7 @@ export function App() {
 				<SessionList
 					sessions={sessionsState.sessions}
 					liveSessionId={sessionsState.liveSessionId}
+					currentProject={sessionsState.currentProject}
 					loading={sessionsState.loading}
 					error={sessionsState.error}
 					onReload={sessionsState.reload}

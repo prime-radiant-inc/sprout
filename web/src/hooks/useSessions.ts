@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import type { SessionListEntry } from "@kernel/types.ts";
+import type { ProjectSessionEntry } from "@kernel/types.ts";
 
 export interface SessionsState {
-	sessions: SessionListEntry[];
+	/** Every persisted session across all projects, tagged with its project. */
+	sessions: ProjectSessionEntry[];
 	/** The session this web server is live on; null until the list loads. */
 	liveSessionId: string | null;
+	/** The project (slug) this web server is bound to; null until loaded. */
+	currentProject: string | null;
 	loading: boolean;
 	error: string | null;
 	/** Re-fetch the list (e.g. a refresh button). */
@@ -12,8 +15,9 @@ export interface SessionsState {
 }
 
 interface SessionsResponse {
-	sessions: SessionListEntry[];
+	sessions: ProjectSessionEntry[];
 	liveSessionId: string;
+	currentProject: string | null;
 }
 
 /** Build /api/sessions carrying the page's token, mirroring the /api/events fetch. */
@@ -28,8 +32,9 @@ export function sessionsUrl(search: string): string {
  * is simpler than a live push channel and fresh enough for a manual list.
  */
 export function useSessions(enabled: boolean): SessionsState {
-	const [sessions, setSessions] = useState<SessionListEntry[]>([]);
+	const [sessions, setSessions] = useState<ProjectSessionEntry[]>([]);
 	const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
+	const [currentProject, setCurrentProject] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
@@ -46,6 +51,7 @@ export function useSessions(enabled: boolean): SessionsState {
 			const body = (await resp.json()) as SessionsResponse;
 			setSessions(body.sessions);
 			setLiveSessionId(body.liveSessionId);
+			setCurrentProject(body.currentProject);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Failed to load sessions");
 		} finally {
@@ -57,5 +63,5 @@ export function useSessions(enabled: boolean): SessionsState {
 		if (enabled) void reload();
 	}, [enabled, reload]);
 
-	return { sessions, liveSessionId, loading, error, reload: () => void reload() };
+	return { sessions, liveSessionId, currentProject, loading, error, reload: () => void reload() };
 }

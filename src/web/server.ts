@@ -1,8 +1,8 @@
 import { randomBytes } from "node:crypto";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import type { ServerWebSocket } from "bun";
 import type { SessionBus } from "../host/event-bus.ts";
-import { loadSessionSummaries } from "../host/session-metadata.ts";
+import { loadAllProjectSessions } from "../host/session-metadata.ts";
 import {
 	createDefaultSessionSelectionSnapshot,
 	type SessionSelectionSnapshot,
@@ -339,20 +339,23 @@ export class WebServer {
 	}
 
 	/**
-	 * List every persisted session for this project (multi-session UI, Phase 1).
-	 * Read-only summaries from the sessions/ metadata + logs/; the currently
-	 * live session is flagged so the client can mark it. Empty when the project
-	 * data dir is unknown (e.g. a bus-only test server).
+	 * List every persisted session across ALL projects (multi-session UI,
+	 * Phase 1). The project data dir is <genome>/projects/<slug>, so its parent
+	 * is the projects root holding every project. Each entry is tagged with its
+	 * project slug; `currentProject` marks this server's project and
+	 * `liveSessionId` its live session. Empty when the project data dir is
+	 * unknown (e.g. a bus-only test server).
 	 */
 	private async serveSessionList(): Promise<Response> {
 		if (!this.projectDataDir) {
-			return Response.json({ sessions: [], liveSessionId: this.sessionId });
+			return Response.json({ sessions: [], liveSessionId: this.sessionId, currentProject: null });
 		}
-		const sessions = await loadSessionSummaries(
-			join(this.projectDataDir, "sessions"),
-			join(this.projectDataDir, "logs"),
-		);
-		return Response.json({ sessions, liveSessionId: this.sessionId });
+		const sessions = await loadAllProjectSessions(dirname(this.projectDataDir));
+		return Response.json({
+			sessions,
+			liveSessionId: this.sessionId,
+			currentProject: basename(this.projectDataDir),
+		});
 	}
 
 	private async serveEventHistory(url: URL): Promise<Response> {

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	listSessions,
+	loadAllProjectSessions,
 	loadSessionMetadata,
 	loadSessionSummaries,
 	type PersistedSessionMetadataSnapshot,
@@ -479,5 +480,58 @@ describe("loadSessionSummaries", () => {
 		const entries = await loadSessionSummaries(sessionsDir, logsDir);
 		expect(entries[0]!.sessionId).toBe(id);
 		expect(entries[0]!.agentSpec).toBe("root");
+	});
+});
+
+describe("loadAllProjectSessions", () => {
+	let projectsRoot: string;
+
+	beforeEach(async () => {
+		projectsRoot = await mkdtemp(join(tmpdir(), "sprout-projects-"));
+	});
+
+	afterEach(async () => {
+		await rm(projectsRoot, { recursive: true, force: true });
+	});
+
+	async function writeProjectSession(project: string, id: string): Promise<void> {
+		const sessionsDir = join(projectsRoot, project, "sessions");
+		await import("node:fs/promises").then((fs) => fs.mkdir(sessionsDir, { recursive: true }));
+		const meta = new SessionMetadata({
+			sessionId: id,
+			agentSpec: "root",
+			selection: defaultSelection,
+			resolvedModel: defaultSelection.model,
+			sessionsDir,
+		});
+		await meta.save();
+	}
+
+	test("aggregates sessions across every project, tagged with the project slug", async () => {
+		await writeProjectSession("-home-jesse-alpha", "01AAAA00000000000000000001");
+		await writeProjectSession("-home-jesse-alpha", "01AAAA00000000000000000002");
+		await writeProjectSession("-home-jesse-beta", "01BBBB00000000000000000001");
+
+		const entries = await loadAllProjectSessions(projectsRoot);
+		expect(entries).toHaveLength(3);
+		const byProject = new Map<string, string[]>();
+		for (const e of entries) {
+			byProject.set(e.project, [...(byProject.get(e.project) ?? []), e.sessionId]);
+		}
+		expect(byProject.get("-home-jesse-alpha")).toHaveLength(2);
+		expect(byProject.get("-home-jesse-beta")).toHaveLength(1);
+	});
+
+	test("returns an empty list when the projects root does not exist", async () => {
+		expect(await loadAllProjectSessions(join(projectsRoot, "missing"))).toEqual([]);
+	});
+
+	test("ignores a project directory with no sessions", async () => {
+		await import("node:fs/promises").then((fs) =>
+			fs.mkdir(join(projectsRoot, "-empty-project"), { recursive: true }),
+		);
+		await writeProjectSession("-home-jesse-alpha", "01AAAA00000000000000000001");
+		const entries = await loadAllProjectSessions(projectsRoot);
+		expect(entries.map((e) => e.project)).toEqual(["-home-jesse-alpha"]);
 	});
 });

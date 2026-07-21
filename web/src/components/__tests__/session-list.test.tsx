@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { SessionListEntry } from "@kernel/types.ts";
+import type { ProjectSessionEntry } from "@kernel/types.ts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { SessionList } from "../SessionList.tsx";
 
-function entry(overrides: Partial<SessionListEntry> = {}): SessionListEntry {
+function entry(overrides: Partial<ProjectSessionEntry> = {}): ProjectSessionEntry {
 	return {
 		sessionId: "01AAAAAAAAAAAAAAAAAAAAAAAA",
 		agentSpec: "root",
@@ -15,26 +15,36 @@ function entry(overrides: Partial<SessionListEntry> = {}): SessionListEntry {
 		updatedAt: "2026-07-21T01:00:00.000Z",
 		selection: { kind: "tier", tier: "fast" },
 		firstPrompt: "fix the flaky test",
+		project: "-home-jesse-alpha",
 		...overrides,
 	};
 }
 
 const noop = () => {};
 
+function render(sessions: ProjectSessionEntry[], live: string | null, current: string | null) {
+	return renderToStaticMarkup(
+		<SessionList
+			sessions={sessions}
+			liveSessionId={live}
+			currentProject={current}
+			loading={false}
+			error={null}
+			onReload={noop}
+			onClose={noop}
+		/>,
+	);
+}
+
 describe("SessionList", () => {
 	test("lists each session with its goal, agent, turns, and id", () => {
-		const html = renderToStaticMarkup(
-			<SessionList
-				sessions={[
-					entry({ sessionId: "01AAAAAAAAAAAAAAAAAAAAAAAA", firstPrompt: "fix the flaky test" }),
-					entry({ sessionId: "01BBBBBBBBBBBBBBBBBBBBBBBB", firstPrompt: "add mobile styles" }),
-				]}
-				liveSessionId="01BBBBBBBBBBBBBBBBBBBBBBBB"
-				loading={false}
-				error={null}
-				onReload={noop}
-				onClose={noop}
-			/>,
+		const html = render(
+			[
+				entry({ sessionId: "01AAAAAAAAAAAAAAAAAAAAAAAA", firstPrompt: "fix the flaky test" }),
+				entry({ sessionId: "01BBBBBBBBBBBBBBBBBBBBBBBB", firstPrompt: "add mobile styles" }),
+			],
+			"01BBBBBBBBBBBBBBBBBBBBBBBB",
+			"-home-jesse-alpha",
 		);
 		expect(html).toContain("fix the flaky test");
 		expect(html).toContain("add mobile styles");
@@ -42,54 +52,50 @@ describe("SessionList", () => {
 		expect(html).toContain("3 turns");
 	});
 
-	test("marks the live session", () => {
-		const html = renderToStaticMarkup(
-			<SessionList
-				sessions={[
-					entry({ sessionId: "01AAAAAAAAAAAAAAAAAAAAAAAA" }),
-					entry({ sessionId: "01BBBBBBBBBBBBBBBBBBBBBBBB" }),
-				]}
-				liveSessionId="01AAAAAAAAAAAAAAAAAAAAAAAA"
-				loading={false}
-				error={null}
-				onReload={noop}
-				onClose={noop}
-			/>,
+	test("groups sessions by project with the current project first and marked", () => {
+		const html = render(
+			[
+				entry({ sessionId: "01AAAAAAAAAAAAAAAAAAAAAAAA", project: "-home-jesse-beta" }),
+				entry({ sessionId: "01BBBBBBBBBBBBBBBBBBBBBBBB", project: "-home-jesse-alpha" }),
+			],
+			null,
+			"-home-jesse-alpha",
 		);
-		// Exactly one row flagged live, and it carries the live badge.
+		// Current project's group renders before the other project's.
+		expect(html.indexOf('data-project="-home-jesse-alpha"')).toBeLessThan(
+			html.indexOf('data-project="-home-jesse-beta"'),
+		);
+		expect(html).toContain("current");
+		expect(html).toContain("home-jesse-beta");
+	});
+
+	test("marks the live session across projects", () => {
+		const html = render(
+			[
+				entry({ sessionId: "01AAAAAAAAAAAAAAAAAAAAAAAA", project: "-home-jesse-alpha" }),
+				entry({ sessionId: "01BBBBBBBBBBBBBBBBBBBBBBBB", project: "-home-jesse-beta" }),
+			],
+			"01AAAAAAAAAAAAAAAAAAAAAAAA",
+			"-home-jesse-alpha",
+		);
 		expect(html.match(/data-live="true"/g)).toHaveLength(1);
 		expect(html).toContain(">live<");
 	});
 
-	test("newest session (highest ULID) renders first", () => {
-		const html = renderToStaticMarkup(
-			<SessionList
-				sessions={[
-					entry({ sessionId: "01AAAAAAAAAAAAAAAAAAAAAAAA", firstPrompt: "older" }),
-					entry({ sessionId: "01ZZZZZZZZZZZZZZZZZZZZZZZZ", firstPrompt: "newer" }),
-				]}
-				liveSessionId={null}
-				loading={false}
-				error={null}
-				onReload={noop}
-				onClose={noop}
-			/>,
+	test("newest session (highest ULID) renders first within a project", () => {
+		const html = render(
+			[
+				entry({ sessionId: "01AAAAAAAAAAAAAAAAAAAAAAAA", firstPrompt: "older" }),
+				entry({ sessionId: "01ZZZZZZZZZZZZZZZZZZZZZZZZ", firstPrompt: "newer" }),
+			],
+			null,
+			"-home-jesse-alpha",
 		);
 		expect(html.indexOf("newer")).toBeLessThan(html.indexOf("older"));
 	});
 
 	test("shows an empty state when there are no sessions", () => {
-		const html = renderToStaticMarkup(
-			<SessionList
-				sessions={[]}
-				liveSessionId={null}
-				loading={false}
-				error={null}
-				onReload={noop}
-				onClose={noop}
-			/>,
-		);
-		expect(html).toContain("No sessions yet.");
+		expect(render([], null, null)).toContain("No sessions yet.");
 	});
 
 	test("surfaces a load error", () => {
@@ -97,6 +103,7 @@ describe("SessionList", () => {
 			<SessionList
 				sessions={[]}
 				liveSessionId={null}
+				currentProject={null}
 				loading={false}
 				error="Failed to load sessions (500)"
 				onReload={noop}

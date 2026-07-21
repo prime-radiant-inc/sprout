@@ -173,6 +173,33 @@ export async function loadSessionSummaries(
 	);
 }
 
+/** A session summary tagged with the project (slug) it belongs to. */
+export type ProjectSessionEntry = SessionListEntry & { project: string };
+
+/**
+ * Aggregate session summaries across EVERY project under a genome's projects/
+ * root (layout: <projectsRoot>/<slug>/{sessions,logs}). Each entry is tagged
+ * with its project slug. Missing root or unreadable projects yield an empty
+ * list rather than throwing — this feeds a read-only UI list.
+ */
+export async function loadAllProjectSessions(projectsRoot: string): Promise<ProjectSessionEntry[]> {
+	let slugs: string[];
+	try {
+		const entries = await readdir(projectsRoot, { withFileTypes: true });
+		slugs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
+	} catch {
+		return [];
+	}
+	const perProject = await Promise.all(
+		slugs.map(async (slug) => {
+			const dir = join(projectsRoot, slug);
+			const sessions = await loadSessionSummaries(join(dir, "sessions"), join(dir, "logs"));
+			return sessions.map((session) => ({ ...session, project: slug }));
+		}),
+	);
+	return perProject.flat();
+}
+
 async function readSessionSummary(
 	logPath: string,
 ): Promise<{ firstPrompt?: string; lastMessage?: string }> {
