@@ -96,9 +96,16 @@ const DEADLOCK_ERROR =
 
 /**
  * Explicit interpreter stack cap (P2). QuickJS ships its own default; pinning
- * it makes the guarantee ours, not the toolchain default's.
+ * it makes the guarantee ours, not the toolchain default's. Sized for MARGIN:
+ * every interpreter C-recursion level also consumes HOST wasm call-stack
+ * frames whose size varies with the host's compilation tier (and therefore
+ * with CPU load). The QuickJS soft limit must trip well before the host stack
+ * exhausts, or deep recursion dies as a foreign RangeError that unwinds the
+ * interpreter without cleanup (the JS_FreeRuntime list_empty abort). 256 KB
+ * keeps thousands of frames for legitimate cell code while roughly quadrupling
+ * the old 1 MB margin.
  */
-export const CELL_MAX_STACK_BYTES = 1024 * 1024;
+export const CELL_MAX_STACK_BYTES = 256 * 1024;
 
 /**
  * In-context display marshal, mirroring the worker's serializeReturnValue /
@@ -134,10 +141,10 @@ export class QuickJSCellEngine implements CellEngine {
 		const context = runtime.newContext();
 		const run = new CellRun(runtime, context, request);
 		const result = await run.run();
-		// A wasm OOB trap while marshalling into a near-cap heap poisons the
-		// module — even disposal traps — so CellRun leaves it undisposed and
-		// signals here; drop it so the next cell rebuilds a clean instance.
-		if (run.modulePoisoned && this.loadModule === undefined) {
+		// A poisoned module (wasm OOB trap, foreign host throw, or a disposal
+		// fault) must never serve another cell — drop it so the next cell
+		// rebuilds a clean instance. Injected loaders are simply re-invoked.
+		if (run.modulePoisoned) {
 			this.modulePromise = undefined;
 			this.moduleMemoryBytes = undefined;
 		}
@@ -203,6 +210,28 @@ class CellRun {
 
 	async run(): Promise<CellEngineResult> {
 		try {
+			return await this.runInner();
+		} catch (err) {
+			// A FOREIGN throw crossing the wasm boundary — JSC's RangeError when
+			// the host wasm call stack exhausts before QuickJS's soft limit
+			// (frame sizes vary with the host's compilation tier, hence with CPU
+			// load), or an emscripten abort — leaves interpreter state
+			// unknowable: poison the module so the engine discards it. A
+			// stack-shaped fault is the cell's own runaway recursion (a stumble);
+			// anything else is infrastructure.
+			this.modulePoisoned = true;
+			const message = err instanceof Error ? err.message : String(err);
+			if (/stack/i.test(message)) {
+				return { ok: false, error: `stack overflow: ${message}`, infrastructure: false };
+			}
+			return { ok: false, error: `cell engine fault: ${message}`, infrastructure: true };
+		} finally {
+			this.teardown();
+		}
+	}
+
+	private async runInner(): Promise<CellEngineResult> {
+		{
 			this.applyLimits();
 			this.installBridges();
 			const boot = this.context.evalCode(CELL_BOOTSTRAP);
@@ -226,8 +255,6 @@ class CellRun {
 				this.settle = resolve;
 				this.pump();
 			});
-		} finally {
-			this.teardown();
 		}
 	}
 
@@ -653,19 +680,30 @@ class CellRun {
 			this.timers.clear();
 			return;
 		}
-		for (const entry of this.timers.values()) entry.fn.dispose();
-		this.timers.clear();
-		for (const handle of this.infraHandles) handle.dispose();
-		this.infraHandles.length = 0;
-		for (const deferred of this.deferreds) deferred.dispose();
-		this.deferreds.length = 0;
-		this.topPromise?.dispose();
-		this.topPromise = undefined;
-		this.jsonParse?.dispose();
-		this.jsonParse = undefined;
-		this.marshalDisplay?.dispose();
-		this.marshalDisplay = undefined;
-		this.context.dispose();
-		this.runtime.dispose();
+		try {
+			for (const entry of this.timers.values()) entry.fn.dispose();
+			this.timers.clear();
+			for (const handle of this.infraHandles) handle.dispose();
+			this.infraHandles.length = 0;
+			for (const deferred of this.deferreds) deferred.dispose();
+			this.deferreds.length = 0;
+			this.topPromise?.dispose();
+			this.topPromise = undefined;
+			this.jsonParse?.dispose();
+			this.jsonParse = undefined;
+			this.marshalDisplay?.dispose();
+			this.marshalDisplay = undefined;
+			this.context.dispose();
+			this.runtime.dispose();
+		} catch {
+			// Disposal itself faulted (the wild case: a foreign host-stack
+			// overflow leaked GC objects mid-unwind, and JS_FreeRuntime's
+			// list_empty assert surfaces as an emscripten abort THROWN from
+			// dispose). The cell's result is already decided; poison the module
+			// so the engine discards it — never let teardown take the worker
+			// down.
+			this.timers.clear();
+			this.modulePoisoned = true;
+		}
 	}
 }

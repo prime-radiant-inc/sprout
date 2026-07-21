@@ -63,8 +63,9 @@ prefix commits with `PATH="/home/jesse/.bun/bin:$PATH"` so the hook finds bun/bu
 
 ## Deferred / parked
 
-- QuickJS cutover (separate track; greenlit earlier). BLOCKER noted: load-dependent
-  teardown flake — `Assertion failed: list_empty(&rt->gc_obj_list)` in `JS_FreeRuntime`
-  on the runaway-recursion probe under parallel shard load (seen once 2026-07-21 during a
-  spec commit; passes isolated and on retry). Root-cause before flipping the default.
+- QuickJS cutover (separate track; greenlit earlier). Former blocker RESOLVED
+  2026-07-21: the teardown abort was the HOST wasm call stack exhausting before
+  QuickJS's soft stack limit during deep recursion (JSC tier-dependent frame sizes →
+  load-dependent). Reproduced 18/40 under 10-burner load; fixed (foreign-throw catch +
+  teardown fault containment + module poison-discard + 256 KB stack cap); 0/40 after.
 - Genome-prompt survey for marker-wording assumptions (per phase, per spec Risks).

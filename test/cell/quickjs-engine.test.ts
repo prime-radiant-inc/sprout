@@ -148,3 +148,87 @@ describe("QuickJSCellEngine handle discipline (debug build)", () => {
 		assertNoLeaks();
 	});
 });
+
+describe("QuickJSCellEngine host-fault resilience", () => {
+	// The wild failure (observed 2026-07-21 under parallel shard load): during
+	// deep recursion, the HOST's wasm call stack can exhaust before QuickJS's
+	// soft stack limit trips — JSC's wasm frame sizes vary with compilation
+	// tier, which varies with CPU load. The foreign RangeError unwinds the C
+	// interpreter with no cleanup, leaked GC objects make JS_FreeRuntime abort
+	// (list_empty(&rt->gc_obj_list)), and emscripten surfaces that abort as a
+	// THROW from disposal. The engine must contain both faces of the fault.
+	const baseRequest = {
+		callAmbient: async () => "ok",
+		isInfraError: () => false,
+		log: () => {},
+	};
+
+	it("a throw from runtime disposal is contained: the cell's result stands and the module is discarded", async () => {
+		let loads = 0;
+		const real = await newQuickJSWASMModuleFromVariant(debugVariant);
+		let armed = true;
+		const engine = new QuickJSCellEngine({
+			loadModule: async () => {
+				loads++;
+				return {
+					newRuntime: () => {
+						const rt = real.newRuntime();
+						if (!armed) return rt;
+						const dispose = rt.dispose.bind(rt);
+						(rt as any).dispose = () => {
+							armed = false;
+							dispose();
+							throw new Error(
+								"Aborted(Assertion failed: list_empty(&rt->gc_obj_list), at: quickjs.c,2036,JS_FreeRuntime)",
+							);
+						};
+						return rt;
+					},
+				};
+			},
+		});
+		const first = await engine.runCell({ code: "return 'fine';", ...baseRequest });
+		expect(first).toEqual({ ok: true, returnValue: "fine" });
+		expect(loads).toBe(1);
+		// The faulted module was discarded; the next cell rebuilds and works.
+		const second = await engine.runCell({ code: "return 'again';", ...baseRequest });
+		expect(second).toEqual({ ok: true, returnValue: "again" });
+		expect(loads).toBe(2);
+	});
+
+	it("a foreign host throw during cell eval becomes a typed stumble and discards the module", async () => {
+		let loads = 0;
+		const real = await newQuickJSWASMModuleFromVariant(debugVariant);
+		const engine = new QuickJSCellEngine({
+			loadModule: async () => {
+				loads++;
+				return {
+					newRuntime: () => {
+						const rt = real.newRuntime();
+						const newContext = rt.newContext.bind(rt);
+						(rt as any).newContext = (...args: unknown[]) => {
+								const ctx = (newContext as any)(...args);
+							const evalCode = ctx.evalCode.bind(ctx);
+							ctx.evalCode = (code: string, ...rest: unknown[]) => {
+								if (String(code).includes("__HOST_BOOM__")) {
+									throw new RangeError("Maximum call stack size exceeded.");
+								}
+								return evalCode(code, ...rest);
+							};
+							return ctx;
+						};
+						return rt;
+					},
+				};
+			},
+		});
+		const result = await engine.runCell({ code: "__HOST_BOOM__; return 1;", ...baseRequest });
+		if (result.ok) throw new Error("expected the foreign throw to fail the cell");
+		expect(result.error).toContain("stack");
+		expect(result.infrastructure).not.toBe(true);
+		expect(loads).toBe(1);
+		const next = await engine.runCell({ code: "return 'alive';", ...baseRequest });
+		expect(next).toEqual({ ok: true, returnValue: "alive" });
+		expect(loads).toBe(2);
+	});
+});
