@@ -439,18 +439,7 @@ export class Agent {
 		for (const prim of this.valuePrimitives) {
 			this.primitiveRegistry.register(prim);
 		}
-		// Capture (sap spec §2): wrap the capture-capable primitives with
-		// bind/publish handling over the same store, and enable auto-capture of
-		// lossily-truncated output in the registry. Off under flag-off (spec §6);
-		// bind:/publish: fields are then rejected loudly at dispatch, not stripped.
-		if (this.dataPlaneEnabled && options.spawner?.storeAccess) {
-			const storeAccess = options.spawner.storeAccess;
-			for (const name of CAPTURE_PRIMITIVE_NAMES) {
-				const prim = this.primitiveRegistry.get(name);
-				if (prim) this.primitiveRegistry.register(withCapture(prim, storeAccess));
-			}
-			this.primitiveRegistry.setCaptureStore?.(storeAccess);
-		}
+		this.armCaptureOnRegistry();
 		// The cell evaluator (sap spec §4): granted with can_spawn, backed by a
 		// per-agent-process cell worker over this agent's own StoreAccess. Off
 		// under flag-off (spec §6 — cell filters out of the registry).
@@ -825,7 +814,29 @@ export class Agent {
 		if (this.cellPrimitive) {
 			this.primitiveRegistry.register(this.cellPrimitive);
 		}
+		// Re-arm capture: a rebuilt registry comes back with PLAIN capture-capable
+		// primitives and no capture store — without this, every root run,
+		// continue(), and steering drain silently disarmed capture-all.
+		this.armCaptureOnRegistry();
 		this.refreshPrimitiveToolList();
+	}
+
+	/**
+	 * Capture (sap spec §2): wrap the capture-capable primitives with
+	 * bind/publish handling over the caller-scoped store, and enable
+	 * auto-capture in the registry. Off under flag-off (spec §6);
+	 * bind:/publish: fields are then rejected loudly at dispatch, not
+	 * stripped. The ONE assembly point — called from the constructor AND the
+	 * rebuild so the two paths can never drift again.
+	 */
+	private armCaptureOnRegistry(): void {
+		const storeAccess = this.spawner?.storeAccess;
+		if (!this.dataPlaneEnabled || !storeAccess) return;
+		for (const name of CAPTURE_PRIMITIVE_NAMES) {
+			const prim = this.primitiveRegistry.get(name);
+			if (prim) this.primitiveRegistry.register(withCapture(prim, storeAccess));
+		}
+		this.primitiveRegistry.setCaptureStore?.(storeAccess);
 	}
 
 	private updateTrustedUserInstruction(instruction: string | undefined): void {
