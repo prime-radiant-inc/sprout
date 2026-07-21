@@ -1,19 +1,28 @@
-# Capture-all tool outputs — design
+# Capture-all tool outputs — unify the three output gates
 
 **Date:** 2026-07-21
-**Status:** design (awaiting Jesse's go)
+**Status:** design v2 (redrafted after fresh-eyes review; awaiting Jesse's go)
 **Predecessor specs:** `2026-07-16-sap-data-plane-and-repl-design.md` (capture/splice, §2),
 `2026-07-19-sap-completion-and-roadmap-design.md` (data plane)
 **Evidence:** `test/integration/code-mode-advantage.test.ts` (the structural wins, measured)
 
 ## Purpose
 
-Make the sap data plane's capture mechanism **uniform across every tool-mode tool output** —
-primitives (`read_file`, `exec`, `grep`, `glob`, `fetch`, `apply_patch`, …) **and the
-delegate/subagent tool** — so that a substantial tool result becomes a captured store value the
-model references by `⟦ref⟧` + a bounded preview, instead of flooding the provider payload with
-its full content. This extends the *code mode* advantage to *tool mode*: tool-mode agents stop
-bypassing the data plane and start benefiting from it.
+Every model-facing output boundary should capture the same way: above a svelte, configurable
+budget, the full raw content becomes a store value and the model gets a bounded preview +
+`⟦ref⟧`; at or below budget it stays inline. Today that behavior exists **three times, each
+slightly different**, and the differences are the problem:
+
+| gate | where | trigger | budget | redacts? |
+|---|---|---|---|---|
+| primitive capture-on-truncation | `primitives.ts` `createPrimitiveRegistry.execute` | lossy truncation | 50 KB `read_file`, 30 KB `exec`/`fetch`, 20 KB `grep`/`glob` (`DEFAULT_CHAR_LIMITS`) | **no** |
+| child-boundary auto-bind | `agent-process.ts` `prepareResultOutput` | result over budget | `SUMMARY_BUDGET_CHARS` = 4,000 chars | **no** |
+| cell transcript gate | `cell-host.ts` `gateForTranscript` | output over threshold | `CELL_AUTO_BIND_THRESHOLD` = 2,000 chars | yes |
+
+This is a **unification, not a greenfield feature**: one shared gate, one budget table (svelte
+by default, configurable), one marker format, redaction at every gate — while preserving each
+existing gate's hard-won behaviors (listed per-gate below; they are requirements, not
+incidentals).
 
 ## Why now
 
@@ -24,183 +33,215 @@ Measured, from `code-mode-advantage.test.ts` and the byte instrumentation (2026-
 - Relaying confidential content: code mode never exposes it; `read_file` returns it verbatim
   into the payload, and pattern-based redaction does not recognize it.
 
-Tool mode leaves that value on the table because capture is **inconsistent**:
+The gaps, stated precisely against the code as it exists:
 
-1. **Primitives capture only when they *truncate*.** The auto-capture in
-   `createPrimitiveRegistry` fires on lossy truncation, at per-tool char limits that are LARGE
-   (`read_file` 50 KB, `exec`/`fetch` 30 KB, `grep`/`glob` 20 KB — `truncation.ts`). A 20 KB
-   API response or a 10 KB log flows **fully inline** into the payload; nothing is captured, and
-   nothing is a reusable ref.
-2. **The delegate/subagent tool never captures.** It is an agent tool (`buildDelegateTool`), not
-   a primitive, so its result never touches the capture path. Every subagent's full result lands
-   inline in the orchestrator's payload. An agent that fans out to N subagents accumulates all N
-   results in its own context — the wall that makes deep multi-agent orchestration collapse.
+1. **Primitive budgets are so large the gate almost never fires.** Capture triggers only on
+   lossy truncation at 20–50 KB. A 20 KB API response or a 10 KB log flows fully inline into
+   the payload; nothing is captured, nothing is a reusable ref.
+2. **The child boundary already captures — but on its own terms.** `prepareResultOutput`
+   auto-binds + publishes any child result over 4,000 chars and sends the head + `⟦name⟧`
+   marker (sap spec §2 Auto-bind). It works, but its budget is a hardcoded constant outside
+   any shared table, its marker wording differs, and it does not redact. Fan-out orchestration
+   already benefits from it; convergence makes it tunable and consistent, not new.
+3. **Only the cell gate redacts.** Primitive outputs and child results reach the transcript
+   unredacted today (`redactSensitiveTranscriptContent` is imported by value-primitives, cell
+   paths, and telemetry — never by `primitives.ts` or the child result path). Content-agnostic
+   capture narrows the leak surface, but the redaction pass itself should also be uniform.
 
-## The wins (why this is better across the board)
+## The wins
 
-1. **Reuse without reflow.** Every substantial tool output becomes a splice-able `⟦ref⟧`; relaying
-   or re-using it (into a write, a cell, another agent) never re-floods the payload.
+1. **Reuse without reflow.** Every substantial tool output becomes a splice-able `⟦ref⟧`;
+   relaying or re-using it (into a write, a cell, another agent) never re-floods the payload.
 2. **Leak-proof by default.** Capture is content-agnostic — it keeps ALL captured bytes out of
    the payload, where redaction only catches recognized patterns (the `code-mode-advantage`
-   Scenario 2 finding: confidential business content redaction misses).
-3. **Orchestrator scaling (the prize).** Captured subagent results mean an orchestrator holds N
-   refs + previews and *routes* them (splice into a report, hand to the next agent, reduce in a
-   cell) instead of drowning in them. This is what makes many-agent pipelines viable.
+   Scenario 2 finding). Plus: redaction extends to the two gates that lack it today.
+3. **Orchestrator scaling.** The child boundary already bounds sub-results at 4,000 chars +
+   ref; unification brings the same discipline to every primitive an orchestrator's turns
+   accumulate, and makes all the budgets one tunable surface.
 
 ## Goals
 
-1. One **unified capture gate** applied to every tool result — primitives and the delegate tool —
-   at a consistent, tunable, per-tool preview budget.
-2. Above its budget, a tool result **captures the full (raw) content** into a session value and
-   returns a **redacted, bounded preview + `⟦ref⟧`**; at or below budget it is returned inline
-   (no capture — tiny/control-flow outputs are not worth a ref).
-3. The delegate/subagent tool participates: a subagent's result captures into a value the PARENT
-   can reference and splice.
-4. The captured value is the RAW content (faithful splices); everything rendered to the model
-   (preview, later reads) is redacted — the keystone no-leak property, uniformly.
-5. Behavior converges with the cell transcript gate (`CELL_AUTO_BIND_THRESHOLD`), so code mode and
-   tool mode capture the same way.
+1. One shared gate helper used by all three boundaries; behavior differences become data (the
+   budget table), not code.
+2. Svelte, configurable budgets (Jesse, 2026-07-21): capture fires at ~2,000 chars, not 20–50 KB.
+3. Redaction at every gate — an explicit behavior CHANGE for primitives and child results.
+4. Stored values are the RAW source (faithful splices); everything model-facing is redacted.
+5. One canonical marker format across all three gates.
 
 ## Non-goals
 
-- Changing cell/code-mode behavior (it already captures via the transcript gate — this brings tool
-  mode *up to* it, not the reverse).
-- Removing the model's ability to see content it needs (see the preview policy — this is the
-  central decision, deliberately NOT "everything becomes a bare ref").
-- A new store/scope model. Captured values bind into the acting agent's existing scope (delegate
-  results bind into the PARENT's scope — see Design).
+- New scope semantics. The child boundary KEEPS its existing bind-under-child-identity +
+  publish flow (that is how the parent sees the value today; it works and is already spec'd).
+  The earlier draft's parent-scope binding is dropped.
+- Renaming captured values. Existing schemes stay: `<primitive>_output` (primitives),
+  goal-slug `_result` (child boundary), `cell_<n>_return` (cells). The unification is the
+  gate, not the names.
+- Changing what the cell gate shows (it is already the svelte reference behavior).
 
 ## Design
 
-### The unified gate
+### The shared gate
 
-Today the capture logic lives inside `createPrimitiveRegistry.execute` and is gated on
-`truncateToolOutputDetailed(...).truncated`. Generalize it to a single `gateToolOutput(toolName,
-rawOutput, captureStore)` used by BOTH the primitive registry and the delegate tool:
+One kernel helper (beside `truncation.ts`) that all three boundaries call:
 
 ```
-redacted = redact(rawOutput)
-budget   = previewBudget(toolName)          # resolved defaults ⊕ SPROUT_PREVIEW_BUDGETS ⊕ overrides
-if redacted.length <= budget:            # small / control-flow → inline, no capture
-    return redacted
-value    = captureStore.bind(name(toolName), rawOutput, explicit:false)   # RAW content
-preview  = redacted.slice(0, budget)
-return `${preview}\n[... ${redacted.length - budget} chars — full content: ⟦${value.name}⟧]`
+gateOutput(boundary, rawSource, renderedOutput, captureStore, opts):
+    redacted = redact(renderedOutput)
+    budget   = previewBudget(boundary)        # defaults ⊕ SPROUT_PREVIEW_BUDGETS ⊕ opts.overrides
+    pass     = truncateToolOutputDetailed(redacted, boundary, {charLimit: budget})
+    if not pass.truncated:                    # fits → inline (no capture)
+        return redacted
+    value    = captureStore.bind(<boundary's naming scheme>, rawSource, explicit: false)
+    return render(pass, marker(value))        # preview shaped by the tool's mode + line limits
 ```
 
-This is the cell transcript gate (`cell-host.ts` `gateForTranscript`), lifted to a shared kernel
-helper and parameterized by a per-tool budget. Cells keep their existing gate (or adopt the shared
-helper with `budget = CELL_AUTO_BIND_THRESHOLD`) so the two paths cannot drift.
+Key points, each preserving existing behavior:
 
-### THE central decision — the preview budget
+- **The preview is shaped by the existing truncation machinery**, not a naive head slice:
+  per-tool modes survive (`head_tail` for `exec`/`read_file`/`fetch` — the error at the tail
+  of a build log stays visible) and per-tool line limits survive (`exec` 256, `grep` 200,
+  `glob` 500). The budget replaces `DEFAULT_CHAR_LIMITS` as the char trigger; `DEFAULT_MODES`
+  and `DEFAULT_LINE_LIMITS` keep shaping what is shown. A line-limit cut also triggers
+  capture, exactly as it triggers capture-on-truncation today.
+- **The stored value is the SOURCE, not the rendering.** Primitives bind
+  `result.captureSource.content` (the true file/command bytes) — that is what makes splices
+  faithful. A primitive with no `captureSource` degrades to honest truncation with no marker,
+  as today.
+- **Redact-then-gate**, as the cell gate does: the threshold applies to the redacted text;
+  the stored value is raw.
 
-What the model SEES by default is the one real tradeoff:
+### Behaviors each gate keeps (requirements)
 
-- A **tiny** budget (≈2 KB, cell-gate-aligned) maximizes token savings but starves workflows that
-  need full sight — the model cannot see a 5 KB file it must *edit*, or reason over a subagent's
-  detailed answer.
-- A **large** budget (today's 50 KB) preserves sight but is the flood itself.
+From the primitive gate (`primitives.ts:94–168`):
 
-**Decision (Jesse, 2026-07-21): previews are svelte by default, and configurable.** The
-unconditional wins (reuse, no-leak, orchestrator scaling) come from **always creating the ref**;
-the budget only sets how much the model reads for free before reaching for the ref (or a cell).
-So we do not agonize over a per-tool table — defaults align with the cell gate, with a single
-exception where the workflow demands sight, and deployments tune from there:
+- **No double-store**: a primitive that already explicitly bound its source (`boundValues`)
+  gets a marker naming the existing value; the gate never binds a second copy.
+- **Stderr companion**: `exec` stderr the preview dropped binds as its own value; the marker
+  names both.
+- **`value_*` exclusion**: value-read primitives never re-capture — their output already comes
+  from the store; re-capturing would chain refs.
+- **Honest degradation**: store-full / bind-failure yields `[... truncated; content not
+  captured]` — never a marker naming a value that does not exist.
 
-- **Default budget: 2 KB** — the same `CELL_AUTO_BIND_THRESHOLD` scale the cell transcript gate
-  already uses, so tool mode and code mode read identically by default.
-- **Exception: `read_file` / `edit_file` / `apply_patch` at 4 KB** — the code-editing path, where
-  the model must see the region it is changing. Targeted re-reads (`read_file` offset/limit)
+From the child boundary (`agent-process.ts:828–855`):
+
+- Bind under the **child's** identity with `origin: {kind: "delegation"}`, then **publish** —
+  the parent's visibility path, unchanged.
+- Goal-slug naming (`resultValueName`), unchanged.
+- The 30,000-char inline fallback when bind/publish fails, unchanged.
+
+From the cell gate (`cell-host.ts:389–406`): redact-then-threshold ordering, and the marker
+format (which becomes the canonical one, below).
+
+### Budgets — svelte by default, configurable
+
+**Decision (Jesse, 2026-07-21): previews are svelte but configurable.** The unconditional wins
+(reuse, no-leak, orchestrator scaling) come from always creating the ref; the budget only sets
+how much the model reads for free before reaching for the ref (or a cell). Budgets are
+**chars** (every comparison in the code is `.length`), one record with few exceptions:
+
+- **`default`: 2,000** — the cell gate's scale (`CELL_AUTO_BIND_THRESHOLD` folds into this
+  record as the `cell` boundary's entry). Covers `exec`, `grep`, `glob`, `fetch`, and any
+  future tool.
+- **`read_file` / `edit_file` / `apply_patch`: 4,000** — the code-editing path, where the
+  model must see the region it is changing; targeted re-reads (`read_file` offset/limit)
   cover files past the budget.
-- Everything else (`exec`, `grep`, `glob`, `fetch`, `delegate`) inherits the 2 KB default.
+- **`delegate`: 4,000** — the child's answer is the one output the parent must actually reason
+  over; this preserves `SUMMARY_BUDGET_CHARS` exactly.
+- **`write_file`: 1,000** — a confirmation message; preserves today's limit (the 2,000 default
+  would *raise* it).
 
 #### Configurability
 
 Follows the existing tunable patterns (`DEFAULT_CHAR_LIMITS` record + per-call `overrides` in
 `truncation.ts`; `SPROUT_SESSION_MAX_*` env resolution in `session-budget.ts`):
 
-- `DEFAULT_PREVIEW_BUDGETS` — one record beside `DEFAULT_CHAR_LIMITS`: the 2 KB default plus the
-  read/edit exception.
-- `SPROUT_PREVIEW_BUDGETS` — a single env var holding a JSON map merged over the defaults, e.g.
-  `{"default": 4000, "read_file": 16000}`. Resolved once at startup, `session-budget.ts`-style:
-  an invalid value warns and falls back to defaults (never crashes a session).
+- `DEFAULT_PREVIEW_BUDGETS` — the record above, beside `DEFAULT_CHAR_LIMITS`.
+- `SPROUT_PREVIEW_BUDGETS` — one env var holding a JSON map merged over the defaults, e.g.
+  `{"default": 4000, "read_file": 16000}`. Resolved once per process at startup,
+  `session-budget.ts`-style: an invalid value warns and falls back (never crashes a session).
+  Spawned agent processes read it from their own environment, which they inherit at launch —
+  note Bun.spawn snapshots env at startup, so runtime `process.env` mutation does NOT
+  propagate; evals and tests must use the programmatic override channel, not env mutation.
 - Programmatic override threading (registry options, like `overrides?.charLimit` today) for
   evals and tests.
 
-### The delegate/subagent tool
+### The canonical marker
 
-Route the delegate tool's result through `gateToolOutput("delegate", result, captureStore)`. The
-subagent's result binds into the **parent's** scope as a value (so the parent can `⟦ref⟧` it), and
-the parent's tool result is the preview + ref. Cross-agent visibility: the value is created in the
-parent's scope at delegation-return time (the parent owns it), not shared out of the child's scope —
-no new scope semantics. Fan-out (`handle.future`) benefits directly: each future's result is a ref
-the orchestrator reduces, not inline text it accumulates.
+One format, all three gates (today: primitives say "full output:", the child boundary says
+"full output:" with different framing, cells say "full content:"):
 
-### Value naming + splice
+```
+[... <N chars|N lines> truncated — full content: ⟦name⟧]
+```
 
-Captured values get a derived, collision-safe name (`<tool>_<seq>`, matching the existing
-`cell_<n>_return` scheme). The marker is the existing `⟦name⟧` sap splice token, so a captured tool
-output is immediately usable everywhere a value is: `write_file` splices, cell `get()`, another
-tool's argument.
-
-### Redaction
-
-The stored value is RAW (splices must be faithful — a spliced config with a real key must WORK).
-The preview and every later model-facing render are redacted, exactly as the cell gate and the
-transcript gate do today. Capture does not weaken redaction; it makes the no-leak guarantee
-content-agnostic on top of it.
+with the stderr companion appending `, stderr: ⟦name⟧`, and the degradation forms
+`[... <dropped> truncated; store full — content not captured]` / `; capture failed — …`.
+"full content:" wins because the cell gate and the scenario-3 e2e test already match on it;
+agents pattern-match markers, so convergence is itself a feature. Prompts/genomes that
+reference the old wordings get surveyed in the phase that touches their gate.
 
 ## Invariants
 
-- A tool output at or below its budget is byte-identical to today (inline, redacted) — small reads
-  do not regress.
-- A captured value's stored content is the exact raw tool output; splicing `⟦ref⟧` reproduces it.
-- Nothing above budget crosses to the model except the redacted preview + the marker.
-- The delegate result is captured into the parent's scope; the child's scope is unchanged.
+- An output at or below its budget reaches the model **identical to today except redaction**
+  (the one deliberate change on the inline path) — line limits and modes still apply.
+- A captured value's stored content is the exact raw SOURCE; splicing `⟦ref⟧` reproduces it.
+- Nothing above budget crosses to the model except the redacted, mode-shaped preview + marker.
+- No double-store; no marker ever names a value that does not exist.
+- The child boundary's bind-and-publish visibility semantics are unchanged.
 
 ## Phases
 
-**P1 — Shared gate + primitives.** Extract `gateToolOutput` (shared by the primitive registry and
-cells); replace capture-on-truncation with capture-above-budget; wire the budget resolver
-(`DEFAULT_PREVIEW_BUDGETS` ⊕ `SPROUT_PREVIEW_BUDGETS` ⊕ programmatic overrides). Update the
-primitive/truncation tests that assert inline content. Fable review.
+**P1 — Shared gate + primitives.** Extract the shared gate into the kernel (built on
+`truncateToolOutputDetailed`); primitives adopt it: budgets replace `DEFAULT_CHAR_LIMITS` as
+the capture trigger, redaction added to the primitive output path (explicit change), canonical
+marker, budget resolver (`DEFAULT_PREVIEW_BUDGETS` ⊕ `SPROUT_PREVIEW_BUDGETS` ⊕ overrides).
+TDD; update the primitive/truncation tests that assert inline content, each move recorded.
+Fable review.
 
-**P2 — Delegate/subagent capture.** Route delegate results through the gate; bind into the parent
-scope; the fan-out/`handle.future` path returns refs. Tests: a large sub-result is captured, the
-orchestrator payload holds only the preview + ref, the ref splices to the full result. Fable review.
+**P2 — Child boundary converges.** `prepareResultOutput` becomes a caller of the shared gate,
+keeping child-identity bind + publish, goal-slug naming, and the inline fallback; its budget
+comes from the record (`delegate`); redaction added; canonical marker. Tests: over-budget
+sub-result → preview + ref in the parent's payload; ref splices to the exact full result;
+fallback path unchanged. Fable review.
 
-**P3 — Tune + prove.** Re-run `code-mode-advantage`-style measurement across tool mode (payload
-bytes with capture on vs off); tune budgets; add an e2e scenario proving an N-way fan-out keeps the
-orchestrator payload flat. Fable review.
+**P3 — Cell gate adopts + tune + prove.** `gateForTranscript` becomes a caller of the shared
+gate (budget = the record's `cell` entry; behavior byte-identical, asserted). Re-run
+`code-mode-advantage`-style byte measurement across tool mode (capture on vs off); tune
+budgets; add an e2e scenario proving an N-way fan-out keeps the orchestrator payload flat.
+Fable review.
 
 ## Acceptance
 
-1. Every tool result over its budget is captured and returned as preview + `⟦ref⟧`; below budget,
-   unchanged.
-2. A subagent's large result never appears in full in the orchestrator's provider payload; the ref
-   splices to the exact full result.
-3. `⟦ref⟧` from a captured tool output splices faithfully into a `write_file` / cell.
-4. Redaction unchanged for previews; stored values raw.
-5. Full suite green (with the test churn from inline-output assertions resolved honestly, each
-   recorded).
+1. Every boundary's over-budget output is captured and returned as redacted preview + `⟦ref⟧`;
+   at or below budget, inline (redacted) with today's line/mode shaping.
+2. A sub-result over budget never appears in full in the orchestrator's provider payload; its
+   ref splices to the exact full result.
+3. `⟦ref⟧` from any captured output splices faithfully into a `write_file` / cell.
+4. Stored values raw; every model-facing render redacted — including the two paths that were
+   not redacted before.
+5. One marker format everywhere; the preserved behaviors (no-double-store, stderr companion,
+   `value_*` exclusion, honest degradation, child publish, fallback) each hold under test.
+6. Full suite green, with inline-output assertion churn resolved honestly, each recorded.
 
 ## Risks (honest)
 
-- **Broad blast radius.** Every agent sees previews + refs on large tool outputs; tests that assert
-  inline content move. This is the main cost — mitigated by phasing and by the gate already existing
-  for primitives-on-truncation.
-- **Code-editing regression** if budgets are too tight — the deliberate cost of svelte defaults.
-  Mitigated by the read/edit exception (4 KB), targeted re-reads (`read_file` offset/limit) for
-  full sight, and `SPROUT_PREVIEW_BUDGETS` to raise budgets where a deployment needs them.
-- **Genome prompt assumptions.** Agent prompts may assume they see full tool output. The preview +
-  ref shape is close enough that most prompts are unaffected; surveyed and fixed where not.
-- **Cross-agent value lifetime** for delegate captures — the parent-scope binding must outlive the
-  child; verified against the existing future-reclaim rules.
+- **Broad blast radius.** Every agent sees previews + refs on outputs that used to be inline
+  up to 20–50 KB; tests asserting inline content move. Mitigated by phasing and by the gate
+  logic already existing at all three boundaries.
+- **Code-editing regression** if budgets are too tight — the deliberate cost of svelte
+  defaults. Mitigated by the read/edit exception (4,000), targeted re-reads, and
+  `SPROUT_PREVIEW_BUDGETS`.
+- **Redaction on the hot inline path** is new for primitives — a regex pass over every tool
+  output. The patterns are few and anchored; if profiling ever shows it, it shows up in the
+  bench harness, not in guesswork.
+- **Genome prompt assumptions.** Prompts may assume full tool output or match old marker
+  wording. Surveyed per phase, at the gate that phase touches.
 
 ## Open questions (for the P1 review, not blockers)
 
-- Adaptive budgets (e.g., larger when the agent's task is flagged code-editing)? Static defaults +
-  `SPROUT_PREVIEW_BUDGETS` cover per-deployment tuning; revisit adaptivity only if code-editing
-  regresses under the svelte defaults.
-- Do we ever want a hard "always ref, no preview" mode for a maximally-locked-down agent? Out of
-  scope here; the gate makes it a one-line future option.
+- Adaptive budgets (e.g., larger when the agent's task is flagged code-editing)? Static
+  defaults + `SPROUT_PREVIEW_BUDGETS` cover per-deployment tuning; revisit only if
+  code-editing regresses under the svelte defaults.
+- A hard "always ref, no preview" mode for a maximally-locked-down agent? Out of scope; the
+  shared gate makes it a one-line future option.
