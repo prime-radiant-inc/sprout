@@ -346,6 +346,20 @@ RISKY/decisions — recorded for Jesse, not touched:
   arm + vm-branch RSS test; bench selector plumbing.
 - JSONL line-split loop ×4 across cell/store (S7) — queued util dedup.
 
+## Decision-queue from Jesse's Q&A round 2 (2026-07-21, ~18:25Z)
+
+- Cell parked-spin budget hole: ACCEPTED PERMANENTLY (guards bound accidents,
+  not adversaries; RSS watchdog stays the net). Threat-model comment gets a
+  one-line truth-up so the next review doesn't re-find it.
+- Featherweight divergences: FIX BOTH (thread env/hints/payload AND
+  preambles/postscripts/projectDocs through the featherweight path so
+  placement is invisible) — after the cutover tonight or tomorrow.
+- In-process (spawnerless) delegation path: DELETE IT — merge onto the
+  spawner path, migrate the in-process test suites to spawner fakes. Queued
+  as the large post-cutover item.
+- Cell-spawn observer digest: FIX CODE TO MATCH SPEC — wait/message
+  completions enter the digest too (dedup by handle) so fan-outs get frames.
+
 ## Decision-queue from Jesse's Q&A (2026-07-21)
 
 - KILL store-side reservedNames (option + env plumbing + self-test) + amend spec §1

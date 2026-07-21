@@ -18,22 +18,25 @@
  * is BEST-EFFORT memory limiting, not a hard cap — a burst allocation can
  * outrun the 250 ms poll before the SIGKILL lands, and RSS is only a proxy for
  * true commitment. Likewise the budget clock kills a runaway cell; it does not
- * prevent one. These guards bound accidents and runaways from model-authored
- * code; they are not a defense against a determined same-UID attacker (see the
- * realm doc in cell-worker.ts). The fails-closed replacement is the
- * QuickJS-WASM port, tracked as prime-radiant-inc/sprout#1.
+ * prevent one — and it accrues only while nothing ambient is outstanding, so
+ * CPU spun behind even ONE un-awaited ambient call goes unbilled (accepted
+ * 2026-07-21: the clock bounds accidents; the RSS watchdog is the net). These
+ * guards bound accidents and runaways from model-authored code; they are not
+ * a defense against a determined same-UID attacker (see the realm doc in
+ * cell-worker.ts). The fails-closed replacement is the QuickJS-WASM port,
+ * tracked as prime-radiant-inc/sprout#1.
  */
 
 import { redactSensitiveTranscriptContent } from "../kernel/redaction.ts";
 import { captureMarker, resolvePreviewBudgets } from "../kernel/truncation.ts";
 import type { StoreAccess } from "../store/store-access.ts";
 import { resolveCellEngineName } from "./cell-engine.ts";
+import type { CellWorkerMessage, WorkerProgram } from "./cell-worker.ts";
 import {
 	type CellWorkerProcessHandle,
 	readRssBytes,
 	spawnCellWorkerProcess,
 } from "./worker-process.ts";
-import type { CellWorkerMessage, WorkerProgram } from "./cell-worker.ts";
 
 /** Default cell wall-time budget (non-parked; spec §4). */
 const DEFAULT_CELL_BUDGET_MS = 5_000;
