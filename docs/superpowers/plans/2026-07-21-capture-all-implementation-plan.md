@@ -49,12 +49,17 @@ prefix commits with `PATH="/home/jesse/.bun/bin:$PATH"` so the hook finds bun/bu
       at the seam. Tests: test/agents/delegation-render.test.ts (5) + resume pin updated.
 - [x] Cell gate: threshold from `cell` record row + marker helper — zero churn asserted
       (127 cell + e2e tests pass untouched; markers byte-identical).
-- [ ] Tests per spec P2 list: both flavors preview+ref; shared featherweight → raw;
-      capture-failure → raw; publish-failure → fallback never marker; recovered
-      clamp/backstop matrix incl. stale-prior-goal + live-capture-failed-never-clamped;
+- [x] Tests per spec P2 list: both flavors preview+ref; shared featherweight → raw;
+      capture-failure → raw; publish-failure → fallback never marker
+      (test/bus/result-gate.test.ts); recovered clamp/backstop matrix incl.
+      stale-prior-goal (delegation-render tests); live results structurally unclampable;
       rewrites in both branches.
-- [ ] Measurement: payload bytes capture on/off; N-way fan-out e2e (orchestrator payload
-      flat); tune budgets. Fable review at P2 end.
+- [x] Measurement: test/integration/capture-all-advantage.test.ts — 8-way fan-out payload
+      flat (>5× reduction, full answers in store); tool-mode capture on/off (>5×).
+- [x] Fable review at P2 end (diff walked; publish-failure gap found and closed with
+      direct unit tests).
+- [ ] Budget TUNING against live runs: deferred — structural measurements are in tests;
+      real tuning is a live-eval knob (SPROUT_PREVIEW_BUDGETS) once agents run on this.
 
 ## Deferred / parked
 
