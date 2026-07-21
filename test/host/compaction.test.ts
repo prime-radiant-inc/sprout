@@ -212,7 +212,6 @@ describe("compactHistory", () => {
 
 		expect(capturedRequest).toBeDefined();
 		expect(capturedRequest!.tools).toEqual([]);
-		expect(capturedRequest!.system).toBe("");
 	});
 
 	test("buildCompactionPrompt includes older turns content", async () => {

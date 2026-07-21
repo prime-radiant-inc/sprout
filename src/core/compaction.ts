@@ -75,7 +75,6 @@ export async function compactHistory(opts: {
 		provider,
 		messages: summarizationMessages,
 		tools: [],
-		system: "",
 	});
 
 	const summary = messageText(response.message);

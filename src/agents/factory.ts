@@ -260,7 +260,6 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 				modelsByProvider,
 				providerIdOverride: options.providerIdOverride,
 				resolverSettings: options.resolverSettings,
-				logger: options.logger,
 			});
 
 	const logBasePath = join(dataDir, "logs", sessionId);

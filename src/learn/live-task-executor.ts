@@ -33,7 +33,6 @@ function serializeRequestPayload(request: Request): string {
 	return JSON.stringify({
 		model: request.model,
 		provider: request.provider,
-		system: request.system,
 		messages: request.messages,
 		tools: request.tools,
 	});

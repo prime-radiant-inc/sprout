@@ -172,8 +172,6 @@ export interface LearnProcessOptions {
 	modelsByProvider?: Map<string, ProviderModel[]>;
 	providerIdOverride?: string;
 	resolverSettings?: ResolverSettings;
-	/** Structured logger for LLM call logging and diagnostics. */
-	logger?: import("../host/logger.ts").Logger;
 	/**
 	 * The frozen adoption chokepoint. When present, EVERY genome mutation (agent
 	 * or quartermaster proposal) must pass it before `applyMutation`. When absent,

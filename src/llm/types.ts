@@ -168,7 +168,6 @@ export interface Request {
 	model: string;
 	messages: Message[];
 	provider?: string;
-	system?: string;
 	tools?: ToolDefinition[];
 	tool_choice?: "auto" | "none" | "required" | { name: string };
 	temperature?: number;
