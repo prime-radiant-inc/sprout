@@ -76,6 +76,24 @@ describe("Embedding providers", () => {
 		expect(documentResult[0]!.vector[1]).toBeCloseTo(Math.SQRT1_2, 5);
 	});
 
+	test("a transient loader failure is not cached — the next call retries", async () => {
+		let loadCount = 0;
+		const provider = new LocalEmbeddingProvider({
+			dimensions: 2,
+			denseLayerPath: null,
+			loader: async () => {
+				loadCount++;
+				if (loadCount === 1) throw new Error("transient model download failure");
+				return {
+					extractor: async () => ({ data: Float32Array.from([1, 0]), dims: [1, 2] }),
+				};
+			},
+		});
+		await expect(provider.embedBatch(["alpha"])).rejects.toThrow("transient model download failure");
+		await expect(provider.embedBatch(["alpha"])).resolves.toHaveLength(1);
+		expect(loadCount).toBe(2);
+	});
+
 	test("local provider throws on dimension mismatches", async () => {
 		const provider = new LocalEmbeddingProvider({
 			dimensions: 3,

@@ -49,6 +49,40 @@ describe("ProviderRegistry", () => {
 		expect(entry?.adapter?.kind).toBe("openai-compatible");
 	});
 
+	test("a transient secret-store failure is not cached — the next getEntry retries", async () => {
+		let hasSecretCalls = 0;
+		const backing = createSecretStore({ backend: "memory", platform: "darwin" });
+		await backing.setSecret(createProviderSecretRef("openrouter-main", "memory"), "secret");
+		const flakeStore: SecretStore = {
+			getSecret: (ref) => backing.getSecret(ref),
+			setSecret: (ref, v) => backing.setSecret(ref, v),
+			deleteSecret: (ref) => backing.deleteSecret(ref),
+			hasSecret: async (ref) => {
+				hasSecretCalls++;
+				if (hasSecretCalls === 1) throw new Error("keychain locked");
+				return backing.hasSecret(ref);
+			},
+		};
+		const registry = new ProviderRegistry({
+			settings: makeSettings([
+				{
+					id: "openrouter-main",
+					kind: "openrouter",
+					label: "OpenRouter",
+					enabled: true,
+					createdAt: "2026-03-11T12:00:00.000Z",
+					updatedAt: "2026-03-11T12:00:00.000Z",
+				},
+			]),
+			secretStore: flakeStore,
+			secretBackend: "memory",
+		});
+		await expect(registry.getEntry("openrouter-main")).rejects.toThrow("keychain locked");
+		// The poisoned entry must not be cached — the retry succeeds.
+		const entry = await registry.getEntry("openrouter-main");
+		expect(entry?.validationErrors).toEqual([]);
+	});
+
 	test("builds openrouter adapters against the openrouter base URL and forwards non-secret headers", async () => {
 		const secretStore = createSecretStore({ backend: "memory", platform: "darwin" });
 		await secretStore.setSecret(
