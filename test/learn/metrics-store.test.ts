@@ -185,4 +185,27 @@ describe("MetricsStore", () => {
 		await store.recordStumble("ghost", "oops");
 		expect(store.stumbleRate("ghost")).toBe(0);
 	});
+
+	test("a torn trailing line does not brick load/scan — startup survives a crash mid-append", async () => {
+		const filePath = join(tempDir, "torn.jsonl");
+		await store_writeRaw(
+			filePath,
+			[
+				JSON.stringify({ type: "action", agent_name: "editor", timestamp: 100 }),
+				JSON.stringify({ type: "stumble", agent_name: "editor", kind: "oops", timestamp: 150 }),
+				'{"type":"action","agent_name":"edito', // crash mid-append
+			].join("\n"),
+		);
+		const store = new MetricsStore(filePath);
+		await store.load(); // must not throw
+		expect(store.stumbleCount("editor", "oops")).toBe(1);
+		// The disk-scanning paths must also tolerate the torn line.
+		expect(await store.actionCountSince("editor", 0)).toBe(1);
+		expect(await store.stumbleRateForPeriod("editor", 0)).toBeCloseTo(1, 5);
+	});
 });
+
+async function store_writeRaw(path: string, content: string): Promise<void> {
+	const { writeFile } = await import("node:fs/promises");
+	await writeFile(path, content);
+}
