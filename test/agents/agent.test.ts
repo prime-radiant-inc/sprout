@@ -9351,6 +9351,112 @@ describe("cell-spawn observer batching (Slice B)", () => {
 		expect(message).toContain("first task");
 		expect(message).toContain("second task");
 	});
+
+	test("a nonblocking spawn completed via handle.wait() enters the digest (fan-out gets a frame)", async () => {
+		const observer: AgentSpec = {
+			...leafSpec,
+			name: "metacognitive",
+			description: "Observes delegate results",
+			system_prompt: "Observe.",
+			model: "balanced",
+			tools: ["message_agent"],
+			agents: [],
+			constraints: { ...DEFAULT_CONSTRAINTS, can_spawn: false, can_learn: false, max_turns: 2 },
+			tags: ["observer"],
+		};
+		const root: AgentSpec = {
+			...rootSpec,
+			observe_delegates: [
+				{
+					agent: "metacognitive",
+					trigger: "on_delegate_final",
+					events: ["plan_end", "act_end"],
+					delivery: { max_events: 12, max_chars: 3000 },
+				},
+			],
+		};
+		const resolverSettings = createResolverSettings(
+			[{ id: "anthropic", enabled: true }],
+			{
+				best: { providerId: "anthropic", modelId: "claude-opus-4-6" },
+				balanced: { providerId: "anthropic", modelId: "claude-sonnet-4-6" },
+				fast: { providerId: "anthropic", modelId: "claude-haiku-4-5-20251001" },
+			},
+			{},
+			{
+				metacognitive: {
+					kind: "model",
+					model: { providerId: "anthropic", modelId: "claude-haiku-4-5-20251001" },
+				},
+			},
+		);
+		const observerDeliveries: Array<{ message: string }> = [];
+		const spawner = {
+			// Nonblocking spawn: returns the handle string, no completion recorded yet.
+			spawnAgent: async (): Promise<string> => "handle-fanout-1",
+			waitAgent: async (): Promise<ResultMessage> => ({
+				kind: "result",
+				handle_id: "handle-fanout-1",
+				output: "fan-out child output",
+				success: true,
+				stumbles: 0,
+				turns: 1,
+				timed_out: false,
+			}),
+			getHandle: () => ({ agentName: "leaf" }),
+			storeAccess: undefined,
+			subscribeSessionEvents: async () => () => {},
+			deliverObserverFrame: async (opts: { message: string }) => {
+				observerDeliveries.push(opts);
+			},
+			getHandles: () => [],
+		} as unknown as AgentSpawner;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => ({
+				id: "mock-fanout",
+				model: "claude-haiku-4-5-20251001",
+				provider: "anthropic",
+				message: Msg.assistant("Done."),
+				finish_reason: { reason: "stop" },
+				usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+			}),
+			stream: async function* () {},
+		} as unknown as Client;
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: root,
+			env,
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [root, leafSpec, observer],
+			depth: 0,
+			spawner,
+			resolverSettings,
+		});
+		const internals = agent as unknown as {
+			runCellCall: (fn: () => Promise<unknown>) => Promise<unknown>;
+			serviceCellSpawn: (req: {
+				agent: string;
+				goal: string;
+				blocking?: boolean;
+			}) => Promise<DelegationOutcome>;
+			serviceCellHandleWait: (id: string) => Promise<DelegationOutcome>;
+		};
+		await internals.runCellCall(async () => {
+			await internals.serviceCellSpawn({ agent: "leaf", goal: "fan-out task", blocking: false });
+			await internals.serviceCellHandleWait("handle-fanout-1");
+			return { output: "", success: true };
+		});
+
+		expect(observerDeliveries).toHaveLength(1);
+		const message = observerDeliveries[0]!.message;
+		expect(message).toContain("cell-spawn-observer-frame");
+		expect(message).toContain("handle-fanout-1");
+		expect(message).toContain("fan-out child output");
+		// Deduped by handle: the handle appears once, not once per spawn+wait.
+		expect(message.match(/handle-fanout-1/g)).toHaveLength(1);
+	});
 });
 
 describe("featherweight token accounting (Phase 7 review)", () => {

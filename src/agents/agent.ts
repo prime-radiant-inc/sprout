@@ -6,11 +6,7 @@ import type {
 	FeatherweightExecResult,
 } from "../bus/spawner.ts";
 import type { AgentAddress, ResultMessage } from "../bus/types.ts";
-import {
-	CellHost,
-	type CellSpawnRequest,
-	type DelegationOutcome,
-} from "../cell/cell-host.ts";
+import { CellHost, type CellSpawnRequest, type DelegationOutcome } from "../cell/cell-host.ts";
 import type { CellWorkerProcessHandle } from "../cell/worker-process.ts";
 import { compactHistory } from "../core/compaction.ts";
 import type { Logger } from "../core/logger.ts";
@@ -2352,15 +2348,7 @@ export class Agent {
 			const outcome = await this.runSpawnerDelegation(delegation, this.agentId ?? this.spec.name, {
 				cellSpawn: true,
 			});
-			if (outcome.kind === "completed") {
-				this.cellSpawnDigest.push({
-					agentName: req.agent,
-					goal: req.goal,
-					handleId: outcome.handleId,
-					ok: outcome.ok,
-					summary: outcome.summary,
-				});
-			}
+			this.recordCellSpawnDigest(outcome, req.agent, req.goal);
 			return outcome;
 		} catch (err) {
 			return {
@@ -2382,7 +2370,9 @@ export class Agent {
 		}
 		try {
 			const result = await this.spawner.waitAgent(id, undefined, { untimed: true });
-			return await this.completedOutcomeFor(result, id, "handle.wait");
+			const outcome = await this.completedOutcomeFor(result, id, "handle.wait");
+			this.recordCellSpawnDigest(outcome, this.spawner.getHandle(id)?.agentName ?? id, "handle.wait");
+			return outcome;
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			// A lookup miss on a cell handle-wait most often means the handle
@@ -2416,13 +2406,38 @@ export class Agent {
 				envGrants: opts?.env,
 			});
 			if (!blocking || !result) return { kind: "started", handleId: id };
-			return await this.completedOutcomeFor(result, id, "handle.message");
+			const outcome = await this.completedOutcomeFor(result, id, "handle.message");
+			this.recordCellSpawnDigest(
+				outcome,
+				this.spawner.getHandle(id)?.agentName ?? id,
+				"handle.message",
+			);
+			return outcome;
 		} catch (err) {
 			return {
 				kind: "infrastructure_error",
 				reason: err instanceof Error ? err.message : String(err),
 			};
 		}
+	}
+
+	/**
+	 * Record a completed cell delegation in the observer digest (deviation #2:
+	 * one frame summarizes ALL of a cell's delegations at cell end). Started
+	 * outcomes carry no result yet; they enter the digest when their eventual
+	 * handle.wait()/handle.message() completes. Deduped by handle so a blocking
+	 * spawn already recorded is not doubled by a later wait on the same handle.
+	 */
+	private recordCellSpawnDigest(outcome: DelegationOutcome, agentName: string, goal: string): void {
+		if (outcome.kind !== "completed") return;
+		if (this.cellSpawnDigest.some((entry) => entry.handleId === outcome.handleId)) return;
+		this.cellSpawnDigest.push({
+			agentName,
+			goal,
+			handleId: outcome.handleId,
+			ok: outcome.ok,
+			summary: outcome.summary,
+		});
 	}
 
 	/** Fold a child ResultMessage plus its manifest delta into a completed outcome. */
