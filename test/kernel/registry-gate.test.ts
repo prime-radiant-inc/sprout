@@ -252,4 +252,31 @@ describe("registry gate (capture-all v10)", () => {
 		expect(store.bound).toHaveLength(1);
 		expect(result.output).not.toContain("stderr: ⟦");
 	});
+
+	it("a stderr-companion bind failure degrades only the stderr mention — the main capture stands", async () => {
+		// Fail the SECOND bind only (the stderr companion): the stdout value is
+		// in the store, so its marker must stand — a blanket 'content not
+		// captured' banner would be false.
+		let binds = 0;
+		const origBind = store.bind.bind(store);
+		store.bind = async (args) => {
+			binds++;
+			if (binds === 2) throw new Error("companion bind exploded");
+			return origBind(args);
+		};
+		const stderr = "e".repeat(3_000);
+		const output = "x".repeat(5_000);
+		const registry = registryWith(
+			stub("exec", {
+				output,
+				success: true,
+				captureSource: { content: output, type: "text", stderr },
+			}),
+		);
+		const result = await registry.execute("exec", {});
+		expect(store.bound).toHaveLength(1);
+		expect(result.output).toMatch(/full content: ⟦exec_output⟧/);
+		expect(result.output).not.toContain("stderr: ⟦");
+		expect(result.output).not.toContain("content not captured");
+	});
 });

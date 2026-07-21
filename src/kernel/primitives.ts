@@ -156,19 +156,26 @@ export function createPrimitiveRegistry(
 						: redactSensitiveTranscriptContent(source.stderr);
 				let tail = ` — full ${noun}: ⟦${metadata.name}⟧`;
 				if (redactedStderr !== undefined && !gauge.text.includes(redactedStderr)) {
-					const stderrMetadata = await captureStore.bind({
-						name: `${name}_output_stderr`,
-						content: source.stderr as string,
-						type: "text",
-						provenance: { agentHandleId: "", origin: { kind: "primitive", name } },
-						explicit: false,
-					});
-					boundValues.push({
-						name: stderrMetadata.name,
-						ulid: stderrMetadata.ulid,
-						size: stderrMetadata.size,
-					});
-					tail = ` — full ${noun}: ⟦${metadata.name}⟧, stderr: ⟦${stderrMetadata.name}⟧`;
+					// The companion bind fails ALONE: the main value is already
+					// stored, so its marker must stand — a blanket failure banner
+					// here would falsely claim nothing was captured.
+					try {
+						const stderrMetadata = await captureStore.bind({
+							name: `${name}_output_stderr`,
+							content: source.stderr as string,
+							type: "text",
+							provenance: { agentHandleId: "", origin: { kind: "primitive", name } },
+							explicit: false,
+						});
+						boundValues.push({
+							name: stderrMetadata.name,
+							ulid: stderrMetadata.ulid,
+							size: stderrMetadata.size,
+						});
+						tail = ` — full ${noun}: ⟦${metadata.name}⟧, stderr: ⟦${stderrMetadata.name}⟧`;
+					} catch {
+						// Stderr mention simply stays absent; the capture is honest.
+					}
 				}
 				const marker = captureMarker(dropped, tail);
 				return {
