@@ -104,16 +104,6 @@ export async function classifyMemoryRelationshipWithSettings(
 	return classifyMemoryRelationship({ ...request, model: model.model, provider: model.provider });
 }
 
-export async function classifyMemoryRelationships(
-	requests: readonly RelationshipClassificationRequest[],
-): Promise<RelationshipClassificationResult[]> {
-	const results: RelationshipClassificationResult[] = [];
-	for (const request of requests) {
-		results.push(await classifyMemoryRelationship(request));
-	}
-	return results;
-}
-
 export async function classifyAndPersistMemoryLinksWithSettings(
 	request: ClassifyAndPersistMemoryLinksSettingsRequest,
 ): Promise<ClassifyAndPersistMemoryLinksResult> {

@@ -241,13 +241,6 @@ export async function loadRelationshipClassificationPrompt(
 	return loadPrompt(genomeRoot, rootDir, "memory_relationship_classification.txt");
 }
 
-export async function loadMemoryConsolidationPrompt(
-	genomeRoot: string,
-	rootDir?: string,
-): Promise<string> {
-	return loadPrompt(genomeRoot, rootDir, "memory_consolidation.txt");
-}
-
 export async function loadSubcorticalRecallPrompt(
 	genomeRoot: string,
 	rootDir?: string,
