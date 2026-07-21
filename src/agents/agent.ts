@@ -76,12 +76,12 @@ import { shouldTagAgentEventWithSessionId } from "../shared/session-event-scope.
 import { getToolDisplayName } from "../shared/tool-display.ts";
 import { ulid } from "../util/ulid.ts";
 import { getContextWindowSize } from "./context-window.ts";
-import { fetchManifestLines, renderDelegationResult } from "./delegation-render.ts";
 import {
 	formatDelegationGoal,
 	type NormalizedTaskPayload,
 	normalizeTaskPayload,
 } from "./delegation-payload.ts";
+import { fetchManifestLines, renderDelegationResult } from "./delegation-render.ts";
 import { AgentEventEmitter } from "./events.ts";
 import { createInactivityTimer, type InactivityTimer } from "./inactivity-timer.ts";
 import type { AgentTreeEntry, Preambles } from "./loader.ts";
@@ -94,7 +94,12 @@ import {
 	resolveAgentModelSelection,
 	resolveMemoryModel,
 } from "./model-resolver.ts";
-import { buildObserverFrame, renderObserverFrame } from "./observers.ts";
+import {
+	buildObserverFrame,
+	escapeXml,
+	renderObserverFrame,
+	truncate as truncateForObserver,
+} from "./observers.ts";
 import type { Postscripts } from "./plan.ts";
 import {
 	buildDelegateTool,
@@ -539,7 +544,7 @@ export class Agent {
 			const delegatableAgents = this.getDelegatableAgents();
 
 			if (delegatableAgents.length > 0) {
-				this.agentTools.push(buildDelegateTool(delegatableAgents));
+				this.agentTools.push(buildDelegateTool());
 				if (this.spawner) {
 					this.agentTools.push(buildWaitAgentTool());
 					this.agentTools.push(buildMessageAgentTool());
@@ -1152,7 +1157,7 @@ export class Agent {
 		}
 
 		// Rebuild agent tools with updated delegate list
-		this.agentTools = [buildDelegateTool(newDelegates)];
+		this.agentTools = [buildDelegateTool()];
 		if (this.spawner) {
 			this.agentTools.push(buildWaitAgentTool());
 			this.agentTools.push(buildMessageAgentTool());
@@ -1902,10 +1907,7 @@ export class Agent {
 	 * resets, and the spawn summaries collected during the cell deliver as ONE
 	 * observer frame at cell end (deviation #2).
 	 */
-	private async runCellCall(
-		executeCall: () => Promise<PrimitiveResult>,
-		agentId: string,
-	): Promise<PrimitiveResult> {
+	private async runCellCall(executeCall: () => Promise<PrimitiveResult>): Promise<PrimitiveResult> {
 		this.currentCellId = `cell-${++this.cellOrdinal}`;
 		this.cellSpawnIndex = 0;
 		this.cellSpawnDigest = [];
@@ -1920,7 +1922,7 @@ export class Agent {
 			const digest = this.cellSpawnDigest;
 			this.currentCellId = undefined;
 			this.cellSpawnDigest = [];
-			if (digest.length > 0) await this.deliverCellSpawnObserverFrame(cellId, digest, agentId);
+			if (digest.length > 0) await this.deliverCellSpawnObserverFrame(cellId, digest);
 		}
 	}
 
@@ -1934,7 +1936,6 @@ export class Agent {
 			ok: boolean;
 			summary: string;
 		}>,
-		_agentId: string,
 	): Promise<void> {
 		if (!this.spawner || this.delegateObserverConfigs.length === 0) return;
 		const lines = [
@@ -2260,7 +2261,11 @@ export class Agent {
 				this.learnProcess.recordAction(agentId);
 			}
 
-			const manifest = await fetchManifestLines(this.spawner?.storeAccess, this.manifestRenames, resultMsg.handle_id);
+			const manifest = await fetchManifestLines(
+				this.spawner?.storeAccess,
+				this.manifestRenames,
+				resultMsg.handle_id,
+			);
 			const summary = renderDelegationResult(
 				resultMsg.output,
 				delegation.agent_name,
@@ -2426,7 +2431,11 @@ export class Agent {
 		handleId: string,
 		label: string,
 	): Promise<DelegationOutcome> {
-		const manifest = await fetchManifestLines(this.spawner?.storeAccess, this.manifestRenames, handleId);
+		const manifest = await fetchManifestLines(
+			this.spawner?.storeAccess,
+			this.manifestRenames,
+			handleId,
+		);
 		const summary = renderDelegationResult(
 			result.output,
 			label,
@@ -2474,7 +2483,11 @@ export class Agent {
 				const result = await this.withInactivitySuspendedFor(cmd.handle, () =>
 					spawner.waitAgent(cmd.handle, caller),
 				);
-				const manifest = await fetchManifestLines(this.spawner?.storeAccess, this.manifestRenames, cmd.handle);
+				const manifest = await fetchManifestLines(
+					this.spawner?.storeAccess,
+					this.manifestRenames,
+					cmd.handle,
+				);
 				const content = renderDelegationResult(
 					result.output,
 					"wait_agent",
@@ -2519,7 +2532,11 @@ export class Agent {
 				return { toolResultMsg, stumbles: 0 };
 			}
 
-			const manifest = await fetchManifestLines(this.spawner?.storeAccess, this.manifestRenames, cmd.handle);
+			const manifest = await fetchManifestLines(
+				this.spawner?.storeAccess,
+				this.manifestRenames,
+				cmd.handle,
+			);
 			const content = renderDelegationResult(
 				result.output,
 				"message_agent",
@@ -3122,7 +3139,7 @@ export class Agent {
 			const executeCall = () =>
 				this.primitiveRegistry.execute(call.name, spliced.args, this.signal);
 			const result =
-				call.name === "cell" ? await this.runCellCall(executeCall, agentId) : await executeCall();
+				call.name === "cell" ? await this.runCellCall(executeCall) : await executeCall();
 
 			// Verify primitive result. Infrastructure-tagged failures (spec §4)
 			// are not model error: no stumble, no learn signal, a warning event.
@@ -3574,11 +3591,6 @@ function slugHandlePart(value: string): string {
 	return slug.length > 0 ? slug : "unknown";
 }
 
-function truncateForObserver(value: string, maxChars: number): string {
-	if (value.length <= maxChars) return value;
-	return `${value.slice(0, Math.max(0, maxChars - 3))}...`;
-}
-
 async function withTimeout<T>(
 	promise: Promise<T>,
 	timeoutMs: number,
@@ -3604,13 +3616,6 @@ async function withTimeout<T>(
 	}
 }
 
-function escapeXml(value: string): string {
-	return value
-		.replaceAll("&", "&amp;")
-		.replaceAll("<", "&lt;")
-		.replaceAll(">", "&gt;")
-		.replaceAll('"', "&quot;");
-}
 
 function subcorticalRecallEnabled(config: AgentSpec["subcortical_recall"]): boolean {
 	if (!config) return false;
