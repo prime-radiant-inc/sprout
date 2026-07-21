@@ -34,7 +34,7 @@ flight at that point.
 
 - [x] src/store (cycle 1)
 - [x] src/bus (cycle 2)
-- [ ] src/host (cli-*, session-controller, settings, channels)
+- [x] src/host (cycle 3)
 - [ ] src/kernel (primitives, truncation, capture, redaction, cell-primitive)
 - [ ] src/agents (agent.ts — the giant, plan, loader, delegation)
 - [ ] src/cell (cell-host, engines, worker, bootstrap)
@@ -96,6 +96,32 @@ DECOMPOSITION (mandate 4b) — seams verified by both reviewers:
 - queued — message-loop free fns → module (~220); lifecycle utils → module; runAgentProcess
   355-line body → named blocks (loadAgentSpecOrPublishError, buildAgentFromStart);
   messageAgent 190-line branch split; constructor options object (RISKY churn).
+
+### Cycle 3 — src/host (both reviewers; BROKEN WINDOW found and fixed)
+
+HEADLINE: scripts/check-host-session-controller-boundaries.sh (check:ci, not the commit
+hook) was RED at HEAD since the Phase-5 mutation-gate commit. Fixed by the factory
+extraction both reviewers independently mapped: session-agent-factory.ts (311 lines) out
+of session-controller.ts (1029→740). Guardrail + check:architecture green.
+
+Done: ObserverDispatcher shim + METACOGNITIVE_OBSERVER + config option (spec-confirmed
+superseded; test PORTED to ObserverRegistry); dispatchSessionCommand (tests rewritten to
+createSessionCommandHandlers); handleSigint; resolveResumeSelection;
+formatSessionSelectionSnapshot; relationshipModel dead field (preflight call kept);
+shouldCollapseRun unused param.
+
+Queued: control-plane helpers C1 (~144) + wire-types C2 (~156 — also fixes kernel→host
+implementation import inversion at kernel/types.ts:648); credential service C3 (RISKY);
+terminal-setup out of cli-shared E1 (~193); codex-oauth ops out of cli-bootstrap E2
+(~112); web-server construction dedup; control-plane internal dedups (4x failure
+response, 8x findProvider, secret-store catch x2); compaction duplicate tests;
+bootstrap deps-defaults extraction; EventBus test-only surface.
+
+RISKY for Jesse: deprecated submitGoal generator + session.ts wholesale delete (public
+entry API; e2e VCR harness rewrite); auth-channel push/onPush speculative channel (spec
+says manifests are pulled — hold pending sap phases); pricing fetch blocks TUI startup
+~5s offline (defer to web start?); bootstrapSessionRuntime all-unknown return forces
+downstream cast shims.
 
 RISKY/BUGS — recorded for Jesse:
 - LIKELY BUG: featherweight silently DROPS env/hints/payload (spawnAgent returns into
