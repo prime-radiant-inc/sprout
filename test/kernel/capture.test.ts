@@ -342,7 +342,8 @@ describe("auto-capture on lossy truncation", () => {
 		registry.register(fakeExec(longOutput));
 		registry.setCaptureStore?.(store);
 		const result = await registry.execute("exec", {});
-		expect(result.output).toContain("[... 44 lines truncated — full output: ⟦exec_output⟧]");
+		// Capture-all v10: chars-only gauge, canonical "full content:" wording.
+		expect(result.output).toMatch(/\[\.\.\. \d+ chars truncated — full content: ⟦exec_output⟧\]/);
 		expect(result.output).not.toContain("lines omitted");
 		expect(store.bound).toHaveLength(1);
 		expect(store.bound[0]?.name).toBe("exec_output");
@@ -396,7 +397,7 @@ describe("auto-capture on lossy truncation", () => {
 		expect(store.bound[0]?.content).not.toContain("[stderr]");
 		expect(store.bound[0]?.content).not.toContain("err 1");
 		expect(store.bound[1]?.content).toBe(stderr);
-		expect(result.output).toContain("full output: ⟦exec_output⟧, stderr: ⟦exec_output_stderr⟧");
+		expect(result.output).toContain("full content: ⟦exec_output⟧, stderr: ⟦exec_output_stderr⟧");
 	});
 
 	it("a primitive without captureSource is never auto-bound — honest lossy text stays", async () => {
@@ -429,7 +430,7 @@ describe("auto-capture on lossy truncation", () => {
 		expect(result.success).toBe(true);
 		// Only the explicit bind — no second exec_output copy.
 		expect(store.bound.map((b) => b.name)).toEqual(["myout"]);
-		expect(result.output).toContain("full output: ⟦myout⟧");
+		expect(result.output).toContain("full content: ⟦myout⟧");
 		expect(result.output).not.toContain("exec_output");
 	});
 
@@ -446,6 +447,8 @@ describe("auto-capture on lossy truncation", () => {
 		registry.setCaptureStore?.(store);
 		const result = await registry.execute("value_get", {});
 		expect(store.bound).toHaveLength(0);
-		expect(result.output).toBe(truncateToolOutput("x".repeat(40_000), "value_get"));
+		// Capture-all v10: value reads bypass the registry gate wholesale — the
+		// tool's own budget IS the truncation policy (no more generic mid-cut).
+		expect(result.output).toBe("x".repeat(40_000));
 	});
 });

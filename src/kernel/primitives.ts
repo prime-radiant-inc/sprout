@@ -6,7 +6,13 @@ import type { MemoryWriteAuthorization } from "../genome/memory-write-authorizat
 import { getToolDisplayName } from "../shared/tool-display.ts";
 import type { StoreAccess } from "../store/store-access.ts";
 import { type ExecResult, type ExecutionEnvironment, renderReadFile } from "./execution-env.ts";
-import { truncateToolOutputDetailed } from "./truncation.ts";
+import { redactSensitiveTranscriptContent } from "./redaction.ts";
+import {
+	captureMarker,
+	resolvePreviewBudgets,
+	truncateAtBudgetDetailed,
+	truncateToolOutputDetailed,
+} from "./truncation.ts";
 import type { PrimitiveResult } from "./types.ts";
 
 const READ_FILE_LINE_PREFIX_NOTE =
@@ -54,6 +60,8 @@ export interface PrimitiveRegistryOptions {
 	 * true (exec available). Enforced by the code-mode-cannot-exec canary.
 	 */
 	allowExec?: boolean;
+	/** Preview budgets override (evals/tests); defaults resolve from the env. */
+	previewBudgets?: Record<string, number>;
 }
 
 export function createPrimitiveRegistry(
@@ -63,6 +71,7 @@ export function createPrimitiveRegistry(
 ): PrimitiveRegistry {
 	const primitives = new Map<string, Primitive>();
 	let captureStore: StoreAccess | undefined;
+	const previewBudgets = options?.previewBudgets ?? resolvePreviewBudgets(process.env);
 
 	for (const prim of buildPrimitives(env, options?.allowExec !== false)) {
 		primitives.set(prim.name, prim);
@@ -90,32 +99,42 @@ export function createPrimitiveRegistry(
 				return { output: "", success: false, error: `Unknown primitive: ${name}` };
 			}
 			const result = await prim.execute(args, env, signal);
-			// Truncate output for LLM consumption
-			const detailed = truncateToolOutputDetailed(result.output, name);
-			// Auto-capture on lossy truncation (sap spec §2): the full SOURCE
-			// content auto-binds and the marker names the value. Value-read
-			// primitives are excluded — their output already comes from the store.
-			if (!detailed.truncated || captureStore === undefined || name.startsWith("value_")) {
-				return { ...result, output: detailed.text };
+			// Value reads bypass the registry gate wholesale (sap spec §2): a
+			// value read is a precision instrument whose own budgets ARE the
+			// truncation policy, and it redacts output and errors at source.
+			if (name.startsWith("value_")) {
+				return result;
 			}
-			const dropped =
-				detailed.droppedLines > 0
-					? `${detailed.droppedLines} lines`
-					: `${detailed.droppedChars} chars`;
+			const output = redactSensitiveTranscriptContent(result.output);
+			const redacted: PrimitiveResult = { ...result, output };
+			if (result.error !== undefined) {
+				redacted.error = redactSensitiveTranscriptContent(result.error);
+			}
+			const source = result.captureSource;
+			// The predicate (capture-all spec v10): the svelte/capture path
+			// engages only when the result carries its source AND a capture store
+			// exists — a svelte cut without a ref to compensate would destroy
+			// information, so everything else keeps today's truncation limits.
+			if (source === undefined || captureStore === undefined) {
+				return { ...redacted, output: truncateToolOutputDetailed(output, name).text };
+			}
+			const budget = previewBudgets[name] ?? previewBudgets.default ?? 2_000;
+			// Chars-only trigger: below budget renders whole (no line shaping —
+			// a sub-budget many-line output costs less to show than to capture).
+			if (output.length <= budget) {
+				return redacted;
+			}
+			const noun = name === "fetch" ? "body" : "content";
+			const gauge = truncateAtBudgetDetailed(output, name, budget);
+			const dropped = `${gauge.droppedChars} chars`;
 			// An explicit bind already stored the source — never store it twice.
 			// The marker points at the explicitly bound value instead.
 			if (result.boundValues !== undefined && result.boundValues.length > 0) {
-				const marker = `[... ${dropped} truncated — full output: ⟦${result.boundValues[0]!.name}⟧]`;
+				const marker = captureMarker(dropped, ` — full ${noun}: ⟦${result.boundValues[0]!.name}⟧`);
 				return {
-					...result,
-					output: truncateToolOutputDetailed(result.output, name, undefined, marker).text,
+					...redacted,
+					output: truncateAtBudgetDetailed(output, name, budget, marker).text,
 				};
-			}
-			const source = result.captureSource;
-			// No source content (unknown/legacy primitive): never bind a
-			// rendering — degrade to today's honest lossy truncation.
-			if (source === undefined) {
-				return { ...result, output: detailed.text };
 			}
 			try {
 				const metadata = await captureStore.bind({
@@ -128,14 +147,15 @@ export function createPrimitiveRegistry(
 					explicit: false,
 				});
 				const boundValues = [{ name: metadata.name, ulid: metadata.ulid, size: metadata.size }];
-				let marker = `[... ${dropped} truncated — full output: ⟦${metadata.name}⟧]`;
-				// Stderr content the truncation dropped binds as its own value; the
-				// marker names both when both were cut (sap spec §2).
-				const stderrDropped =
-					source.stderr !== undefined &&
-					source.stderr !== "" &&
-					!detailed.text.includes(source.stderr);
-				if (stderrDropped) {
+				// Stderr the preview dropped binds as its own value. Containment
+				// runs in REDACTED space: raw stderr can never match a redacted
+				// preview, so a raw comparison would bind spurious companions.
+				const redactedStderr =
+					source.stderr === undefined || source.stderr === ""
+						? undefined
+						: redactSensitiveTranscriptContent(source.stderr);
+				let tail = ` — full ${noun}: ⟦${metadata.name}⟧`;
+				if (redactedStderr !== undefined && !gauge.text.includes(redactedStderr)) {
 					const stderrMetadata = await captureStore.bind({
 						name: `${name}_output_stderr`,
 						content: source.stderr as string,
@@ -148,23 +168,37 @@ export function createPrimitiveRegistry(
 						ulid: stderrMetadata.ulid,
 						size: stderrMetadata.size,
 					});
-					marker = `[... ${dropped} truncated — full output: ⟦${metadata.name}⟧, stderr: ⟦${stderrMetadata.name}⟧]`;
+					tail = ` — full ${noun}: ⟦${metadata.name}⟧, stderr: ⟦${stderrMetadata.name}⟧`;
 				}
+				const marker = captureMarker(dropped, tail);
 				return {
-					...result,
-					output: truncateToolOutputDetailed(result.output, name, undefined, marker).text,
+					...redacted,
+					output: truncateAtBudgetDetailed(output, name, budget, marker).text,
 					boundValues,
 				};
 			} catch (err) {
-				// Store-full degrades to lossy-but-honest — never a marker naming
-				// a value that does not exist.
+				// Capture failed → today's limits (principle 1: no svelte cut
+				// without a ref). Under today's limit the output rides whole,
+				// honestly unmarked; over it, lossy-but-honest — never a marker
+				// naming a value that does not exist.
+				const legacy = truncateToolOutputDetailed(output, name);
+				if (!legacy.truncated) {
+					return redacted;
+				}
 				const reason = err instanceof Error ? err.message : String(err);
-				const marker = reason.includes("store full")
-					? `[... ${dropped} truncated; store full — content not captured]`
-					: `[... ${dropped} truncated; capture failed — content not captured]`;
+				const legacyDropped =
+					legacy.droppedLines > 0
+						? `${legacy.droppedLines} lines`
+						: `${legacy.droppedChars} chars`;
+				const marker = captureMarker(
+					legacyDropped,
+					reason.includes("store full")
+						? "; store full — content not captured"
+						: "; capture failed — content not captured",
+				);
 				return {
-					...result,
-					output: truncateToolOutputDetailed(result.output, name, undefined, marker).text,
+					...redacted,
+					output: truncateToolOutputDetailed(output, name, undefined, marker).text,
 				};
 			}
 		},

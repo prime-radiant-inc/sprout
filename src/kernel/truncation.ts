@@ -94,7 +94,7 @@ const DEFAULT_MODES: Record<string, TruncationMode> = {
 };
 
 /** One truncation pass's outcome: the text plus what was dropped. */
-interface PassResult {
+export interface PassResult {
 	text: string;
 	dropped: boolean;
 	droppedLines: number;
@@ -188,6 +188,20 @@ function truncateLinesDetailed(output: string, maxLines: number, marker?: string
 		droppedLines: omitted,
 		droppedChars: output.length - head.length - tail.length,
 	};
+}
+
+/**
+ * The svelte-gate char pass (capture-all spec v10): on the capture path the
+ * budget is the ONLY truncation — no line limits — shaped by the tool's mode
+ * so tails stay visible where they matter (exec/read_file/fetch: head_tail).
+ */
+export function truncateAtBudgetDetailed(
+	output: string,
+	toolName: string,
+	budget: number,
+	marker?: string,
+): PassResult {
+	return truncateOutputDetailed(output, budget, DEFAULT_MODES[toolName] ?? "head_tail", marker);
 }
 
 export interface TruncationOverrides {

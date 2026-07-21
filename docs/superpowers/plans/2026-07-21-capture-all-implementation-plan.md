@@ -17,16 +17,13 @@ prefix commits with `PATH="/home/jesse/.bun/bin:$PATH"` so the hook finds bun/bu
 - [x] `DEFAULT_PREVIEW_BUDGETS` + `resolvePreviewBudgets(env, warn)` +
       `captureMarker(dropped, tail)` in `truncation.ts`; tested in
       `test/kernel/preview-budgets.test.ts` (10 tests incl. warn-sink fallbacks).
-- [ ] The predicate in `createPrimitiveRegistry.execute` (`primitives.ts:87–170`): svelte
-      path iff `captureSource !== undefined` AND capture store set; `boundValues`
-      non-empty selects no-double-store branch within it. Chars-only trigger (line limits
-      no longer apply/trigger on the predicate path — stated change); capture-failed →
-      re-truncate at `DEFAULT_CHAR_LIMITS` + `content not captured` banner.
-- [ ] `value_*` bypass hoisted ABOVE truncation (delete dead post-truncation clause at
-      `primitives.ts:98`); `value_get` over-budget error routed through `fail()`
-      (`value-primitives.ts:159–167`).
-- [ ] Redaction: registry output + `result.error` (errors never budgeted/captured).
-- [ ] Stderr companion containment predicate → redacted space (`primitives.ts:134–137`).
+- [x] The predicate + chars-only trigger + capture-failed→today's-limits + redaction
+      (output AND error) + stderr-in-redacted-space + value_* bypass + fetch body noun +
+      markers via helper — all in `primitives.ts` execute; `truncateAtBudgetDetailed`
+      added to truncation.ts. TDD: test/kernel/registry-gate.test.ts (12 tests). Churn
+      recorded: 4 capture.test.ts pins moved (wording full output→full content;
+      lines→chars gauge; value_get bypass replaces generic mid-cut).
+- [ ] `value_get` over-budget error routed through `fail()` (`value-primitives.ts:159–167`).
 - [ ] `glob`: `captureSource` (the listing) + `CAPTURE_PRIMITIVE_NAMES` entry +
       `summarizeArgs` pattern arm (`capture.ts:18, 207–217`).
 - [ ] Fetch marker noun `body`.
