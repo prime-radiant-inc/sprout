@@ -333,9 +333,7 @@ describe("WebServer", () => {
 			try {
 				const denied = await fetch(`http://localhost:${s.getPort()}/api/sessions`);
 				expect(denied.status).toBe(401);
-				const ok = await fetch(
-					`http://localhost:${s.getPort()}/api/sessions?token=secret-token`,
-				);
+				const ok = await fetch(`http://localhost:${s.getPort()}/api/sessions?token=secret-token`);
 				expect(ok.status).toBe(200);
 			} finally {
 				await s.stop();

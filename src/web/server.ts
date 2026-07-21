@@ -2,13 +2,13 @@ import { randomBytes } from "node:crypto";
 import { join, resolve } from "node:path";
 import type { ServerWebSocket } from "bun";
 import type { SessionBus } from "../host/event-bus.ts";
+import { loadSessionSummaries } from "../host/session-metadata.ts";
 import {
 	createDefaultSessionSelectionSnapshot,
 	type SessionSelectionSnapshot,
 	selectionRequestToCurrentModel,
 	selectionSnapshotToCurrentModel,
 } from "../host/session-selection.ts";
-import { loadSessionSummaries } from "../host/session-metadata.ts";
 import { loadAllEventLogs } from "../host/session-state.ts";
 import type {
 	SettingsCommand,
