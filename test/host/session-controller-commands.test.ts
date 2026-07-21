@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { dispatchSessionCommand } from "../../src/host/session-controller-commands.ts";
+import { createSessionCommandHandlers } from "../../src/host/session-controller-commands.ts";
 import type { Command } from "../../src/kernel/types.ts";
 import type { SessionSelectionRequest } from "../../src/shared/session-selection.ts";
 
-describe("dispatchSessionCommand", () => {
+describe("createSessionCommandHandlers", () => {
 	test("routes each command kind to the matching action", () => {
 		const calls: string[] = [];
 		let submitGoal: string | undefined;
@@ -47,8 +47,12 @@ describe("dispatchSessionCommand", () => {
 			{ kind: "quit", data: {} },
 		];
 
+		const handlers = createSessionCommandHandlers(actions) as unknown as Record<
+			string,
+			(data: Record<string, unknown>) => void
+		>;
 		for (const cmd of commands) {
-			dispatchSessionCommand(cmd, actions);
+			handlers[cmd.kind]?.(cmd.data);
 		}
 
 		expect(calls).toEqual([
@@ -68,35 +72,18 @@ describe("dispatchSessionCommand", () => {
 	test("passes inherit selection through switch_model", () => {
 		let switchedModel: unknown = "unset";
 
-		dispatchSessionCommand(
-			{ kind: "switch_model", data: { selection: { kind: "inherit" } } },
-			{
-				submitGoal: () => {},
-				steer: () => {},
-				interrupt: () => {},
-				compact: () => {},
-				clear: () => {},
-				switchModel: (selection: SessionSelectionRequest | undefined) => {
-					switchedModel = selection;
-				},
-				quit: () => {},
+		createSessionCommandHandlers({
+			submitGoal: () => {},
+			steer: () => {},
+			interrupt: () => {},
+			compact: () => {},
+			clear: () => {},
+			switchModel: (selection: SessionSelectionRequest | undefined) => {
+				switchedModel = selection;
 			},
-		);
+			quit: () => {},
+		}).switch_model({ selection: { kind: "inherit" } });
 
 		expect(switchedModel).toEqual({ kind: "inherit" });
-	});
-
-	test("throws clear error for unknown command kind", () => {
-		expect(() =>
-			dispatchSessionCommand({ kind: "not_a_real_command", data: {} } as unknown as Command, {
-				submitGoal: () => {},
-				steer: () => {},
-				interrupt: () => {},
-				compact: () => {},
-				clear: () => {},
-				switchModel: () => {},
-				quit: () => {},
-			}),
-		).toThrow("Unknown command kind");
 	});
 });

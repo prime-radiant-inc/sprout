@@ -867,10 +867,6 @@ describe("SessionController", () => {
 
 		expect(models.summaryModel).toEqual({ provider: providerId, model: "summary-model" });
 		expect(models.extractionModel).toEqual({ provider: providerId, model: "extract-model" });
-		expect(models.relationshipModel).toEqual({
-			provider: providerId,
-			model: "relationship-model",
-		});
 	});
 
 	test("session collapse startup validation resolves missing summary model from best fallback", async () => {

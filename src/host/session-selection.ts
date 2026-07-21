@@ -1,6 +1,5 @@
 import { resolveModel } from "../agents/model-resolver.ts";
 import {
-	formatSessionSelectionRequest,
 	type ModelOverride,
 	type SessionSelectionRequest,
 	selectionRequestToModelOverride,
@@ -117,11 +116,3 @@ export function selectionRequestToCurrentModel(
 	return undefined;
 }
 
-export function formatSessionSelectionSnapshot(
-	selection: SessionSelectionSnapshot,
-): string | undefined {
-	if (selection.selection.kind === "inherit") {
-		return undefined;
-	}
-	return formatSessionSelectionRequest(selection.selection);
-}

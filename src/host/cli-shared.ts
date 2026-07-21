@@ -522,15 +522,3 @@ export async function configureTerminal(options: ConfigureTerminalOptions = {}):
 	return sections.join("\n\n");
 }
 
-/** Handle SIGINT: interrupt if running, exit if idle. */
-export function handleSigint(
-	bus: { emitCommand(cmd: import("../kernel/types.ts").Command): void },
-	controller: { isRunning: boolean },
-	rl: { close(): void },
-): void {
-	if (controller.isRunning) {
-		bus.emitCommand({ kind: "interrupt", data: {} });
-	} else {
-		rl.close();
-	}
-}

@@ -111,7 +111,6 @@ export type AgentFactory = (options: AgentFactoryOptions) => Promise<AgentFactor
 interface CollapseMemoryModels {
 	summaryModel: ResolvedModel;
 	extractionModel: ResolvedModel;
-	relationshipModel: ResolvedModel;
 	resolverSettings: ResolverSettings;
 	modelsByProvider: Map<string, ProviderModel[]>;
 }
@@ -249,15 +248,14 @@ export async function resolveCollapseMemoryModels(
 				enabled: true,
 			})),
 		);
+	// Fail-fast preflight only: the relationship model re-resolves lazily
+	// downstream (memory-incorporation) from resolverSettings, but a missing
+	// config must still fail here, before the session runs.
+	resolveRequiredCollapseModel("relationship", effectiveResolverSettings, modelMap);
 	return {
 		summaryModel: resolveRequiredCollapseModel("summary", effectiveResolverSettings, modelMap),
 		extractionModel: resolveRequiredCollapseModel(
 			"extraction",
-			effectiveResolverSettings,
-			modelMap,
-		),
-		relationshipModel: resolveRequiredCollapseModel(
-			"relationship",
 			effectiveResolverSettings,
 			modelMap,
 		),

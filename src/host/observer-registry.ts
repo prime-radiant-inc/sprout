@@ -8,28 +8,6 @@ import type { AgentSpawner } from "../bus/spawner.ts";
 import { type AgentAddress, rootAgentAddress } from "../bus/types.ts";
 import type { EventKind, SessionEvent } from "../kernel/types.ts";
 
-export const METACOGNITIVE_OBSERVER: ObserverAttachmentConfig = {
-	agentName: "metacognitive",
-	target: "root",
-	events: [
-		"perceive",
-		"steering",
-		"plan_end",
-		"warning",
-		"error",
-		"primitive_end",
-		"act_end",
-		"compaction",
-		"interrupted",
-	],
-	trigger: { every: 3, event: "plan_end" },
-	maxEvents: 24,
-	maxChars: 6000,
-	handleId: "observer-metacognitive",
-	agentId: "observer-metacognitive",
-	description: "observes root turns",
-};
-
 const PRECONFIGURE_EVENT_LIMIT = 64;
 
 interface ObserverSubscriptionState {
@@ -53,7 +31,6 @@ export interface ObserverRegistryOptions {
 	projectDataDir?: string;
 	rootDir?: string;
 	evalMode?: boolean;
-	config?: ObserverAttachmentConfig;
 	configs?: ObserverAttachmentConfig[];
 	getResolverSettings?: () => ResolverSettings | undefined;
 	emitEvent: (
@@ -90,7 +67,7 @@ export class ObserverRegistry {
 		this.rootDir = options.rootDir;
 		this.evalMode = options.evalMode;
 		this.rootCaller = rootAgentAddress(options.rootAgentName);
-		const configs = options.configs ?? (options.config ? [options.config] : []);
+		const configs = options.configs ?? [];
 		this.subscriptions = configs.map(createSubscriptionState);
 		this.getResolverSettings = options.getResolverSettings;
 		this.emitEvent = options.emitEvent;

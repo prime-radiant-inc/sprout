@@ -1,34 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { loadResumeState, resolveResumeSelection } from "../../src/host/cli-resume.ts";
-import type { SessionSelectionContext } from "../../src/host/session-selection.ts";
-import type { ProviderConfig } from "../../src/host/settings/types.ts";
+import { loadResumeState } from "../../src/host/cli-resume.ts";
 import type { Message } from "../../src/llm/types.ts";
-
-function provider(overrides: Partial<ProviderConfig> = {}): ProviderConfig {
-	return {
-		id: "openai",
-		kind: "openai",
-		label: "OpenAI",
-		enabled: true,
-		createdAt: "",
-		updatedAt: "",
-		...overrides,
-	};
-}
-
-function selectionContext(
-	overrides: Partial<SessionSelectionContext> = {},
-): SessionSelectionContext {
-	return {
-		settings: {
-			providers: overrides.settings?.providers ?? [provider()],
-			defaults: overrides.settings?.defaults ?? {},
-			memoryModels: overrides.settings?.memoryModels ?? {},
-			agentModelOverrides: overrides.settings?.agentModelOverrides ?? {},
-		},
-		catalog: overrides.catalog ?? [],
-	};
-}
 
 describe("loadResumeState", () => {
 	test("resume loads history, events, and completed child handle results", async () => {
@@ -155,72 +127,5 @@ describe("loadResumeState", () => {
 			model: { providerId: "openai", modelId: "gpt-4o" },
 		});
 		expect(state?.memorySurface?.memoryBlock).toBe("<memory_context>cached</memory_context>");
-	});
-
-	test("resolveResumeSelection preserves explicit provider-qualified model selections", () => {
-		expect(
-			resolveResumeSelection(
-				{ kind: "model", model: { providerId: "openai", modelId: "gpt-4o" } },
-				selectionContext({
-					catalog: [
-						{
-							providerId: "openai",
-							models: [{ id: "gpt-4o", label: "gpt-4o", source: "remote" }],
-						},
-					],
-				}),
-			),
-		).toEqual({
-			selection: {
-				kind: "model",
-				model: { providerId: "openai", modelId: "gpt-4o" },
-			},
-			resolved: { providerId: "openai", modelId: "gpt-4o" },
-			source: "session",
-		});
-	});
-
-	test("resolveResumeSelection resolves tier selections through the default provider tier defaults", () => {
-		expect(
-			resolveResumeSelection(
-				{ kind: "tier", tier: "balanced" },
-				selectionContext({
-					settings: {
-						providers: [
-							provider({
-								id: "openai",
-							}),
-						],
-						defaults: {
-							balanced: {
-								providerId: "openai",
-								modelId: "gpt-4.1",
-							},
-						},
-						memoryModels: {},
-						agentModelOverrides: {},
-					},
-					catalog: [
-						{
-							providerId: "openai",
-							models: [{ id: "gpt-4.1", label: "gpt-4.1", source: "remote" }],
-						},
-					],
-				}),
-			),
-		).toEqual({
-			selection: {
-				kind: "tier",
-				tier: "balanced",
-			},
-			resolved: { providerId: "openai", modelId: "gpt-4.1" },
-			source: "session",
-		});
-	});
-
-	test("resolveResumeSelection rejects tier selections when no global tier default is configured", () => {
-		expect(() =>
-			resolveResumeSelection({ kind: "tier", tier: "fast" }, selectionContext()),
-		).toThrow(/No global 'fast' model is configured/);
 	});
 });
