@@ -1,5 +1,5 @@
 import type { AgentAddress } from "../bus/types.ts";
-import type { AgentFileInfo, AgentToolDefinition } from "../genome/genome.ts";
+import type { AgentToolDefinition } from "../genome/genome.ts";
 import { renderMemories, renderRoutingHints } from "../genome/recall.ts";
 import type {
 	AgentCommand,
@@ -595,30 +595,11 @@ export function parsePlanResponse(
 // Workspace prompt sections
 // ---------------------------------------------------------------------------
 
-/** Format a byte count as a human-readable size string. */
-function formatSize(bytes: number): string {
-	if (bytes < 1024) return `${bytes}B`;
-	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-	return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-}
-
-/** Render an XML block listing the agent's workspace files. */
-export function renderWorkspaceFiles(files: AgentFileInfo[], filesDir: string): string {
-	if (files.length === 0) return "";
-	const entries = files.map((f) => `  - ${f.name}: ${formatSize(f.size)}`).join("\n");
-	return `\n\n<agent_files>\n${entries}\n  These files are in your workspace at ${filesDir}. Use read_file to access them.\n</agent_files>`;
-}
-
 /** Render an XML block listing the agent's workspace tools. */
 export function renderWorkspaceTools(tools: AgentToolDefinition[]): string {
 	if (tools.length === 0) return "";
 	const entries = tools.map((t) => `  - ${t.name}: ${t.description}`).join("\n");
 	return `\n\n<agent_tools>\n${entries}\n  These are tools you created. They are registered as primitives AND on your PATH for shell use.\n</agent_tools>`;
-}
-
-/** Return encouragement text for tool creation. */
-export function renderWorkspaceEncouragement(): string {
-	return `\n\nPrefer writing and saving tools over running ad-hoc commands. When you need to do something non-trivial, save a tool for it using save_tool — even if you'll only use it once this session. Tools persist across sessions and become part of your permanent capabilities. Your saved tools are on PATH and can be called directly from exec.`;
 }
 
 /**
