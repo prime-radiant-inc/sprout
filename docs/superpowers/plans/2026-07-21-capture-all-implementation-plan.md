@@ -47,7 +47,8 @@ prefix commits with `PATH="/home/jesse/.bun/bin:$PATH"` so the hook finds bun/bu
       iff recovered AND size-identity match AND over budget, form-1 marker with the
       delivered alias appended after rewrites; fail-closed to the 30 K backstop; redaction
       at the seam. Tests: test/agents/delegation-render.test.ts (5) + resume pin updated.
-- [ ] Cell gate: threshold from `cell` record row + marker helper (zero churn, asserted).
+- [x] Cell gate: threshold from `cell` record row + marker helper — zero churn asserted
+      (127 cell + e2e tests pass untouched; markers byte-identical).
 - [ ] Tests per spec P2 list: both flavors preview+ref; shared featherweight → raw;
       capture-failure → raw; publish-failure → fallback never marker; recovered
       clamp/backstop matrix incl. stale-prior-goal + live-capture-failed-never-clamped;

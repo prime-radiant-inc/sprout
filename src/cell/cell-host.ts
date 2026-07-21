@@ -26,6 +26,7 @@
 
 import { readFile } from "node:fs/promises";
 import { redactSensitiveTranscriptContent } from "../kernel/redaction.ts";
+import { captureMarker, resolvePreviewBudgets } from "../kernel/truncation.ts";
 import type { StoreAccess } from "../store/store-access.ts";
 import { buildInternalSproutCommand } from "../util/self-command.ts";
 import { resolveCellEngineName } from "./cell-engine.ts";
@@ -72,9 +73,11 @@ export const CELL_GET_BUDGET_BYTES = 1024 * 1024;
 
 /**
  * Above this many chars, cell stdout / return values auto-bind into the store
- * and the transcript carries a marker naming the value instead.
+ * and the transcript carries a marker naming the value instead. The default
+ * (2,000) folds into the preview-budget record's `cell` row (capture-all spec
+ * v10) — an explicit row, so tuning `default` cannot silently move this gate.
  */
-export const CELL_AUTO_BIND_THRESHOLD = 2_000;
+export const CELL_AUTO_BIND_THRESHOLD = resolvePreviewBudgets(process.env).cell ?? 2_000;
 
 const BUDGET_POLL_INTERVAL_MS = 100;
 const RSS_POLL_INTERVAL_MS = 250;
@@ -401,9 +404,15 @@ export class CellHost {
 				provenance: { agentHandleId: "", origin: { kind: "cell" } },
 				explicit: false,
 			});
-			return `${redacted.slice(0, CELL_AUTO_BIND_THRESHOLD)}\n[... ${redacted.length - CELL_AUTO_BIND_THRESHOLD} chars truncated — full content: ⟦${metadata.name}⟧]`;
+			return `${redacted.slice(0, CELL_AUTO_BIND_THRESHOLD)}\n${captureMarker(
+				`${redacted.length - CELL_AUTO_BIND_THRESHOLD} chars`,
+				` — full content: ⟦${metadata.name}⟧`,
+			)}`;
 		} catch {
-			return `${redacted.slice(0, CELL_AUTO_BIND_THRESHOLD)}\n[... ${redacted.length - CELL_AUTO_BIND_THRESHOLD} chars truncated; capture failed — content not captured]`;
+			return `${redacted.slice(0, CELL_AUTO_BIND_THRESHOLD)}\n${captureMarker(
+				`${redacted.length - CELL_AUTO_BIND_THRESHOLD} chars`,
+				"; capture failed — content not captured",
+			)}`;
 		}
 	}
 
