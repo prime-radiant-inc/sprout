@@ -38,7 +38,7 @@ import { BusLearnForwarder } from "./learn-forwarder.ts";
 import { prepareResultOutput } from "./result-gate.ts";
 import { loadCompletedChildHandles, replayHandleLog } from "./resume.ts";
 import { AgentSpawner, type SpawnerAuthChannel } from "./spawner.ts";
-import { agentEvents, agentInbox, agentReady, agentResult, sessionEvents } from "./topics.ts";
+import { agentInbox, agentReady, agentResult, sessionEvents } from "./topics.ts";
 import type {
 	AgentMessageMessage,
 	ContinueMessage,
@@ -236,7 +236,6 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 	let stopBusDisconnectAbort = () => {};
 
 	const inboxTopic = agentInbox(sessionId, handleId);
-	const eventsTopic = agentEvents(sessionId, handleId);
 	const resultTopic = agentResult(sessionId, handleId);
 	const readyTopic = agentReady(sessionId, handleId);
 
@@ -355,10 +354,10 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			ownerId: startMsg.self.agentName,
 		});
 
-		// Forward agent events to the bus (best-effort; ignore if disconnected).
-		// Publishes to both the per-handle topic (for spawner result tracking)
-		// and the session-wide topic (so the UI sees events at any depth without
-		// needing a relay chain through intermediate spawners).
+		// Forward agent events to the session-wide topic (best-effort; ignore if
+		// disconnected). Every consumer — UI, budget feed, observers, spawner —
+		// subscribes session-wide and filters on handle_id; a per-handle copy
+		// had no readers and doubled the frame traffic.
 		const sessionEventsTopic = sessionEvents(sessionId);
 		events.on((event) => {
 			if (!bus.connected) return;
@@ -367,9 +366,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 				handle_id: handleId,
 				event,
 			};
-			const payload = JSON.stringify(eventMsg);
-			bus.publish(eventsTopic, payload);
-			bus.publish(sessionEventsTopic, payload);
+			bus.publish(sessionEventsTopic, JSON.stringify(eventMsg));
 		});
 
 		// Create a spawner so this agent can delegate to other agents via the bus.

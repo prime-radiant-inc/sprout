@@ -96,15 +96,6 @@ describe("BusLearnForwarder", () => {
 		forwarder.recordAction("some-agent");
 	});
 
-	test("startBackground() is a no-op (does not throw)", () => {
-		const forwarder = new BusLearnForwarder(publisherBus, SESSION_ID);
-		forwarder.startBackground();
-	});
-
-	test("stopBackground() resolves immediately", async () => {
-		const forwarder = new BusLearnForwarder(publisherBus, SESSION_ID);
-		await forwarder.stopBackground();
-	});
 });
 
 /** Poll until a condition is true or timeout. */

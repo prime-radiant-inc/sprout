@@ -1000,22 +1000,9 @@ export class AgentSpawner {
 	}
 
 	private waitForBlockingSpawn(handleId: string): Promise<ResultMessage> {
-		const handle = this.handles.get(handleId);
-		if (!handle) {
-			throw new Error(`Unknown handle: ${handleId}`);
-		}
-
-		if (handle.result) {
-			return Promise.resolve(handle.result);
-		}
-
-		return new Promise<ResultMessage>((resolve, reject) => {
-			const waiter: PendingWaiter = {
-				resolve,
-				reject,
-			};
-			handle.pendingWaiters.push(waiter);
-		});
+		// The spec's timer-less blocking-wait path: exactly waitAgent with no
+		// caller (internal waits skip access checks) and no timeout.
+		return this.waitAgent(handleId, undefined, { untimed: true });
 	}
 
 	/**
@@ -1059,7 +1046,7 @@ export class AgentSpawner {
 
 		return new Promise<ResultMessage>((resolve, reject) => {
 			const waiter: PendingWaiter = {
-				resolve: (result) => resolve(result as ResultMessage),
+				resolve,
 				reject,
 				...(opts.untimed
 					? {}

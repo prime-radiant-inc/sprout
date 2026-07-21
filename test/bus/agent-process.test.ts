@@ -7,7 +7,6 @@ import { createAgentProcessClient, runAgentProcess } from "../../src/bus/agent-p
 import { BusClient } from "../../src/bus/client.ts";
 import { BusServer } from "../../src/bus/server.ts";
 import {
-	agentEvents,
 	agentInbox,
 	agentReady,
 	agentResult,
@@ -756,9 +755,9 @@ describe("runAgentProcess", () => {
 	test("publishes events during agent execution", async () => {
 		const mockClient = createMockClient("Done.");
 
-		const eventsTopic = agentEvents(SESSION_ID, HANDLE_ID);
+		// Events publish session-wide only (the per-handle copy had no readers).
 		const collectedEvents: string[] = [];
-		await parentClient.subscribe(eventsTopic, (payload) => {
+		await parentClient.subscribe(sessionEvents(SESSION_ID), (payload) => {
 			collectedEvents.push(payload);
 		});
 
@@ -808,9 +807,9 @@ describe("runAgentProcess", () => {
 	test("events carry caller.depth + 1 as their depth", async () => {
 		const mockClient = createMockClient("Done.");
 
-		const eventsTopic = agentEvents(SESSION_ID, HANDLE_ID);
+		// Events publish session-wide only (the per-handle copy had no readers).
 		const collectedEvents: string[] = [];
-		await parentClient.subscribe(eventsTopic, (payload) => {
+		await parentClient.subscribe(sessionEvents(SESSION_ID), (payload) => {
 			collectedEvents.push(payload);
 		});
 

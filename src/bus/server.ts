@@ -9,8 +9,6 @@ type ClientMessage =
 /** Wire-protocol message from server to client */
 type ServerMessage = { topic: string; payload: string } | { action: "subscribed"; topic: string };
 
-type WSData = { id: number };
-
 export interface BusServerOptions {
 	/** Port to listen on. Use 0 for random port assignment. */
 	port: number;
@@ -28,12 +26,11 @@ export class BusServer {
 	private readonly options: BusServerOptions;
 
 	/** topic -> set of subscribed websockets */
-	private subscriptions = new Map<string, Set<ServerWebSocket<WSData>>>();
+	private subscriptions = new Map<string, Set<ServerWebSocket<undefined>>>();
 
 	/** ws -> set of topics it's subscribed to (for cleanup on disconnect) */
-	private clientTopics = new Map<ServerWebSocket<WSData>, Set<string>>();
+	private clientTopics = new Map<ServerWebSocket<undefined>, Set<string>>();
 
-	private nextClientId = 0;
 
 	constructor(options: BusServerOptions) {
 		this.options = options;
@@ -56,13 +53,11 @@ export class BusServer {
 
 		const self = this;
 
-		this.server = Bun.serve<WSData>({
+		this.server = Bun.serve<undefined>({
 			port: this.options.port,
 			hostname: this.options.hostname ?? "localhost",
 			fetch(req, server) {
-				const upgraded = server.upgrade(req, {
-					data: { id: self.nextClientId++ },
-				});
+				const upgraded = server.upgrade(req, { data: undefined });
 				if (upgraded) return undefined;
 				return new Response("Expected WebSocket upgrade", { status: 426 });
 			},
@@ -85,7 +80,7 @@ export class BusServer {
 		this.clientTopics.clear();
 	}
 
-	private handleMessage(ws: ServerWebSocket<WSData>, raw: string | Buffer): void {
+	private handleMessage(ws: ServerWebSocket<undefined>, raw: string | Buffer): void {
 		let msg: ClientMessage;
 		try {
 			msg = JSON.parse(typeof raw === "string" ? raw : raw.toString());
@@ -112,7 +107,7 @@ export class BusServer {
 		}
 	}
 
-	private handleSubscribe(ws: ServerWebSocket<WSData>, msg: { topic: string }): void {
+	private handleSubscribe(ws: ServerWebSocket<undefined>, msg: { topic: string }): void {
 		if (typeof msg.topic !== "string") return;
 
 		let subs = this.subscriptions.get(msg.topic);
@@ -131,7 +126,7 @@ export class BusServer {
 		ws.send(JSON.stringify({ action: "subscribed", topic: msg.topic }));
 	}
 
-	private handleUnsubscribe(ws: ServerWebSocket<WSData>, msg: { topic: string }): void {
+	private handleUnsubscribe(ws: ServerWebSocket<undefined>, msg: { topic: string }): void {
 		if (typeof msg.topic !== "string") return;
 
 		const subs = this.subscriptions.get(msg.topic);
@@ -148,7 +143,7 @@ export class BusServer {
 	}
 
 	private handlePublish(
-		ws: ServerWebSocket<WSData>,
+		ws: ServerWebSocket<undefined>,
 		msg: { topic: string; payload: string },
 	): void {
 		if (typeof msg.topic !== "string" || typeof msg.payload !== "string") {
@@ -171,7 +166,7 @@ export class BusServer {
 		}
 	}
 
-	private handleClose(ws: ServerWebSocket<WSData>): void {
+	private handleClose(ws: ServerWebSocket<undefined>): void {
 		const topics = this.clientTopics.get(ws);
 		if (topics) {
 			for (const topic of topics) {

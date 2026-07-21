@@ -33,7 +33,7 @@ flight at that point.
 ## Rotation
 
 - [x] src/store (cycle 1)
-- [ ] src/bus (spawner, agent-process, resume, result-gate, types)
+- [x] src/bus (cycle 2)
 - [ ] src/host (cli-*, session-controller, settings, channels)
 - [ ] src/kernel (primitives, truncation, capture, redaction, cell-primitive)
 - [ ] src/agents (agent.ts — the giant, plan, loader, delegation)
@@ -65,6 +65,49 @@ SAFE findings, verified (implementing this cycle → "done", else "queued"):
     final complete line".
 11. queued — cacheBody already-cached guard is unreachable under the op mutex and its
     comment asserts a race the mutex prevents.
+
+### Cycle 2 — src/bus (two reviewers, heavy convergence + decomposition map)
+
+SAFE, implementing now (batch A/B) or queued:
+1. done — parseTopic + 3 types + commandsTopic dead (only self-tests); topics.ts → builders only.
+2. done — every child event published TWICE; per-handle agentEvents topic has zero readers
+   (the "spawner result tracking" comment is wrong — results ride agentResult). Halves
+   event traffic; 2 tests repointed to the session topic.
+3. done — learn-forwarder startBackground/stopBackground dead (LearnSink is push+recordAction).
+4. done — tautological types tests (typed literals asserting their own fields).
+5. done — server WSData.id assigned, never read.
+6. done — minors: agentIdOf dead fallback; idleLoop dead signal guards; redundant settle
+   status args; no-op resolve cast.
+7. done — waitForBlockingSpawn = waitAgent(handleId, undefined, {untimed:true}); delegated.
+8. queued — clearHandles/shutdown teardown dup → stopAllHandles(reason).
+9. queued — spawnAgent/respawn launch-sequence dup → launchHandleProcess (protects the
+   token-inheritance invariant on BOTH paths).
+10. queued — shared ackAgentMessage module fn; handle-log-dir expression ×5 → helper.
+11. queued — BusClient.waitForMessage rebuilt on subscribe (placeholder hack dies).
+12. queued — composeAbortSignal → AbortSignal.any (agent.ts already relies on it).
+13. queued — FeatherweightExecInput: 6 fields plumbed, never read.
+14. queued — AgentHandle literal built 3x → buildHandle helper.
+
+DECOMPOSITION (mandate 4b) — seams verified by both reviewers:
+- done (cycle 2 target 1) — createAgentProcessClient + deps → src/bus/agent-process-client.ts
+  (~130 lines, zero bus coupling; agent-process.ts sheds a third of its imports).
+- queued (target 2) — featherweight unit → src/bus/featherweight.ts (~200 lines;
+  logEvent/publishSessionEvent/exec types move; deps context {sessionId, bus, storeAccess}).
+- queued — message-loop free fns → module (~220); lifecycle utils → module; runAgentProcess
+  355-line body → named blocks (loadAgentSpecOrPublishError, buildAgentFromStart);
+  messageAgent 190-line branch split; constructor options object (RISKY churn).
+
+RISKY/BUGS — recorded for Jesse:
+- LIKELY BUG: featherweight silently DROPS env/hints/payload (spawnAgent returns into
+  spawnFeatherweight before registerEnvGrants; runFeatherweight passes the bare goal) —
+  spec §5 equivalence + §6 no-silent-stripping violated. Also featherweight/model
+  spawnInfo fields on registerCompletedHandle are read but never written by production
+  resume (cold-resumed featherweights respawn as subprocesses; model override lost).
+  Delete-vs-complete needs a call.
+- Bus SteerMessage has ZERO producers (host steer is in-process); spec §1 says the bus
+  "keeps steer" — code or spec must change.
+- Micro race: continue arriving between result publish and idleLoop subscribe is dropped
+  (window = a few microtasks; parent only continues after the result — noted, not urgent).
 
 RISKY — recorded for Jesse, not touched:
 - grep signal option: spec-NAMED ("chunk-at-a-time with an abort signal") but unwireable
