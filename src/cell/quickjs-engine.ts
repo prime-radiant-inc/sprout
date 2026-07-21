@@ -105,7 +105,7 @@ const DEADLOCK_ERROR =
  * keeps thousands of frames for legitimate cell code while roughly quadrupling
  * the old 1 MB margin.
  */
-export const CELL_MAX_STACK_BYTES = 256 * 1024;
+const CELL_MAX_STACK_BYTES = 256 * 1024;
 
 /**
  * In-context display marshal, mirroring the worker's serializeReturnValue /

@@ -29,8 +29,8 @@
  */
 export type WorkerProgram = { name: string; body: string };
 
-/** Ambient API methods proxied to the parent (value ops; spawn is Slice B). */
-export const AMBIENT_METHODS = [
+/** Ambient API methods proxied to the parent (value ops, spawn, handles). */
+const AMBIENT_METHODS = [
 	"bind",
 	"publish",
 	"peek",

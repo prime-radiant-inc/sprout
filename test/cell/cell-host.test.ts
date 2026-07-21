@@ -8,9 +8,9 @@ import {
 	type CellSpawnRequest,
 	type DelegationOutcome,
 	resolveWorkerRssKillBytes,
-	spawnCellWorkerProcess,
 	WORKER_RSS_HEADROOM_BYTES,
 } from "../../src/cell/cell-host";
+import { spawnCellWorkerProcess } from "../../src/cell/worker-process";
 import { ContentStore } from "../../src/store/cas";
 import { SessionJournal } from "../../src/store/journal";
 import { SapStore } from "../../src/store/store";

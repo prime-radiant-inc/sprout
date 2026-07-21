@@ -24,19 +24,22 @@
  * QuickJS-WASM port, tracked as prime-radiant-inc/sprout#1.
  */
 
-import { readFile } from "node:fs/promises";
 import { redactSensitiveTranscriptContent } from "../kernel/redaction.ts";
 import { captureMarker, resolvePreviewBudgets } from "../kernel/truncation.ts";
 import type { StoreAccess } from "../store/store-access.ts";
-import { buildInternalSproutCommand } from "../util/self-command.ts";
 import { resolveCellEngineName } from "./cell-engine.ts";
+import {
+	type CellWorkerProcessHandle,
+	readRssBytes,
+	spawnCellWorkerProcess,
+} from "./worker-process.ts";
 import type { CellWorkerMessage, WorkerProgram } from "./cell-worker.ts";
 
 /** Default cell wall-time budget (non-parked; spec §4). */
-export const DEFAULT_CELL_BUDGET_MS = 5_000;
+const DEFAULT_CELL_BUDGET_MS = 5_000;
 
 /** Default worker RSS budget before the watchdog kills it. */
-export const DEFAULT_CELL_MEMORY_BUDGET_BYTES = 512 * 1024 * 1024;
+const DEFAULT_CELL_MEMORY_BUDGET_BYTES = 512 * 1024 * 1024;
 
 /**
  * Worker-baseline headroom the RSS watchdog grants ABOVE the memory budget
@@ -69,7 +72,7 @@ export function resolveWorkerRssKillBytes(
 }
 
 /** Ambient get()/parse() materialization budget (spec §4: default 1 MB). */
-export const CELL_GET_BUDGET_BYTES = 1024 * 1024;
+const CELL_GET_BUDGET_BYTES = 1024 * 1024;
 
 /**
  * Above this many chars, cell stdout / return values auto-bind into the store
@@ -77,7 +80,7 @@ export const CELL_GET_BUDGET_BYTES = 1024 * 1024;
  * (2,000) folds into the preview-budget record's `cell` row (capture-all spec
  * v10) — an explicit row, so tuning `default` cannot silently move this gate.
  */
-export const CELL_AUTO_BIND_THRESHOLD = resolvePreviewBudgets(process.env).cell;
+const CELL_AUTO_BIND_THRESHOLD = resolvePreviewBudgets(process.env).cell;
 
 const BUDGET_POLL_INTERVAL_MS = 100;
 const RSS_POLL_INTERVAL_MS = 250;
@@ -92,7 +95,7 @@ export const CELL_SPAWN_CAP = 64;
  * cap the ambient request rejects in-cell. The RSS watchdog is the ultimate net
  * for any pathological flood that slips under this cap.
  */
-export const CELL_MAX_OUTSTANDING_AMBIENT = 256;
+const CELL_MAX_OUTSTANDING_AMBIENT = 256;
 
 /** One cell-originated spawn request, decoded from the ambient spawn() call. */
 export interface CellSpawnRequest {
@@ -127,15 +130,6 @@ export type DelegationOutcome =
 			rawOutput?: string;
 	  }
 	| { kind: "started"; handleId: string };
-
-/** Minimal worker process surface — real Bun.spawn or an in-process test fake. */
-export interface CellWorkerProcessHandle {
-	pid?: number;
-	send(line: string): void;
-	kill(): void;
-	onLine(handler: (line: string) => void): void;
-	onExit(handler: () => void): void;
-}
 
 export interface CellHostOptions {
 	budgetMs?: number;
@@ -189,8 +183,6 @@ export interface CellResult {
 interface RunningCell {
 	id: string;
 	resolve: (msg: CellWorkerMessage & { op: "result" }) => void;
-	/** Set when a guard killed the worker; overrides the exit-path error. */
-	killReason?: string;
 }
 
 /** One registered future: settles when its wait resolves; reject reclaims it. */
@@ -419,8 +411,7 @@ export class CellHost {
 	/** Guard kill: fail the running cell with `reason`, SIGKILL the worker. */
 	private killRunning(reason: string): void {
 		const running = this.running;
-		if (running === undefined || running.killReason !== undefined) return;
-		running.killReason = reason;
+		if (running === undefined) return;
 		this.reclaimFutures(reason);
 		this.generation++;
 		this.worker?.kill();
@@ -658,7 +649,10 @@ export class CellHost {
 	 * completed child counts toward stumbleCount when it failed (once per
 	 * handle); the wire shape for the worker carries plain data only.
 	 */
-	private consumeOutcome(outcome: DelegationOutcome, staleCell: () => boolean = () => false): unknown {
+	private consumeOutcome(
+		outcome: DelegationOutcome,
+		staleCell: () => boolean = () => false,
+	): unknown {
 		if (outcome.kind === "infrastructure_error") {
 			throw infrastructureError(outcome.reason);
 		}
@@ -814,68 +808,3 @@ function intArg(value: unknown, what: string): number {
  * the darwin fallback. undefined when unreadable (process gone, platform odd)
  * — the watchdog treats no-reading as no-verdict, never as a kill.
  */
-export async function readRssBytes(pid: number): Promise<number | undefined> {
-	if (process.platform === "linux") {
-		try {
-			const statm = await readFile(`/proc/${pid}/statm`, "utf8");
-			const resident = Number(statm.split(/\s+/)[1]);
-			if (!Number.isFinite(resident)) return undefined;
-			return resident * 4096;
-		} catch {
-			return undefined;
-		}
-	}
-	try {
-		const proc = Bun.spawn(["ps", "-o", "rss=", "-p", String(pid)], {
-			stdout: "pipe",
-			stderr: "ignore",
-		});
-		const out = await new Response(proc.stdout).text();
-		await proc.exited;
-		const kb = Number(out.trim());
-		if (!Number.isFinite(kb) || kb <= 0) return undefined;
-		return kb * 1024;
-	} catch {
-		return undefined;
-	}
-}
-
-/** Default spawn: the sprout binary's internal cell-worker subcommand. */
-export function spawnCellWorkerProcess(cmd?: string[]): CellWorkerProcessHandle {
-	const proc = Bun.spawn(cmd ?? buildInternalSproutCommand("cell-worker"), {
-		stdin: "pipe",
-		stdout: "pipe",
-		stderr: "inherit",
-	});
-	let lineHandler: (line: string) => void = () => {};
-	let exitHandler: () => void = () => {};
-	void (async () => {
-		const decoder = new TextDecoder();
-		let buffered = "";
-		for await (const chunk of proc.stdout) {
-			buffered += decoder.decode(chunk, { stream: true });
-			let newline = buffered.indexOf("\n");
-			while (newline !== -1) {
-				lineHandler(buffered.slice(0, newline));
-				buffered = buffered.slice(newline + 1);
-				newline = buffered.indexOf("\n");
-			}
-		}
-	})();
-	void proc.exited.then(() => exitHandler());
-	return {
-		pid: proc.pid,
-		send(line) {
-			proc.stdin.write(line);
-		},
-		kill() {
-			proc.kill("SIGKILL");
-		},
-		onLine(handler) {
-			lineHandler = handler;
-		},
-		onExit(handler) {
-			exitHandler = handler;
-		},
-	};
-}

@@ -9,9 +9,9 @@ import type { AgentAddress, ResultMessage } from "../bus/types.ts";
 import {
 	CellHost,
 	type CellSpawnRequest,
-	type CellWorkerProcessHandle,
 	type DelegationOutcome,
 } from "../cell/cell-host.ts";
+import type { CellWorkerProcessHandle } from "../cell/worker-process.ts";
 import { compactHistory } from "../core/compaction.ts";
 import type { Logger } from "../core/logger.ts";
 import { NullLogger } from "../core/logger.ts";
@@ -3615,7 +3615,6 @@ async function withTimeout<T>(
 		clearTimeout(timer);
 	}
 }
-
 
 function subcorticalRecallEnabled(config: AgentSpec["subcortical_recall"]): boolean {
 	if (!config) return false;

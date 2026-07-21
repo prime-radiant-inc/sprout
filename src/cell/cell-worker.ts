@@ -27,26 +27,16 @@ import {
 	resolveCellEngineName,
 } from "./cell-engine.ts";
 
-export { AMBIENT_METHODS, type WorkerProgram } from "./cell-bootstrap.ts";
+export { type WorkerProgram } from "./cell-bootstrap.ts";
 
-export type CellWorkerRequest = {
-	id: string;
-	op: "cell";
-	code: string;
-	programs?: WorkerProgram[];
-	limits?: CellLimits;
-};
-
-/**
- * Parent's answer to one ambient request, correlated by the worker's id. An
+/*
+ * The parent's answer to one ambient request is `{id, ok, result}` or
+ * `{id, ok: false, error, infrastructure?}`, correlated by the worker's id. An
  * `infrastructure` rejection (worker death, StoreUnavailable, spawn transport)
  * carries the flag so the worker can track its OBJECT identity — the cell's
  * stumble accounting keys on identity, never on the message string a cell could
  * forge.
  */
-export type CellAmbientResponse =
-	| { id: string; ok: true; result: unknown }
-	| { id: string; ok: false; error: string; infrastructure?: boolean };
 
 export type CellWorkerMessage =
 	| { id: string; op: "ambient"; method: string; args: unknown[] }
@@ -80,7 +70,7 @@ export function rejectImportRequire(code: string): string | undefined {
 }
 
 /** Console buffer cap; past it output truncates with a note. */
-export const CONSOLE_BUFFER_CAP = 64 * 1024;
+const CONSOLE_BUFFER_CAP = 64 * 1024;
 
 /** Keep only well-formed positive numeric limits off the wire. */
 function sanitizeLimits(raw: Record<string, unknown>): CellLimits | undefined {

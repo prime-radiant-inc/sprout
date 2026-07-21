@@ -15,7 +15,7 @@ import { runAgentProcess } from "../../src/bus/agent-process.ts";
 import { BusClient } from "../../src/bus/client.ts";
 import { BusServer } from "../../src/bus/server.ts";
 import { AgentSpawner } from "../../src/bus/spawner.ts";
-import { spawnCellWorkerProcess } from "../../src/cell/cell-host.ts";
+import { spawnCellWorkerProcess } from "../../src/cell/worker-process.ts";
 import { Genome } from "../../src/genome/genome.ts";
 import { AuthChannelServer } from "../../src/host/auth-channel.ts";
 import {

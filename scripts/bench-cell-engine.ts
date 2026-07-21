@@ -31,7 +31,8 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CellHost, spawnCellWorkerProcess } from "../src/cell/cell-host.ts";
+import { CellHost } from "../src/cell/cell-host.ts";
+import { spawnCellWorkerProcess } from "../src/cell/worker-process.ts";
 import { ContentStore } from "../src/store/cas.ts";
 import { SessionJournal } from "../src/store/journal.ts";
 import { SapStore } from "../src/store/store.ts";

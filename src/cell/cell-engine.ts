@@ -74,7 +74,7 @@ export interface CellEngine {
 }
 
 /** Env knob selecting the engine during the migration window. */
-export const CELL_ENGINE_ENV = "SPROUT_CELL_ENGINE";
+const CELL_ENGINE_ENV = "SPROUT_CELL_ENGINE";
 
 export type CellEngineName = "vm" | "quickjs";
 

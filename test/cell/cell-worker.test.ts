@@ -14,7 +14,7 @@ type AmbientHandler = (method: string, args: unknown[]) => Promise<unknown>;
  * An ambient rejection carrying this marker is answered with the wire-level
  * `infrastructure: true` flag, modeling how the parent tags host failures.
  */
-export function infraError(message: string): Error {
+function infraError(message: string): Error {
 	return Object.assign(new Error(message), { __infra__: true });
 }
 
