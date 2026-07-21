@@ -3509,11 +3509,14 @@ export class Agent {
 				}
 				inactivityTimer.reset();
 
-				// Compact history if context usage exceeds threshold or manually requested
+				// Compact history if context usage exceeds threshold or manually
+				// requested. total_input_tokens is the real context size — plain
+				// input_tokens is only the uncached sliver, which prompt caching
+				// shrinks to near-zero, silently disabling threshold compaction.
 				const compactionDecision = evaluateCompaction({
 					turnsSinceCompaction: this.turnsSinceCompaction,
 					compactionRequested: this.compactionRequested,
-					inputTokens: response.usage?.input_tokens ?? 0,
+					inputTokens: response.usage?.total_input_tokens ?? response.usage?.input_tokens ?? 0,
 					contextWindowSize: getContextWindowSize(this.resolved.model),
 				});
 				this.turnsSinceCompaction = compactionDecision.turnsSinceCompaction;

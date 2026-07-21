@@ -2808,6 +2808,102 @@ describe("Agent", () => {
 		expect(result.success).toBe(true);
 	});
 
+	test("compaction threshold reads total context, not just uncached input tokens", async () => {
+		// A cached session reports tiny input_tokens (the uncached sliver) while
+		// total_input_tokens carries the real context size. Compaction must key
+		// on the total, or caching silently disables threshold compaction.
+		const priorHistory: Message[] = [
+			Msg.user("step 1"),
+			Msg.assistant("did step 1"),
+			Msg.user("step 2"),
+			Msg.assistant("did step 2"),
+			Msg.user("step 3"),
+			Msg.assistant("did step 3"),
+		];
+
+		const toolCallMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-compact-cached-1",
+						name: "read_file",
+						arguments: JSON.stringify({ path: "/tmp/test.txt" }),
+					},
+				},
+			],
+		};
+
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				if (callCount === 1) {
+					// Nearly the whole prompt is a cache read: uncached sliver is
+					// tiny, true context is above 80% of the 200k window.
+					return {
+						id: "mock-compact-cached-1",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: toolCallMsg,
+						finish_reason: { reason: "tool_calls" },
+						usage: {
+							input_tokens: 2_000,
+							output_tokens: 500,
+							total_tokens: 170_500,
+							cache_read_tokens: 168_000,
+							total_input_tokens: 170_000,
+						},
+					};
+				}
+				if (callCount === 2) {
+					return {
+						id: "mock-compact-cached-summary",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: Msg.assistant("Summary of prior work."),
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 100, output_tokens: 50, total_tokens: 150 },
+					};
+				}
+				return {
+					id: `mock-compact-cached-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: {
+						role: "assistant",
+						content: [{ kind: ContentKind.TEXT, text: "Done after compaction." }],
+					},
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 5000, output_tokens: 100, total_tokens: 5100 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+			initialHistory: priorHistory,
+		});
+
+		const result = await agent.run("do something big");
+
+		const compactionEvents = events.collected().filter((e) => e.kind === "compaction");
+		expect(compactionEvents).toHaveLength(1);
+		expect(result.success).toBe(true);
+	});
+
 	test("post-compaction turn still sees the scope's bound values via the summary manifest", async () => {
 		const priorHistory: Message[] = [
 			Msg.user("step 1"),
