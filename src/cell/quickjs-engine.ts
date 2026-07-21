@@ -153,15 +153,29 @@ export class QuickJSCellEngine implements CellEngine {
 
 	private moduleFor(memoryBytes: number | undefined): Promise<QuickJSModuleLike> {
 		if (this.loadModule !== undefined) {
-			this.modulePromise ??= this.loadModule();
+			this.modulePromise ??= this.uncachedOnRejection(this.loadModule());
 			return this.modulePromise;
 		}
 		if (this.modulePromise === undefined || this.moduleMemoryBytes !== memoryBytes) {
 			this.moduleMemoryBytes = memoryBytes;
-			this.modulePromise =
-				memoryBytes !== undefined ? loadCappedReleaseModule(memoryBytes) : loadReleaseModule();
+			this.modulePromise = this.uncachedOnRejection(
+				memoryBytes !== undefined ? loadCappedReleaseModule(memoryBytes) : loadReleaseModule(),
+			);
 		}
 		return this.modulePromise;
+	}
+
+	/**
+	 * A rejected load must not stay cached: the parent never respawns a worker
+	 * for an engine-failure result, so a cached rejection would brick cells for
+	 * the whole agent process. Clear the cache so the next cell retries.
+	 */
+	private uncachedOnRejection(promise: Promise<QuickJSModuleLike>): Promise<QuickJSModuleLike> {
+		return promise.catch((err) => {
+			this.modulePromise = undefined;
+			this.moduleMemoryBytes = undefined;
+			throw err;
+		});
 	}
 }
 

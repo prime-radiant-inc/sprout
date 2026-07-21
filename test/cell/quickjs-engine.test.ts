@@ -231,4 +231,24 @@ describe("QuickJSCellEngine host-fault resilience", () => {
 		expect(next).toEqual({ ok: true, returnValue: "alive" });
 		expect(loads).toBe(2);
 	});
+
+	it("a transient module-load failure is not cached — the next cell retries the load", async () => {
+		// A rejected load must not wedge the engine for the process lifetime:
+		// the parent never respawns a worker for an engine-failure result, so a
+		// cached rejection would brick cells for the whole agent process.
+		let loads = 0;
+		const engine = new QuickJSCellEngine({
+			loadModule: async () => {
+				loads++;
+				if (loads === 1) throw new Error("transient wasm instantiation failure");
+				return newQuickJSWASMModuleFromVariant(debugVariant);
+			},
+		});
+		await expect(engine.runCell({ code: "return 1;", ...baseRequest })).rejects.toThrow(
+			"transient wasm instantiation failure",
+		);
+		const second = await engine.runCell({ code: "return 'recovered';", ...baseRequest });
+		expect(second).toEqual({ ok: true, returnValue: "recovered" });
+		expect(loads).toBe(2);
+	});
 });
