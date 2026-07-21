@@ -80,7 +80,7 @@ rawOutput, captureStore)` used by BOTH the primitive registry and the delegate t
 
 ```
 redacted = redact(rawOutput)
-budget   = previewBudget(toolName)
+budget   = previewBudget(toolName)          # resolved defaults ⊕ SPROUT_PREVIEW_BUDGETS ⊕ overrides
 if redacted.length <= budget:            # small / control-flow → inline, no capture
     return redacted
 value    = captureStore.bind(name(toolName), rawOutput, explicit:false)   # RAW content
@@ -94,28 +94,38 @@ helper with `budget = CELL_AUTO_BIND_THRESHOLD`) so the two paths cannot drift.
 
 ### THE central decision — the preview budget
 
-What the model SEES by default is the one real tradeoff, and it is per-tool:
+What the model SEES by default is the one real tradeoff:
 
 - A **tiny** budget (≈2 KB, cell-gate-aligned) maximizes token savings but starves workflows that
   need full sight — the model cannot see a 5 KB file it must *edit*, or reason over a subagent's
   detailed answer.
 - A **large** budget (today's 50 KB) preserves sight but is the flood itself.
 
-**Decision: per-tool budgets, sized to what the tool's output is FOR** — always capture above
-budget, always return a ref, but let the preview match the plausible need:
-
-| tool | today's limit | proposed budget | rationale |
-|---|---|---|---|
-| `read_file` | 50 KB | **8 KB** | code the model edits — most files fit fully; big files get ref |
-| `edit_file` / `apply_patch` | 10 KB | 8 KB | same (the model reasons over the diff/region) |
-| `exec` | 30 KB | **4 KB** | command output is usually consumed/routed, not read whole |
-| `grep` / `glob` | 20 KB | 4 KB | match lists — a page is enough; the rest is a ref |
-| `fetch` | 30 KB | **2 KB** | API/HTTP bodies are data to process in a cell, not to read |
-| `delegate` (subagent) | ∞ (uncaptured) | **4 KB** | route the sub-result; full answer is a ref |
-
-(Numbers are a starting proposal, not doctrine — they are the knob to tune against real runs.)
-The unconditional wins (reuse, no-leak, orchestrator scaling) come from **always creating the ref**;
+**Decision (Jesse, 2026-07-21): previews are svelte by default, and configurable.** The
+unconditional wins (reuse, no-leak, orchestrator scaling) come from **always creating the ref**;
 the budget only sets how much the model reads for free before reaching for the ref (or a cell).
+So we do not agonize over a per-tool table — defaults align with the cell gate, with a single
+exception where the workflow demands sight, and deployments tune from there:
+
+- **Default budget: 2 KB** — the same `CELL_AUTO_BIND_THRESHOLD` scale the cell transcript gate
+  already uses, so tool mode and code mode read identically by default.
+- **Exception: `read_file` / `edit_file` / `apply_patch` at 4 KB** — the code-editing path, where
+  the model must see the region it is changing. Targeted re-reads (`read_file` offset/limit)
+  cover files past the budget.
+- Everything else (`exec`, `grep`, `glob`, `fetch`, `delegate`) inherits the 2 KB default.
+
+#### Configurability
+
+Follows the existing tunable patterns (`DEFAULT_CHAR_LIMITS` record + per-call `overrides` in
+`truncation.ts`; `SPROUT_SESSION_MAX_*` env resolution in `session-budget.ts`):
+
+- `DEFAULT_PREVIEW_BUDGETS` — one record beside `DEFAULT_CHAR_LIMITS`: the 2 KB default plus the
+  read/edit exception.
+- `SPROUT_PREVIEW_BUDGETS` — a single env var holding a JSON map merged over the defaults, e.g.
+  `{"default": 4000, "read_file": 16000}`. Resolved once at startup, `session-budget.ts`-style:
+  an invalid value warns and falls back to defaults (never crashes a session).
+- Programmatic override threading (registry options, like `overrides?.charLimit` today) for
+  evals and tests.
 
 ### The delegate/subagent tool
 
@@ -151,7 +161,8 @@ content-agnostic on top of it.
 ## Phases
 
 **P1 — Shared gate + primitives.** Extract `gateToolOutput` (shared by the primitive registry and
-cells); replace capture-on-truncation with capture-above-budget; wire per-tool budgets. Update the
+cells); replace capture-on-truncation with capture-above-budget; wire the budget resolver
+(`DEFAULT_PREVIEW_BUDGETS` ⊕ `SPROUT_PREVIEW_BUDGETS` ⊕ programmatic overrides). Update the
 primitive/truncation tests that assert inline content. Fable review.
 
 **P2 — Delegate/subagent capture.** Route delegate results through the gate; bind into the parent
@@ -178,8 +189,9 @@ orchestrator payload flat. Fable review.
 - **Broad blast radius.** Every agent sees previews + refs on large tool outputs; tests that assert
   inline content move. This is the main cost — mitigated by phasing and by the gate already existing
   for primitives-on-truncation.
-- **Code-editing regression** if budgets are too tight. Mitigated by the per-tool budget table
-  (read_file/edit generous) and by targeted re-reads (`read_file` offset/limit) for full sight.
+- **Code-editing regression** if budgets are too tight — the deliberate cost of svelte defaults.
+  Mitigated by the read/edit exception (4 KB), targeted re-reads (`read_file` offset/limit) for
+  full sight, and `SPROUT_PREVIEW_BUDGETS` to raise budgets where a deployment needs them.
 - **Genome prompt assumptions.** Agent prompts may assume they see full tool output. The preview +
   ref shape is close enough that most prompts are unaffected; surveyed and fixed where not.
 - **Cross-agent value lifetime** for delegate captures — the parent-scope binding must outlive the
@@ -187,7 +199,8 @@ orchestrator payload flat. Fable review.
 
 ## Open questions (for the P1 review, not blockers)
 
-- Should the budget be a single number per tool, or adaptive (e.g., a larger budget when the agent's
-  task is flagged code-editing)? Start static; revisit only if code-editing regresses.
+- Adaptive budgets (e.g., larger when the agent's task is flagged code-editing)? Static defaults +
+  `SPROUT_PREVIEW_BUDGETS` cover per-deployment tuning; revisit adaptivity only if code-editing
+  regresses under the svelte defaults.
 - Do we ever want a hard "always ref, no preview" mode for a maximally-locked-down agent? Out of
   scope here; the gate makes it a one-line future option.
