@@ -36,7 +36,7 @@ flight at that point.
 - [x] src/bus (cycle 2)
 - [x] src/host (cycle 3)
 - [x] src/kernel (cycle 4)
-- [ ] src/agents (agent.ts — the giant, plan, loader, delegation)
+- [x] src/agents (cycle 5)
 - [ ] src/cell (cell-host, engines, worker, bootstrap)
 - [ ] src/learn + src/llm (eval harnesses, adapters, client)
 - [ ] src/genome + src/web (memory tools, recall, server)
@@ -200,6 +200,83 @@ RISKY — recorded for Jesse, not touched:
   test). MUST STAY — reconcile with cycle-3's C2 claim before any C2 work.
 - test/kernel/types.test.ts construction-tests assert compile-time facts at
   runtime (coverage-rule judgment call).
+
+### Cycle 5 — src/agents (both reviewers; THREE REAL BUGS found and fixed)
+
+BUG 1 (reviewer A, HIGH — fixed, TDD): auto-compaction read usage.input_tokens,
+the UNCACHED sliver. With prompt caching on (shipped root config; automatic on
+OpenAI) threshold compaction never fired and long sessions died on provider
+context-overflow. Now total_input_tokens ?? input_tokens — the same resolution
+the planning event's context_tokens display already used. Drift archaeology:
+compaction feed predates the cache-aware usage split and was never updated.
+
+BUG 2 (reviewer B, proven with scratch test — fixed, TDD): the recovery
+clamp's content-identity match was size-only; spec says "size, tightened with
+a preview comparison, fail-closed". A same-size unrelated delivered value was
+misattributed as the result ("full content: ⟦wrong_name⟧"). Now recomputes
+redact(computePreview(output,'text')) and requires equality; collision pins
+adopted from the reviewer's proof.
+
+BUG 3 (reviewer A — fixed, TDD): the Phase-7 granted-surface gate covered
+only primitives; delegations (incl. legacy bare-agent-name calls converted
+against ALL genome agents) and wait/message commands executed BEFORE it, so
+a code-mode agent whose surface is "exactly cell" could still delegate or
+message via one hallucinated/injected call. Gate now runs against the whole
+dispatch surface with the same denial shape.
+
+Done (SAFE): deleted delegation-inspect.ts (test-only mirror of the resolver
+rules — a guard that exercised the copy, free to drift) + its test; deleted
+renderWorkspaceFiles/renderWorkspaceEncouragement/formatSize (dead since the
+save_tool removal in c8e6c19); restored the stranded rewriteManifestNames doc
+comment; fixed the inactivity-timer comment still claiming "nothing pauses
+yet" (blocking waits + cell runs both suspend it).
+
+DECOMPOSITION (mandate 4b) — agent.ts 3704 → 3618:
+- done — delegation-render.ts (145): fetchManifestLines + renderDelegationResult
+  + rewriteManifestNames + 4 consts; both reviewers' consensus lowest-risk seam.
+- queued (both reviewers mapped precisely, zero external referencers): the
+  delegate-observer subsystem (~330-370 → DelegateObserverManager); cell
+  servicing (~230-250); llm-call plumbing (~160); delegate-resolution merge
+  (~175, folds the triplicated ref-matching); prompt-state; module-tail
+  helpers + escapeXml/truncate dedup with observers.ts. Function-level:
+  executeToolCalls 335 (5 identical refusal blocks → one helper), runLoop 298
+  (abort classification duplicated 2x), constructor 219, run 165,
+  executeAgentCommand 107 (4 same-shape act_end blocks).
+
+VERIFIED-DEAD, recorded not implemented (~65 mechanical sites, judged too
+wide for the loop window): AgentOptions.providerIdOverride and its whole
+plumbing chain — never read in Agent; LearnProcess declares it (line 173) and
+never reads it either (reviewer A's claim that learn uses it was WRONG —
+personally verified; B's closed-loop analysis stands). The documented
+"default provider context" behavior does not exist (resolveModel throws
+unconditionally without an explicit provider). Bus wire field provider_id is
+cross-version protocol — RISKY, keep. Delete the rest when convenient.
+
+RISKY/observations — recorded for Jesse, not touched:
+- In-process (spawnerless) delegation path executeDelegation ~240 lines is
+  production-unreachable (every production entry has a spawner; featherweight
+  can't delegate) AND has drifted: blocking:false/model silently ignored
+  where env rejects loudly. Merge-or-delete needs a call; killing it forces
+  the in-process test suites onto spawner fakes.
+- Featherweight placement silently drops preambles/genomePostscripts/
+  projectDocs from the child's system prompt (subprocess path passes all
+  three) — placement-dependent prompts, undocumented in spec §5.
+- Cell-spawn observer digest omits delegations completed via handle.wait()/
+  handle.message() — spec deviation #2 says "all its delegations"; the
+  canonical fan-out (spawn nonblocking + wait) yields an EMPTY digest and no
+  frame at all.
+- context-window.ts prefix table stale (gpt-4.1 1M → 128k row; unknown
+  large-context models → 128k default): conservative over-compaction only.
+- act_end.agent_name carries tool kinds ("wait_agent"/"message_agent") into
+  the learn layer's delegation-target signal; one delegate denial path emits
+  act_end with no act_start/child_id.
+- AgentEventEmitter retains every event unboundedly for the process lifetime
+  (learn scans collected(); host's event-bus grew clear(), this didn't).
+- shouldDelegateHumanContractByReference hardcodes "tech-lead"/"engineer".
+- A failed compaction still consumes the compaction slot (reset before
+  attempt; catch doesn't restore) — retry suppressed while context grows.
+- Test-only AgentOptions seams (cellHost, cellWorkerSpawnFn, llmRetryOptions,
+  liveness/observer tuning) are documented seams — noted, not removed.
 
 ## Decision-queue from Jesse's Q&A (2026-07-21)
 
