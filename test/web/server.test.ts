@@ -263,6 +263,85 @@ describe("WebServer", () => {
 			expect(body.status).toBe("idle");
 		});
 
+		function writeSessionMeta(dataDir: string, id: string, status = "idle"): void {
+			mkdirSync(join(dataDir, "sessions"), { recursive: true });
+			writeFileSync(
+				join(dataDir, "sessions", `${id}.meta.json`),
+				JSON.stringify({
+					sessionId: id,
+					agentSpec: "root",
+					status,
+					turns: 2,
+					contextTokens: 10,
+					contextWindowSize: 100,
+					createdAt: "2026-07-21T00:00:00.000Z",
+					updatedAt: "2026-07-21T00:00:00.000Z",
+					selection: { kind: "tier", tier: "fast" },
+				}),
+			);
+		}
+
+		test("GET /api/sessions returns all session summaries and flags the live one", async () => {
+			const dataDir = mkdtempSync(join(tmpdir(), "sprout-web-sessions-"));
+			writeSessionMeta(dataDir, "01AAAAAAAAAAAAAAAAAAAAAAAA");
+			writeSessionMeta(dataDir, "01BBBBBBBBBBBBBBBBBBBBBBBB");
+			const s = new WebServer({
+				bus,
+				port: 0,
+				staticDir,
+				sessionId: "01BBBBBBBBBBBBBBBBBBBBBBBB",
+				projectDataDir: dataDir,
+			});
+			await s.start();
+			try {
+				const resp = await fetch(`http://localhost:${s.getPort()}/api/sessions`);
+				expect(resp.status).toBe(200);
+				const body = (await resp.json()) as {
+					sessions: Array<{ sessionId: string; agentSpec: string }>;
+					liveSessionId: string;
+				};
+				expect(body.sessions.map((x) => x.sessionId).sort()).toEqual([
+					"01AAAAAAAAAAAAAAAAAAAAAAAA",
+					"01BBBBBBBBBBBBBBBBBBBBBBBB",
+				]);
+				expect(body.liveSessionId).toBe("01BBBBBBBBBBBBBBBBBBBBBBBB");
+			} finally {
+				await s.stop();
+			}
+		});
+
+		test("GET /api/sessions returns an empty list when no project data dir is set", async () => {
+			await startServer();
+			const resp = await fetch(`http://localhost:${port}/api/sessions`);
+			expect(resp.status).toBe(200);
+			const body = (await resp.json()) as { sessions: unknown[] };
+			expect(body.sessions).toEqual([]);
+		});
+
+		test("GET /api/sessions requires a valid token when one is configured", async () => {
+			const dataDir = mkdtempSync(join(tmpdir(), "sprout-web-sessions-auth-"));
+			writeSessionMeta(dataDir, "01AAAAAAAAAAAAAAAAAAAAAAAA");
+			const s = new WebServer({
+				bus,
+				port: 0,
+				staticDir,
+				sessionId: "01AAAAAAAAAAAAAAAAAAAAAAAA",
+				projectDataDir: dataDir,
+				webToken: "secret-token",
+			});
+			await s.start();
+			try {
+				const denied = await fetch(`http://localhost:${s.getPort()}/api/sessions`);
+				expect(denied.status).toBe(401);
+				const ok = await fetch(
+					`http://localhost:${s.getPort()}/api/sessions?token=secret-token`,
+				);
+				expect(ok.status).toBe(200);
+			} finally {
+				await s.stop();
+			}
+		});
+
 		test("session status reflects session_start event", async () => {
 			await startServer();
 			bus.emitEvent("session_start", "root", 0, { goal: "test" });

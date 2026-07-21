@@ -30,6 +30,7 @@ export interface StatusBarProps {
 	activeWork?: ActiveAgentWork | null;
 	onInterrupt?: () => void;
 	onSwitchModel?: (selection: SessionModelSelection) => void;
+	onOpenSessions?: () => void;
 	onOpenSettings?: () => void;
 	onToggleTheme?: () => void;
 	onToggleSidebar?: () => void;
@@ -238,6 +239,7 @@ export function StatusBar({
 	activeWork,
 	onInterrupt,
 	onSwitchModel,
+	onOpenSessions,
 	onOpenSettings,
 	onToggleTheme,
 	onToggleSidebar,
@@ -401,6 +403,17 @@ export function StatusBar({
 					title="Interrupt (Esc)"
 				>
 					Stop
+				</button>
+			)}
+
+			{onOpenSessions && (
+				<button
+					type="button"
+					className={styles.settingsButton}
+					data-action="open-sessions"
+					onClick={onOpenSessions}
+				>
+					Sessions
 				</button>
 			)}
 

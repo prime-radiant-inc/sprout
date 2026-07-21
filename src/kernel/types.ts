@@ -643,6 +643,7 @@ export interface Command {
 	data: Record<string, unknown>;
 }
 
+export type { SessionListEntry } from "../host/session-metadata.ts";
 export type { SessionSelectionSnapshot } from "../host/session-selection.ts";
 export type {
 	SettingsCommand,

@@ -8,6 +8,7 @@ import {
 	selectionRequestToCurrentModel,
 	selectionSnapshotToCurrentModel,
 } from "../host/session-selection.ts";
+import { loadSessionSummaries } from "../host/session-metadata.ts";
 import { loadAllEventLogs } from "../host/session-state.ts";
 import type {
 	SettingsCommand,
@@ -264,6 +265,16 @@ export class WebServer {
 					return self.serveEventHistory(url);
 				}
 
+				if (url.pathname === "/api/sessions") {
+					if (!self.isAllowedOrigin(req)) {
+						return new Response("Forbidden", { status: 403 });
+					}
+					if (!self.hasValidToken(url, req)) {
+						return new Response("Unauthorized", { status: 401 });
+					}
+					return self.serveSessionList();
+				}
+
 				if (url.pathname === "/api/models") {
 					return Response.json({
 						models: self.availableModels,
@@ -325,6 +336,23 @@ export class WebServer {
 			return new Response("Not Found", { status: 404 });
 		}
 		return new Response(file);
+	}
+
+	/**
+	 * List every persisted session for this project (multi-session UI, Phase 1).
+	 * Read-only summaries from the sessions/ metadata + logs/; the currently
+	 * live session is flagged so the client can mark it. Empty when the project
+	 * data dir is unknown (e.g. a bus-only test server).
+	 */
+	private async serveSessionList(): Promise<Response> {
+		if (!this.projectDataDir) {
+			return Response.json({ sessions: [], liveSessionId: this.sessionId });
+		}
+		const sessions = await loadSessionSummaries(
+			join(this.projectDataDir, "sessions"),
+			join(this.projectDataDir, "logs"),
+		);
+		return Response.json({ sessions, liveSessionId: this.sessionId });
 	}
 
 	private async serveEventHistory(url: URL): Promise<Response> {

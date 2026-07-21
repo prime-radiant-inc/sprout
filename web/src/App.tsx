@@ -8,6 +8,7 @@ import type { SlashCommand } from "@shared/slash-commands.ts";
 import styles from "./App.module.css";
 import { ConversationView } from "./components/ConversationView.tsx";
 import { InputArea } from "./components/InputArea.tsx";
+import { SessionList } from "./components/SessionList.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { StatusBar } from "./components/StatusBar.tsx";
 import { ThreadPanel } from "./components/ThreadPanel.tsx";
@@ -18,6 +19,7 @@ import { type SessionStatus, useEvents } from "./hooks/useEvents.ts";
 import { useFaviconStatus } from "./hooks/useFaviconStatus.ts";
 import { handleKeyboardShortcut } from "./hooks/useKeyboardShortcuts.ts";
 import { useResizable } from "./hooks/useResizable.ts";
+import { useSessions } from "./hooks/useSessions.ts";
 import { useWebSocket } from "./hooks/useWebSocket.ts";
 import { useTaskList } from "./hooks/useTaskList.ts";
 
@@ -113,6 +115,8 @@ export function App() {
 	);
 	const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
 	const [showSettings, setShowSettings] = useState(false);
+	const [showSessions, setShowSessions] = useState(false);
+	const sessionsState = useSessions(showSessions);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 
 	const { width: sidebarWidth, onMouseDown: onSidebarDragStart } = useResizable({
@@ -366,6 +370,7 @@ export function App() {
 				activeWork={activeWork}
 				onInterrupt={handleInterrupt}
 				onSwitchModel={handleSwitchModel}
+				onOpenSessions={() => setShowSessions(true)}
 				onOpenSettings={handleOpenSettings}
 				onToggleTheme={toggleTheme}
 				onToggleSidebar={toggleSidebar}
@@ -458,6 +463,16 @@ export function App() {
 
 			{showKeyboardHelp && (
 				<KeyboardHelp onClose={() => setShowKeyboardHelp(false)} />
+			)}
+			{showSessions && (
+				<SessionList
+					sessions={sessionsState.sessions}
+					liveSessionId={sessionsState.liveSessionId}
+					loading={sessionsState.loading}
+					error={sessionsState.error}
+					onReload={sessionsState.reload}
+					onClose={() => setShowSessions(false)}
+				/>
 			)}
 			{showSettings && (
 				<ProviderSettingsPanel
