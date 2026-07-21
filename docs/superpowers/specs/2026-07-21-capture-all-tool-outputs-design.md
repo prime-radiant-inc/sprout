@@ -1,8 +1,9 @@
 # Capture-all tool outputs — one budget table, one marker, three gates
 
 **Date:** 2026-07-21
-**Status:** design v9 (seven adversarial review rounds; 76 verified findings folded in;
-implementation authorized by Jesse 2026-07-21)
+**Status:** design v10 — CONVERGED (eight adversarial review rounds; 81 verified findings
+folded in; both round-eight reviewers independently judged everything outside the
+round-seven machinery converged; implementation authorized by Jesse 2026-07-21)
 **Predecessor specs:** `2026-07-16-sap-data-plane-and-repl-design.md` (capture/splice, §2),
 `2026-07-19-sap-completion-and-roadmap-design.md` (data plane)
 **Evidence:** `test/integration/code-mode-advantage.test.ts` (the structural wins, measured)
@@ -163,29 +164,42 @@ the parent uses for every child result:
 ```
 renderDelegationResult(output, label, manifest, recovered):
     redacted = redact(output)
-    if recovered AND manifest.deliveredResultValue AND redacted.length > delegateBudget:
-        body = clamp(redacted, delegateBudget) + recovered-clamp banner
+    resultValue = recovered ? findByContentIdentity(manifest.values, output) : none
+    if resultValue AND redacted.length > delegateBudget:
+        body = rewriteManifestNames(clamp(redacted, delegateBudget), manifest.rewrites)
+               + captureMarker(dropped, "— full content: ⟦resultValue.name⟧")
     else:
-        body = truncateToolOutput(redacted, label)     # generic 30 K backstop
-    return rewriteManifestNames(body, manifest.rewrites) + manifest.lines
+        body = rewriteManifestNames(truncateToolOutput(redacted, label), manifest.rewrites)
+    return body + manifest.lines
 ```
 
-Two inputs make the clamp honest and structural, and both are named work items:
+Two inputs make the clamp honest and structural — with NO contract or schema changes
+(round eight deleted the v9 typed-status/`deliveredResultValue` machinery: the status had
+no consumer, the store delta carries no provenance, and an origin-kind boolean would
+false-positive on a mid-run published delegation-origin value, e.g. a grandchild's
+result):
 
-- **`recovered`** — stamped (in-memory only; no log change) on the `ResultMessage`
-  reconstructed at the two recovery sites (`readPersistedHandleResult`,
-  `loadCompletedChildHandles`). LIVE results — gated (≤ budget by the budget-inclusive
-  marker) or capture-failed (raw ≤ 30 K, which principle 1 requires stay at today's
-  limits) — never carry the flag and can never reach the clamp.
-- **`manifest.deliveredResultValue`** — `fetchManifestLines` gains a typed return
-  (`status: ok | no-store | unavailable`, plus whether the delta delivered the child's
-  auto-published delegation-origin result value). This IS a contract change to
-  `fetchManifestLines`, owned as such: today no-store and empty-delta are
-  indistinguishable (`lines: ""` both) and the unavailable case returns text, not a
-  signal. The clamp fires only when the ref the reader needs actually arrived; every
-  other case — store unavailable, delta already consumed by an earlier render
-  (delivery cursors are durable), child died before publishing, other-values-published-
-  but-result-failed — lands on the 30 K backstop, redacted.
+- **`recovered`** — stamped (in-memory only; no log change) inside `readHandleResult`,
+  the single shared constructor both recovery paths delegate to. LIVE results — gated
+  (≤ budget by the budget-inclusive marker) or capture-failed (raw ≤ 30 K, which
+  principle 1 requires stay at today's limits) — never carry the flag and can never
+  reach the clamp, by construction at one line.
+- **Content-identity match in the helper.** The delta already returns each delivered
+  value's `size` and `preview`; the recovered raw output IS the bound content (the
+  `session_end` log and `prepareResultOutput` bind the same string, and values store raw
+  source). So: `resultValue = manifest.values.find(v => v.size === utf8ByteLength(raw))`
+  (tightened with a preview comparison), fail-closed — no match, no clamp. This is
+  stronger than any provenance flag: it verifies the delivered value against the
+  specific output being clamped, so stale prior-goal results, other mid-run publishes,
+  died-before-publish, consumed deltas (cursors are durable), and store-unavailable all
+  land on the 30 K backstop, redacted. The residual is a size+preview coincidence —
+  vanishing, and fail-closed either way.
+
+Because the match yields the value's parent-scope ALIAS (delivered names suffix on
+collision; the delta returns the final name), the clamp emits canonical marker form 1 —
+`[... N chars truncated — full content: ⟦alias⟧]`, inserted AFTER `rewriteManifestNames`
+so an alias can't collide with a rewrite key. Recovery is thus literally "summary +
+manifest like a live one."
 
 This implements the predecessor's recovery requirement ("summary + manifest like a live
 one; … only if the store itself is unavailable does the fallback drop to the full logged
@@ -210,22 +224,22 @@ One helper, prefix + tail — no option slots:
 captureMarker(dropped, tail)  →  "[... ${dropped} truncated${tail}]"
 ```
 
-The six canonical forms, all through the helper:
+The five canonical forms, all through the helper:
 
 ```
 [... N chars truncated — full content: ⟦name⟧]
 [... N chars truncated — full body: ⟦name⟧]                      (fetch)
 [... N chars truncated — full content: ⟦name⟧, stderr: ⟦name2⟧]  (exec companion)
-[... N chars truncated — full output: see published values below] (recovered clamp)
 [... <dropped> truncated; store full — content not captured]
 [... <dropped> truncated; capture failed — content not captured]
 ```
 
-Captured markers always report chars. The recovered-clamp form names no `⟦ref⟧` (the
-parent cannot recompute the child-side suffixed name); it is emitted only when
-`deliveredResultValue` holds, so "published values below" is always true. The preserved
-subprocess >30 K fallback banner (`[... output truncated at 30000 chars]`) is unchanged
-legacy outside the helper — enumerated here for honesty, not converged. "full content:"
+Captured markers always report chars. The recovered clamp emits form 1 — the delta
+delivers the value's final parent-scope alias, so the marker names a real, reachable
+`⟦ref⟧` (v9's bespoke sixth form rested on the false premise that the parent could not
+know the suffixed name). The preserved subprocess >30 K fallback banner
+(`[... output truncated at 30000 chars]`) is unchanged legacy outside the helper —
+enumerated here for honesty, not converged. "full content:"
 is canonical; the ~6 test pins on old wordings (`test/kernel/capture.test.ts`,
 `test/bus/agent-process.test.ts`) move — churn recorded per test. The machine contract is
 the `⟦…⟧` glyph pair.
@@ -262,9 +276,10 @@ exceptions, each with a work item and test:
   `REF_SPLICE_MAX_BYTES` (channel captures cap at 6 MiB; root captures can exceed both —
   reachable via cell/`value_slice`).
 - Above budget, only the redacted preview + marker crosses on the live path; recovered
-  results **whose manifest delta delivered the published result value** clamp to the
-  delegate budget at the render helper (all other recovered cases — delta consumed,
-  died-before-publish, store unavailable — take the 30 K backstop, redacted).
+  results **whose manifest delta delivered the result value (content-identity match)**
+  clamp to the delegate budget at the render helper (all other recovered cases — delta
+  consumed, died-before-publish, stale prior-goal result, store unavailable — take the
+  30 K backstop, redacted).
 - No double-store; no marker ever names a value the reader cannot see (hence: private-only
   featherweight capture; the render helper synthesizes no marker).
 - Subprocess bind-and-publish semantics unchanged; featherweight capture only adds values
@@ -285,13 +300,13 @@ marker-helper adoption + budget-inclusive preview (churn recorded). Featherweigh
 `prepareResultOutput` reuse with `publish: false`, parent-scoped store, private handles
 only (tests: over-budget result → preview + ref; shared → raw path; capture-failure → raw
 path; publish-failure at subprocess → fallback, never a marker). The delegation-render
-helper (redaction + recovery clamp at one seam; the `recovered` flag at the two
-reconstruction sites; the `fetchManifestLines` typed-status + `deliveredResultValue`
-contract change; tests: recovered over-budget result with delivered result value →
-clamped + manifest; store unavailable / delta consumed / died-before-publish → 30 K; live
-capture-FAILED result → today's limits, never clamped; rewrites applied in both branches;
-all five sites migrated). Cell: threshold from its row + marker helper (zero churn,
-asserted).
+helper (redaction + recovery clamp at one seam; the `recovered` flag stamped once in
+`readHandleResult`; the content-identity match — no store or `fetchManifestLines`
+contract changes; tests: recovered over-budget result whose delta delivered the result
+value → clamped + form-1 marker naming the alias + manifest; store unavailable / delta
+consumed / died-before-publish / stale-prior-goal-result → 30 K; live capture-FAILED
+result → today's limits, never clamped; rewrites applied in both branches; all five
+sites migrated). Cell: threshold from its row + marker helper (zero churn, asserted).
 Measurement: payload byte counts with capture on/off; an N-way fan-out e2e proving the
 orchestrator payload stays flat; tune budgets. Fable review.
 
@@ -314,7 +329,7 @@ orchestrator payload stays flat; tune budgets. Fable review.
 3. Splice fidelity up to the 4 MiB bound (documented).
 4. Every render this spec touches is redacted — registry outputs, errors, fallbacks, and
    ALL parent-side child-result renders via the one helper (structural, tested).
-5. All new and changed markers flow through `captureMarker` (six forms); the preserved
+5. All new and changed markers flow through `captureMarker` (five forms); the preserved
    legacy subprocess >30 K banner is the one enumerated exception; preserved behaviors
    hold under test.
 6. Full suite green; assertion churn recorded.
