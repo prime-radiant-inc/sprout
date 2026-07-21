@@ -40,7 +40,11 @@ import {
 	spliceRefArgs,
 } from "../kernel/ref-splice.ts";
 import { buildAgentToolPrimitives } from "../kernel/tool-loading.ts";
-import { captureMarker, resolvePreviewBudgets, truncateToolOutput } from "../kernel/truncation.ts";
+import {
+	captureMarker,
+	resolvePreviewBudgets,
+	truncateToolOutput,
+} from "../kernel/truncation.ts";
 import {
 	type ActResult,
 	type AgentCommand,
@@ -77,7 +81,6 @@ import { shouldTagAgentEventWithSessionId } from "../shared/session-event-scope.
 import { getToolDisplayName } from "../shared/tool-display.ts";
 import { ulid } from "../util/ulid.ts";
 import { getContextWindowSize } from "./context-window.ts";
-import { secretBearingDelegationError } from "./delegation-guard.ts";
 import {
 	formatDelegationGoal,
 	type NormalizedTaskPayload,
@@ -3012,21 +3015,6 @@ export class Agent {
 					agent_name: d.agent_name,
 					success: false,
 					error: errorMsg,
-					tool_result_message: toolResultMsg,
-				});
-				return Promise.resolve({ toolResultMsg, stumbles: 1 });
-			}
-			// Secret guard (workshop lever 2): pattern-detectable credentials in
-			// delegation text never reach the child — reject before dispatch with
-			// the corrective env/⟦ref⟧ guidance. This cannot un-emit the model's
-			// own tool call; it contains the secret and teaches the right path.
-			const guardError = secretBearingDelegationError([d.goal, ...(d.hints ?? [])].join("\n"));
-			if (guardError !== undefined) {
-				const toolResultMsg = Msg.toolResult(d.call_id, `Error: ${guardError}`, true);
-				this.emitAndLog("act_end", agentId, this.depth, {
-					agent_name: d.agent_name,
-					success: false,
-					error: guardError,
 					tool_result_message: toolResultMsg,
 				});
 				return Promise.resolve({ toolResultMsg, stumbles: 1 });
