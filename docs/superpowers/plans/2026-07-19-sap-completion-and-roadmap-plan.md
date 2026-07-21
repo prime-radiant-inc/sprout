@@ -76,8 +76,18 @@ Fable review in fresh context → fix findings → commit → update this plan. 
   narration leak; sonnet-5 sap tier 30/30). Known non-blocker notes from review: tui
   model-picker test is order-dependent (flake, pre-existing); learn/ host-free-ness is convention
   not enforced by the architecture test; a snapshot tempdir can leak on a mid-setup error.
-- [ ] **Phase 6 — Curator generalization + parameterization + root sync.** Curate agents/memories;
-  infer typed params in fabrication; `programs/` in bootstrap manifest + `syncRoot`.
+- [x] **Phase 6 — Curator generalization + parameterization + root sync.** Curate agents/memories;
+  infer typed params in fabrication; `programs/` in bootstrap manifest + `syncRoot`. The machinery
+  (curatePrograms/curateAgents/curateMemories, inferParams, root program sync) landed with the sap
+  build, but the curator was INERT: the adoption gate only accepted a significant improvement, and
+  a rot-retirement can't improve pinned-eval fitness, so curation never adopted (2026-07-21 review).
+  FIXED (2026-07-21, commit e5a3ad7): mutations carry an adoption INTENT — `curation` (rot removal)
+  adopts on NON-REGRESSION (not underpowered, not significantly worse, no canary regression) while
+  `improvement` still requires a significant gain. Still multi-run, significance-gated, canary-fail-
+  closed — only the direction flips. Plus a fabricate-then-retire-same-pass self-churn guard. The
+  curator now actually removes rot. (Same commit fixed the pending-eval ledger: it enqueues only an
+  un-gated agent mutation — gated mutations already passed the frozen gate and must not be overridden
+  by one noisy delta; non-agent/"learn" entries could never evaluate and piled up forever.)
 - [x] **Phase 7 — Security hardening.** Per-session sub-call/token budget; script-tool
   shell-exposure tightening; document the `node:vm` ceiling. Budget: `src/host/session-budget.ts`
   (defaults 1000 sub-calls / 50M tokens; `SPROUT_SESSION_MAX_SUB_CALLS` /
