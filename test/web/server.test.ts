@@ -13,6 +13,7 @@ import { createEmptySettings } from "../../src/host/settings/types.ts";
 import { EVENT_CAP, WEB_HISTORY_PAGE_SIZE } from "../../src/kernel/constants.ts";
 import type { SessionEvent } from "../../src/kernel/types.ts";
 import { HISTORY_CACHE_CAP, WebServer } from "../../src/web/server.ts";
+import { waitFor } from "../helpers/wait-for.ts";
 import {
 	collectMessages,
 	connect,
@@ -1544,9 +1545,13 @@ describe("WebServer", () => {
 			const ws = await connect(`ws://localhost:${port2}/ws`);
 			clients.push(ws);
 			const messages = collectMessages(ws);
+			const countTaskUpdates = () =>
+				messages.filter((m) => m.type === "event" && m.event.kind === "task_update").length;
 
-			// Wait for snapshot (and possible seed task_update) to arrive
-			await delay(200);
+			// Wait for the seed task_update that follows the snapshot on connect
+			// (tasks.json exists, so the seed is always sent)
+			await waitFor(() => countTaskUpdates() >= 1);
+			const seedCount = countTaskUpdates();
 
 			// Simulate task-cli exec: primitive_start then primitive_end
 			bus.emitEvent("primitive_start", "agent-1", 1, {
@@ -1559,8 +1564,8 @@ describe("WebServer", () => {
 				args: { command: "task-cli update 1 --status done" },
 			});
 
-			// Wait for the async emitTaskUpdate to complete
-			await delay(500);
+			// Wait for the async emitTaskUpdate triggered by the exec completion
+			await waitFor(() => countTaskUpdates() > seedCount);
 
 			// Find task_update events among all received messages
 			const taskUpdateMsgs = messages.filter(
@@ -1568,8 +1573,7 @@ describe("WebServer", () => {
 					m.type === "event" && m.event.kind === "task_update",
 			);
 
-			// Should have at least one task_update from the exec completion
-			// (may also have the seed task_update from initial connect)
+			// Should have the exec-completion task_update beyond the seed
 			expect(taskUpdateMsgs.length).toBeGreaterThanOrEqual(1);
 
 			const lastTaskUpdate = taskUpdateMsgs[taskUpdateMsgs.length - 1]!;
@@ -1607,9 +1611,13 @@ describe("WebServer", () => {
 			const ws = await connect(`ws://localhost:${port2}/ws`);
 			clients.push(ws);
 			const messages = collectMessages(ws);
+			const countTaskUpdates = () =>
+				messages.filter((m) => m.type === "event" && m.event.kind === "task_update").length;
 
-			// Wait for snapshot (and possible seed task_update) to arrive
-			await delay(200);
+			// Wait for the seed task_update that follows the snapshot on connect
+			// (tasks.json exists, so the seed is always sent)
+			await waitFor(() => countTaskUpdates() >= 1);
+			const seedCount = countTaskUpdates();
 
 			// Simulate direct task-cli primitive: name is "task-cli", not "exec"
 			bus.emitEvent("primitive_start", "agent-1", 1, {
@@ -1622,8 +1630,8 @@ describe("WebServer", () => {
 				args: { command: "update", id: "1", status: "done" },
 			});
 
-			// Wait for the async emitTaskUpdate to complete
-			await delay(500);
+			// Wait for the async emitTaskUpdate triggered by the primitive completion
+			await waitFor(() => countTaskUpdates() > seedCount);
 
 			// Find task_update events among all received messages
 			const taskUpdateMsgs = messages.filter(
@@ -1631,7 +1639,7 @@ describe("WebServer", () => {
 					m.type === "event" && m.event.kind === "task_update",
 			);
 
-			// Should have at least one task_update from the primitive completion
+			// Should have the primitive-completion task_update beyond the seed
 			expect(taskUpdateMsgs.length).toBeGreaterThanOrEqual(1);
 
 			const lastTaskUpdate = taskUpdateMsgs[taskUpdateMsgs.length - 1]!;
