@@ -6,7 +6,6 @@ import {
 	runCellWorker,
 } from "../../src/cell/cell-worker";
 import { QuickJSCellEngine } from "../../src/cell/quickjs-engine";
-import { VmCellEngine } from "../../src/cell/vm-engine";
 
 type AmbientHandler = (method: string, args: unknown[]) => Promise<unknown>;
 
@@ -136,10 +135,7 @@ describe("lexical gate", () => {
 	});
 });
 
-const ENGINES: [string, () => CellEngine][] = [
-	["vm", () => new VmCellEngine()],
-	["quickjs", () => new QuickJSCellEngine()],
-];
+const ENGINES: [string, () => CellEngine][] = [["quickjs", () => new QuickJSCellEngine()]];
 
 for (const [engineName, makeEngine] of ENGINES) {
 	describe(`cell worker (${engineName} engine)`, () => {
@@ -328,10 +324,9 @@ for (const [engineName, makeEngine] of ENGINES) {
 
 			it("runaway recursion fails the cell and the worker keeps serving", async () => {
 				const h = makeHarness(makeEngine());
-				// `return f() + 1` — the addition defeats JSC's strict-mode proper
-				// tail calls, which would otherwise turn self-recursion into an
-				// unkillable 100%-CPU loop under the vm engine instead of a
-				// stack overflow.
+				// `return f() + 1` — the addition defeats proper tail-call
+				// optimization, so self-recursion grows the interpreter stack to a
+				// bounded overflow rather than looping forever in place.
 				const result = await h.runCell("function f() { return f() + 1; } f(); return 'no';");
 				expect(result.ok).toBe(false);
 				expect(result.infrastructure).toBeUndefined();

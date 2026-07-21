@@ -2,12 +2,10 @@
  * The engine seam (QuickJS spec, 2026-07-20): a cell engine owns ONE thing —
  * executing already-gated cell code inside an isolated realm wired to the
  * worker's ambient bridges. Everything else in the worker (line protocol,
- * ambient correlation, infra-error bookkeeping, console formatting, return
- * serialization, the lexical gate) is engine-agnostic and lives outside.
- *
- * TEMPORARY SCAFFOLD: the vm/quickjs selector exists only for the P1–P2
- * dual-engine build window. At P3 cutover the selector and the node:vm engine
- * are deleted together (spec: no dual-engine ship, no compatibility flag).
+ * ambient correlation, infra-error bookkeeping, console formatting, the
+ * lexical gate) is engine-agnostic and lives outside. The QuickJS-WASM engine
+ * is the only engine (the node:vm engine and its selector were removed at the
+ * P3 cutover); a cell's final value is serialized in-realm (MARSHAL_DISPLAY).
  */
 
 import type { WorkerProgram } from "./cell-bootstrap.ts";
@@ -17,35 +15,9 @@ export type CellEngineResult =
 	| { ok: false; error: string; infrastructure: boolean };
 
 /**
- * Serialize a cell's final value for the result line. Strings pass verbatim;
- * everything else goes through JSON (String() as the honest fallback);
- * undefined stays absent — "no return statement" and "return undefined" look
- * the same, which the tool description documents.
- *
- * Serialization is the ENGINE's job (not the worker's): only the engine can
- * see the live realm value with its type intact — once a Date has crossed the
- * wasm boundary it is already a string, and re-serializing host-side would
- * quote it differently than the vm realm did. The vm engine applies this
- * function to the live value; the QuickJS engine runs the same algorithm
- * in-context (MARSHAL_DISPLAY) and ships the resulting bytes.
- */
-export function serializeReturnValue(value: unknown): string | undefined {
-	if (value === undefined) return undefined;
-	if (typeof value === "string") return value;
-	try {
-		const json = JSON.stringify(value);
-		if (json !== undefined) return json;
-	} catch {
-		// fall through
-	}
-	return String(value);
-}
-
-/**
- * Hard caps a cell runs under (P2). Enforced in-realm by the QuickJS engine
- * (allocation-fail memory cap, interrupt-driven deadline); the vm engine
- * cannot enforce them and relies on the parent's kill paths, which remain the
- * outer net either way.
+ * Hard caps a cell runs under (P2), enforced in-realm by the QuickJS engine:
+ * an allocation-fail memory cap and an interrupt-driven deadline. The parent's
+ * kill paths remain the outer net.
  */
 export type CellLimits = {
 	/** Byte-precise allocation cap for the realm. */
@@ -73,32 +45,13 @@ export interface CellEngine {
 	runCell(request: CellEngineRequest): Promise<CellEngineResult>;
 }
 
-/** Env knob selecting the engine during the migration window. */
-const CELL_ENGINE_ENV = "SPROUT_CELL_ENGINE";
-
-export type CellEngineName = "vm" | "quickjs";
-
-export function resolveCellEngineName(
-	env: Record<string, string | undefined> = process.env,
-): CellEngineName {
-	const name = env[CELL_ENGINE_ENV] ?? "vm";
-	if (name !== "vm" && name !== "quickjs") {
-		throw new Error(`${CELL_ENGINE_ENV} must be "vm" or "quickjs", got "${name}"`);
-	}
-	return name;
-}
-
 /**
- * Instantiate an engine by name. Dynamic imports on both arms: the QuickJS
- * singlefile module embeds the wasm as base64 (~3 MB of JS) and must not load
- * into vm-engine workers; keeping both arms dynamic also keeps this module
+ * Instantiate the cell engine. The dynamic import keeps the QuickJS singlefile
+ * module (which embeds the wasm as ~3 MB of base64 JS) out of this module's
+ * import graph until a worker actually needs it, and keeps this module
  * import-cycle-free.
  */
-export async function createCellEngine(name: CellEngineName): Promise<CellEngine> {
-	if (name === "quickjs") {
-		const { QuickJSCellEngine } = await import("./quickjs-engine.ts");
-		return new QuickJSCellEngine();
-	}
-	const { VmCellEngine } = await import("./vm-engine.ts");
-	return new VmCellEngine();
+export async function createCellEngine(): Promise<CellEngine> {
+	const { QuickJSCellEngine } = await import("./quickjs-engine.ts");
+	return new QuickJSCellEngine();
 }

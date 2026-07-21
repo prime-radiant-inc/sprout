@@ -2,7 +2,8 @@
 
 **Date started:** 2026-07-20
 **Spec:** `../specs/2026-07-20-quickjs-wasm-cell-engine-design.md`
-**Status:** in progress — P1 and P2 complete (both Fable-reviewed, findings fixed); P3 next
+**Status:** COMPLETE (2026-07-21) — P1, P2, and P3 (adversarial containment + cutover) all done;
+QuickJS-WASM is the sole cell engine, node:vm removed.
 **Branch:** built on `sap-completion-roadmap`, merges together with the completion work
 (Jesse, 2026-07-20: "build and merge together").
 
@@ -142,8 +143,13 @@ adversarial Fable review in fresh context → fix findings → commit → update
     so a restricted run cannot reach exec by delegating. Offline tests (gate + harness
     passthrough) + full suite green + the live PASS above. This gap was masked until the
     eval-sap self-invocation fix (f590dd6) made the canary actually run.
-  - [ ] **Cutover** — delete `node:vm` path + selector; update Phase-7 security-posture docs;
-    close issue #1. HELD pending the perf decision (Jesse: accept & cut over then optimize).
+  - [x] **Cutover** (2026-07-21) — deleted `vm-engine.ts`, the `SPROUT_CELL_ENGINE` selector,
+    `resolveCellEngineName`/`CellEngineName`, the vm-only `serializeReturnValue`, and the
+    dual-engine bench script; `createCellEngine()` now always returns the QuickJS engine;
+    `resolveWorkerRssKillBytes` collapsed to `budget + headroom`; `formatConsoleArg` dropped its
+    vm-shaped JSON branch; the cell-host/worker/engine security-posture comments were updated to
+    the single-engine reality. Full delete (Jesse's call: no rollback lever, matching the spec's
+    no-dual-engine-ship). Cell suite green; live canaries run as the final gate; issue #1 closed.
 
 ## Deviations log
 

@@ -1,10 +1,9 @@
 /**
  * The QuickJS-WASM cell engine (QuickJS spec, 2026-07-20): the fails-closed
- * replacement for the node:vm realm. Cell code runs inside a QuickJS
- * interpreter compiled to wasm — an engine escape must break QuickJS, then the
- * wasm boundary, before it faces the host engine. Host objects cannot cross
- * the boundary as anything but marshaled values, so there is no host
- * constructor chain to leak.
+ * realm cells run in. Cell code runs inside a QuickJS interpreter compiled to
+ * wasm — an engine escape must break QuickJS, then the wasm boundary, before
+ * it faces the host engine. Host objects cannot cross the boundary as anything
+ * but marshaled values, so there is no host constructor chain to leak.
  *
  * Async model (spec, decided): native-promise + job-pump. The ambient host
  * function creates a QuickJS deferred and returns its promise handle
@@ -108,10 +107,9 @@ const DEADLOCK_ERROR =
 const CELL_MAX_STACK_BYTES = 256 * 1024;
 
 /**
- * In-context display marshal, mirroring the worker's serializeReturnValue /
- * formatConsoleArg algorithm exactly (string verbatim → JSON → String
- * fallback) so top-level values leave the realm with the same display
- * semantics the vm engine produced via host-side JSON.stringify. Captures
+ * In-context display marshal: string verbatim → JSON → String fallback, so a
+ * top-level value leaves the realm as its final display bytes with its type
+ * intact (a Date serializes as its JSON form, not a bare string). Captures
  * pristine JSON.stringify and String before any cell code runs — reassigned
  * globals cannot forge it. Also keeps QuickJS internals (e.g. Error stack
  * frames from dump()) out of the transcript.
@@ -575,8 +573,7 @@ class CellRun {
 					return;
 				}
 				// Any other error — a genuine cell throw or an in-context OOM — fails
-				// the CELL as a stumble. Unlike the vm engine (whose detached host
-				// timer would crash the worker), QuickJS holds the error value, so
+				// the CELL as a stumble. QuickJS holds the error value in-realm, so
 				// the worker survives and the failure is correctly the cell's. Timers
 				// are torn down at cell end, so this only ever fires within the
 				// offending cell's own run.

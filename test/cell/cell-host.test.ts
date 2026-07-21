@@ -172,9 +172,10 @@ describe("CellHost", () => {
 		const result = await host.runCell('let s = "x"; while (true) s += s;');
 		expect(result.ok).toBe(false);
 		// Which guard fires first is timing-dependent (the bomb also burns CPU,
-		// and the runtime may OOM-throw on its own); any loud death is correct.
+		// and QuickJS may hit its in-realm string/allocation limit on its own);
+		// any loud death is correct.
 		expect(result.error?.message).toMatch(
-			/memory budget|budget exceeded|out of memory|worker exited/i,
+			/memory budget|budget exceeded|out of memory|string too long|worker exited/i,
 		);
 	}, 30_000);
 
@@ -679,12 +680,8 @@ describe("CellHost", () => {
 });
 
 describe("resolveWorkerRssKillBytes (P2)", () => {
-	it("stays AT the budget for the vm engine — its only memory guard must not loosen", () => {
-		expect(resolveWorkerRssKillBytes(512 * 1024 * 1024, {})).toBe(512 * 1024 * 1024);
-	});
-
-	it("sits headroom ABOVE the inner cap for the quickjs engine", () => {
-		expect(resolveWorkerRssKillBytes(512 * 1024 * 1024, { SPROUT_CELL_ENGINE: "quickjs" })).toBe(
+	it("sits headroom ABOVE the inner cap — the RSS watchdog is the outer net", () => {
+		expect(resolveWorkerRssKillBytes(512 * 1024 * 1024)).toBe(
 			512 * 1024 * 1024 + WORKER_RSS_HEADROOM_BYTES,
 		);
 	});

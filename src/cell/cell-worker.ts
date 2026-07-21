@@ -6,10 +6,10 @@
  * lease: when the owner dies the pipe closes, the line loop ends, and the
  * worker exits.
  *
- * The realm itself lives behind the CellEngine seam (cell-engine.ts): node:vm
- * today, QuickJS-WASM at P3 cutover. This module owns everything
- * engine-agnostic — the line protocol, ambient correlation, infra-error
- * identity bookkeeping, console buffering, and return serialization.
+ * The realm itself lives behind the CellEngine seam (cell-engine.ts): the
+ * QuickJS-WASM engine. This module owns everything engine-agnostic — the line
+ * protocol, ambient correlation, infra-error identity bookkeeping, and console
+ * buffering.
  *
  * Protocol (stdio JSONL, mirroring the store worker, plus worker-initiated
  * ambient requests):
@@ -20,12 +20,7 @@
  */
 
 import type { WorkerProgram } from "./cell-bootstrap.ts";
-import {
-	type CellEngine,
-	type CellLimits,
-	createCellEngine,
-	resolveCellEngineName,
-} from "./cell-engine.ts";
+import { type CellEngine, type CellLimits, createCellEngine } from "./cell-engine.ts";
 
 export type { WorkerProgram } from "./cell-bootstrap.ts";
 
@@ -84,16 +79,13 @@ function sanitizeLimits(raw: Record<string, unknown>): CellLimits | undefined {
 	return limits.memoryBytes !== undefined || limits.budgetMs !== undefined ? limits : undefined;
 }
 
-/** util.format-ish console capture: strings verbatim, the rest as JSON. */
+/**
+ * Console capture. The QuickJS engine's marshalLogArgs delivers each arg as
+ * its final display string, so capture is verbatim; String() is a defensive
+ * fallback for the never-expected non-string.
+ */
 function formatConsoleArg(arg: unknown): string {
-	if (typeof arg === "string") return arg;
-	try {
-		const json = JSON.stringify(arg);
-		if (json !== undefined) return json;
-	} catch {
-		// Circular or otherwise unserializable — fall through to String().
-	}
-	return String(arg);
+	return typeof arg === "string" ? arg : String(arg);
 }
 
 class ConsoleBuffer {
@@ -119,7 +111,7 @@ export interface RunCellWorkerInput {
 	lines: AsyncIterable<string | Uint8Array>;
 	/** Emit one message line (newline handled by the caller's transport). */
 	write: (line: string) => void;
-	/** Engine override for tests; defaults to SPROUT_CELL_ENGINE (vm). */
+	/** Engine override for tests; defaults to the QuickJS engine. */
 	engine?: CellEngine;
 }
 
@@ -131,7 +123,7 @@ export interface RunCellWorkerInput {
  * second cell arriving while one runs is refused loudly rather than queued.
  */
 export async function runCellWorker(input: RunCellWorkerInput): Promise<void> {
-	const engine = input.engine ?? (await createCellEngine(resolveCellEngineName()));
+	const engine = input.engine ?? (await createCellEngine());
 	const pendingAmbient = new Map<
 		string,
 		{ resolve: (result: unknown) => void; reject: (err: Error) => void }

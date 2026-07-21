@@ -14,23 +14,22 @@
  *
  * A killed worker respawns lazily on the next cell.
  *
- * SECURITY POSTURE (Phase 7, for operators and reviewers): the RSS watchdog
- * is BEST-EFFORT memory limiting, not a hard cap — a burst allocation can
- * outrun the 250 ms poll before the SIGKILL lands, and RSS is only a proxy for
- * true commitment. Likewise the budget clock kills a runaway cell; it does not
- * prevent one — and it accrues only while nothing ambient is outstanding, so
- * CPU spun behind even ONE un-awaited ambient call goes unbilled (accepted
- * 2026-07-21: the clock bounds accidents; the RSS watchdog is the net). These
- * guards bound accidents and runaways from model-authored code; they are not
- * a defense against a determined same-UID attacker (see the realm doc in
- * cell-worker.ts). The fails-closed replacement is the QuickJS-WASM port,
- * tracked as prime-radiant-inc/sprout#1.
+ * SECURITY POSTURE (for operators and reviewers): cells run inside the
+ * QuickJS-WASM engine, which enforces a byte-precise memory cap and an
+ * interrupt-driven compute deadline IN-REALM — the wasm boundary is the
+ * isolation, and there is no host constructor chain to leak (see the realm
+ * doc in cell-worker.ts). The parent-side guards below are the OUTER net above
+ * that in-realm enforcement: the RSS watchdog is best-effort (a burst
+ * allocation can outrun the 250 ms poll before the SIGKILL lands, and RSS is
+ * only a proxy for true commitment), and the budget clock accrues only while
+ * nothing ambient is outstanding, so CPU spun behind even ONE un-awaited
+ * ambient call goes unbilled (accepted 2026-07-21: the clock bounds accidents;
+ * the in-realm cap plus the RSS watchdog are the net).
  */
 
 import { redactSensitiveTranscriptContent } from "../kernel/redaction.ts";
 import { captureMarker, resolvePreviewBudgets } from "../kernel/truncation.ts";
 import type { StoreAccess } from "../store/store-access.ts";
-import { resolveCellEngineName } from "./cell-engine.ts";
 import type { CellWorkerMessage, WorkerProgram } from "./cell-worker.ts";
 import {
 	type CellWorkerProcessHandle,
@@ -45,33 +44,18 @@ const DEFAULT_CELL_BUDGET_MS = 5_000;
 const DEFAULT_CELL_MEMORY_BUDGET_BYTES = 512 * 1024 * 1024;
 
 /**
- * Worker-baseline headroom the RSS watchdog grants ABOVE the memory budget
- * when the QuickJS engine enforces the budget in-realm (P2). Process RSS is a
- * strict superset of the realm heap — bun runtime plus the wasm engine
- * measured at ~81 MB baseline (2026-07-20) — and wasm linear memory is
- * high-water-mark, never returned to the OS. With the same number for both,
- * the outer net would fire BEFORE the byte-precise inner cap ever engaged.
- * Under the vm engine the watchdog stays AT the budget: there it is the only
- * memory guard, so it must not loosen during the migration window.
+ * Worker-baseline headroom the RSS watchdog grants ABOVE the memory budget.
+ * The QuickJS engine enforces the byte-precise cap in-realm (P2), so process
+ * RSS is a strict superset of the realm heap — bun runtime plus the wasm
+ * engine measured at ~81 MB baseline (2026-07-20), and wasm linear memory is
+ * high-water-mark, never returned to the OS. Without this headroom the outer
+ * watchdog would fire BEFORE the in-realm cap ever engaged.
  */
 export const WORKER_RSS_HEADROOM_BYTES = 256 * 1024 * 1024;
 
-/**
- * The parent decides the threshold from ITS env, while the worker picks its
- * engine from the worker process's env. These agree only because
- * `spawnCellWorkerProcess` inherits the full parent environment (no `env`
- * override on `Bun.spawn`) — the migration-window invariant that keeps the
- * headroom matched to the engine actually running. A future change that spawns
- * the worker with a different SPROUT_CELL_ENGINE must recompute this
- * threshold, or a quickjs worker would be RSS-killed at the vm threshold.
- */
-export function resolveWorkerRssKillBytes(
-	memoryBudgetBytes: number,
-	env: Record<string, string | undefined> = process.env,
-): number {
-	return resolveCellEngineName(env) === "quickjs"
-		? memoryBudgetBytes + WORKER_RSS_HEADROOM_BYTES
-		: memoryBudgetBytes;
+/** The RSS watchdog threshold: the in-realm memory budget plus baseline headroom. */
+export function resolveWorkerRssKillBytes(memoryBudgetBytes: number): number {
+	return memoryBudgetBytes + WORKER_RSS_HEADROOM_BYTES;
 }
 
 /** Ambient get()/parse() materialization budget (spec §4: default 1 MB). */
