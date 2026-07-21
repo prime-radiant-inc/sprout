@@ -8,22 +8,15 @@ prefix commits with `PATH="/home/jesse/.bun/bin:$PATH"` so the hook finds bun/bu
 
 ## Pre-P1 — agent-message clamp (standalone; waits on nothing)
 
-- [ ] Failing test: a long `message_agent` text renders into the system prompt clamped at
-      `AGENT_MESSAGE_RENDER_CLAMP = 4_000` chars + `[... N chars truncated]` banner, and
-      redacted (`renderAgentMessagesForPrompt`, `agent.ts:912–933` — today unbounded and
-      unredacted). Test via the public surface (queue a message, render the prompt).
-- [ ] Implement: redact + clamp in `renderAgentMessagesForPrompt`; own constant, NOT the
-      `delegate` budget row.
-- [ ] Commit.
+- [x] Failing test + implement + commit (14ad538): redact-then-clamp in
+      `renderAgentMessagesForPrompt` at `AGENT_MESSAGE_RENDER_CLAMP = 4_000`; steering
+      test pins redaction, banner, and bound.
 
 ## P1 — registry gate + shared data (spec §Design)
 
-- [ ] `DEFAULT_PREVIEW_BUDGETS` record beside `DEFAULT_CHAR_LIMITS` (`truncation.ts`):
-      default 2000, read_file 4000, delegate 4000, cell 2000. Resolver:
-      `SPROUT_PREVIEW_BUDGETS` JSON env map merged over defaults, resolved once per
-      process, invalid → warn + defaults. Programmatic override channel for tests.
-- [ ] `captureMarker(dropped, tail)` helper — prefix `[... ${dropped} truncated${tail}]`;
-      five canonical forms (content/body/stderr-companion/store-full/capture-failed).
+- [x] `DEFAULT_PREVIEW_BUDGETS` + `resolvePreviewBudgets(env, warn)` +
+      `captureMarker(dropped, tail)` in `truncation.ts`; tested in
+      `test/kernel/preview-budgets.test.ts` (10 tests incl. warn-sink fallbacks).
 - [ ] The predicate in `createPrimitiveRegistry.execute` (`primitives.ts:87–170`): svelte
       path iff `captureSource !== undefined` AND capture store set; `boundValues`
       non-empty selects no-double-store branch within it. Chars-only trigger (line limits

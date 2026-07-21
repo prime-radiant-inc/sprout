@@ -19,6 +19,61 @@ export const DEFAULT_CHAR_LIMITS: Record<string, number> = {
 	fetch: 30_000,
 };
 
+/**
+ * Preview budgets (capture-all spec v10): the svelte thresholds the three
+ * output gates read, in CHARS. `default` covers every capture-capable tool
+ * without its own row; `cell` is explicit so tuning `default` cannot silently
+ * move the data-plane transcript gate.
+ */
+export const DEFAULT_PREVIEW_BUDGETS: Record<string, number> = {
+	default: 2_000,
+	read_file: 4_000,
+	delegate: 4_000,
+	cell: 2_000,
+};
+
+/**
+ * Resolve preview budgets from the environment: SPROUT_PREVIEW_BUDGETS holds a
+ * JSON map merged over the defaults. Any invalid input warns and falls back
+ * wholesale — a bad env var must never crash or partially configure a session.
+ */
+export function resolvePreviewBudgets(
+	env: Record<string, string | undefined>,
+	warn: (message: string) => void = console.warn,
+): Record<string, number> {
+	const defaults = { ...DEFAULT_PREVIEW_BUDGETS };
+	const raw = env.SPROUT_PREVIEW_BUDGETS;
+	if (raw === undefined || raw === "") return defaults;
+	try {
+		const parsed: unknown = JSON.parse(raw);
+		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+			throw new Error("must be a JSON object map");
+		}
+		const merged = { ...defaults };
+		for (const [key, value] of Object.entries(parsed)) {
+			if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+				throw new Error(`budget for '${key}' must be a positive number`);
+			}
+			merged[key] = value;
+		}
+		return merged;
+	} catch (err) {
+		warn(
+			`invalid SPROUT_PREVIEW_BUDGETS ignored (${err instanceof Error ? err.message : String(err)}); using defaults`,
+		);
+		return defaults;
+	}
+}
+
+/**
+ * The one capture-marker format (capture-all spec v10): every gate composes
+ * its tail onto this prefix, so wording converges by construction. The
+ * machine contract is the ⟦…⟧ glyph pair inside ref-naming tails.
+ */
+export function captureMarker(dropped: string, tail: string): string {
+	return `[... ${dropped} truncated${tail}]`;
+}
+
 /** Default line limits per tool (undefined = no line limit) */
 export const DEFAULT_LINE_LIMITS: Record<string, number> = {
 	exec: 256,
