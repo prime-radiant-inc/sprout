@@ -17,6 +17,14 @@ flight at that point.
 3. Personally verify the top findings against the code.
 4. Implement the SAFE, high-value ones: TDD where behavior is touched, full pre-commit
    hook (`PATH="/home/jesse/.bun/bin:$PATH"`), one commit per coherent change.
+4b. DECOMPOSITION mandate (Jesse, 2026-07-21): each cycle also targets maintainability —
+   files over ~500 lines get their natural seams identified (cohesive units that move to
+   their own modules with imports fixed up — mechanical moves, never rewrites), and
+   functions over ~80 lines get cohesive blocks extracted into named helpers. Implement
+   the top 1-2 extractions per cycle (behavior-identical, suite green); record the rest.
+   Size inventory at adoption: agent.ts 3693, genome.ts 1890, spawner.ts 1512,
+   control-plane.ts 1359, primitives.ts 1046, session-controller.ts 1029, store.ts 989,
+   learn-process.ts 875, agent-process.ts 866, cell-host.ts 850, memory-index.ts 831.
 5. Log findings + actions below. Architectural/risky proposals are RECORDED for Jesse,
    never implemented unilaterally.
 6. Reschedule the next wakeup (~1500s); at ≥4h elapsed, finish the current cycle, write
@@ -68,6 +76,17 @@ RISKY — recorded for Jesse, not touched:
   option would close it. Flagged as a likely bug, needs a decision.
 - PublishRecord.ulids array with only single-element producers: scalarizing changes the
   durable journal format — not worth it.
+
+## Decision-queue from Jesse's Q&A (2026-07-21)
+
+- KILL store-side reservedNames (option + env plumbing + self-test) + amend spec §1
+  Naming #4 to scope reservation to agent names.
+- CUT grep abort-signal option (+ two abort checks + tests) + amend the spec sentence to
+  the implemented timeout-or-restart contract.
+- Lever-2 guard + credential redaction pattern: REVERTED (done) — see memory
+  no-specialized-credential-machinery.
+- QuickJS cutover proceeds AFTER the loop rotation, ending with live canaries.
+- Branch stays unmerged; index fsync-off ratified; API spend = lean judgment.
 
 ## Constraints carried from the session
 
