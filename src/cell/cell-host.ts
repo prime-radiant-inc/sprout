@@ -77,7 +77,7 @@ export const CELL_GET_BUDGET_BYTES = 1024 * 1024;
  * (2,000) folds into the preview-budget record's `cell` row (capture-all spec
  * v10) — an explicit row, so tuning `default` cannot silently move this gate.
  */
-export const CELL_AUTO_BIND_THRESHOLD = resolvePreviewBudgets(process.env).cell ?? 2_000;
+export const CELL_AUTO_BIND_THRESHOLD = resolvePreviewBudgets(process.env).cell;
 
 const BUDGET_POLL_INTERVAL_MS = 100;
 const RSS_POLL_INTERVAL_MS = 250;

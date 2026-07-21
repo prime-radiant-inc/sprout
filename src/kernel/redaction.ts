@@ -5,7 +5,8 @@ export function redactSensitiveTranscriptContent(content: string): string {
 			"[REDACTED_PRIVATE_KEY]",
 		)
 		.replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{20,}/g, "Bearer [REDACTED_TOKEN]")
-		.replace(/\b(?:sk-ant|sk)-[A-Za-z0-9_-]{20,}/g, "[REDACTED_API_KEY]")
+		// Covers sk-ant-… (Anthropic) and every other sk-… provider key shape.
+		.replace(/\bsk-[A-Za-z0-9_-]{20,}/g, "[REDACTED_API_KEY]")
 		.replace(/\bAKIA[0-9A-Z]{16}\b/g, "[REDACTED_AWS_KEY]")
 		.replace(/\bgh[pousr]_[A-Za-z0-9_]{20,}\b/g, "[REDACTED_GITHUB_TOKEN]")
 		.replace(/\bxox[baprs]-[A-Za-z0-9-]{20,}\b/g, "[REDACTED_SLACK_TOKEN]")

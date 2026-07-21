@@ -23,9 +23,17 @@ export const DEFAULT_CHAR_LIMITS: Record<string, number> = {
  * Preview budgets (capture-all spec v10): the svelte thresholds the three
  * output gates read, in CHARS. `default` covers every capture-capable tool
  * without its own row; `cell` is explicit so tuning `default` cannot silently
- * move the data-plane transcript gate.
+ * move the data-plane transcript gate. The named rows are required so gate
+ * call sites never need a hardcoded fallback copy of a default.
  */
-export const DEFAULT_PREVIEW_BUDGETS: Record<string, number> = {
+export interface PreviewBudgets extends Record<string, number> {
+	default: number;
+	read_file: number;
+	delegate: number;
+	cell: number;
+}
+
+export const DEFAULT_PREVIEW_BUDGETS: PreviewBudgets = {
 	default: 2_000,
 	read_file: 4_000,
 	delegate: 4_000,
@@ -40,7 +48,7 @@ export const DEFAULT_PREVIEW_BUDGETS: Record<string, number> = {
 export function resolvePreviewBudgets(
 	env: Record<string, string | undefined>,
 	warn: (message: string) => void = console.warn,
-): Record<string, number> {
+): PreviewBudgets {
 	const defaults = { ...DEFAULT_PREVIEW_BUDGETS };
 	const raw = env.SPROUT_PREVIEW_BUDGETS;
 	if (raw === undefined || raw === "") return defaults;

@@ -52,7 +52,7 @@ export function renderReadFile(content: string, startLine = 1): string {
  * Parse rg/grep `path:line:text` output into structured matches. Splits on the
  * first two colons only, so colons in the matched text survive.
  */
-export function parseGrepOutput(raw: string): GrepStructuredMatch[] {
+function parseGrepOutput(raw: string): GrepStructuredMatch[] {
 	const matches: GrepStructuredMatch[] = [];
 	for (const line of raw.split("\n")) {
 		if (line.length === 0) continue;

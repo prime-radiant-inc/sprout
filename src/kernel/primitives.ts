@@ -1,5 +1,6 @@
 import { readFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
+import { parse as parseYaml } from "yaml";
 import type { Genome } from "../genome/genome.ts";
 import { buildReadMemoryPrimitives, buildWriteMemoryPrimitives } from "../genome/memory-tools.ts";
 import type { MemoryWriteAuthorization } from "../genome/memory-write-authorization.ts";
@@ -9,11 +10,23 @@ import { type ExecResult, type ExecutionEnvironment, renderReadFile } from "./ex
 import { redactSensitiveTranscriptContent } from "./redaction.ts";
 import {
 	captureMarker,
+	DEFAULT_PREVIEW_BUDGETS,
 	resolvePreviewBudgets,
 	truncateAtBudgetDetailed,
+	truncateToolOutput,
 	truncateToolOutputDetailed,
 } from "./truncation.ts";
-import type { PrimitiveResult } from "./types.ts";
+import {
+	type AgentSpec,
+	normalizeAgentConstraints,
+	normalizeAgentOutputConfig,
+	normalizeAgentPromptCacheConfig,
+	normalizeAgentSamplingConfig,
+	normalizeAgentTaskPayloadConfig,
+	normalizeAgentThinkingConfig,
+	type PrimitiveResult,
+	validateAgentName,
+} from "./types.ts";
 
 const READ_FILE_LINE_PREFIX_NOTE =
 	'read_file prefixes each line as "<line_number>\\t<line_text>"; remove everything through the first tab on each line before reusing text in edit_file or apply_patch.';
@@ -73,7 +86,7 @@ export function createPrimitiveRegistry(
 	let captureStore: StoreAccess | undefined;
 	const previewBudgets = options?.previewBudgets ?? resolvePreviewBudgets(process.env);
 
-	for (const prim of buildPrimitives(env, options?.allowExec !== false)) {
+	for (const prim of buildPrimitives(options?.allowExec !== false)) {
 		primitives.set(prim.name, prim);
 	}
 
@@ -105,20 +118,22 @@ export function createPrimitiveRegistry(
 			if (name.startsWith("value_")) {
 				return result;
 			}
-			const output = redactSensitiveTranscriptContent(result.output);
-			const redacted: PrimitiveResult = { ...result, output };
-			if (result.error !== undefined) {
-				redacted.error = redactSensitiveTranscriptContent(result.error);
+			// captureSource stays inside the gate: it carries the raw, unredacted
+			// content, and every path below spreads `redacted` — strip it once here.
+			const { captureSource: source, ...passthrough } = result;
+			const output = redactSensitiveTranscriptContent(passthrough.output);
+			const redacted: PrimitiveResult = { ...passthrough, output };
+			if (passthrough.error !== undefined) {
+				redacted.error = redactSensitiveTranscriptContent(passthrough.error);
 			}
-			const source = result.captureSource;
 			// The predicate (capture-all spec v10): the svelte/capture path
 			// engages only when the result carries its source AND a capture store
 			// exists — a svelte cut without a ref to compensate would destroy
 			// information, so everything else keeps today's truncation limits.
 			if (source === undefined || captureStore === undefined) {
-				return { ...redacted, output: truncateToolOutputDetailed(output, name).text };
+				return { ...redacted, output: truncateToolOutput(output, name) };
 			}
-			const budget = previewBudgets[name] ?? previewBudgets.default ?? 2_000;
+			const budget = previewBudgets[name] ?? previewBudgets.default ?? DEFAULT_PREVIEW_BUDGETS.default;
 			// Chars-only trigger: below budget renders whole (no line shaping —
 			// a sub-budget many-line output costs less to show than to capture).
 			if (output.length <= budget) {
@@ -210,7 +225,7 @@ export function createPrimitiveRegistry(
 	};
 }
 
-function buildPrimitives(_env: ExecutionEnvironment, allowExec = true): Primitive[] {
+function buildPrimitives(allowExec = true): Primitive[] {
 	return [
 		readFilePrimitive(),
 		writeFilePrimitive(),
@@ -223,7 +238,7 @@ function buildPrimitives(_env: ExecutionEnvironment, allowExec = true): Primitiv
 	];
 }
 
-export function buildWorkspacePrimitives(ctx: GenomeContext): Primitive[] {
+function buildWorkspacePrimitives(ctx: GenomeContext): Primitive[] {
 	return [
 		saveToolPrimitive(ctx),
 		saveFilePrimitive(ctx),
@@ -598,11 +613,8 @@ function findMatchPosition(fileLines: string[], searchLines: string[]): number {
 // exec
 // ---------------------------------------------------------------------------
 
-/**
- * Render an ExecResult as exec's tool output. The single rendering
- * implementation — the plain primitive and the capture wrapper share it.
- */
-export function renderExecResult(result: ExecResult): string {
+/** Render an ExecResult as exec's tool output. */
+function renderExecResult(result: ExecResult): string {
 	return [
 		result.stdout,
 		result.stderr ? `[stderr]\n${result.stderr}` : "",
@@ -614,8 +626,8 @@ export function renderExecResult(result: ExecResult): string {
 		.join("\n");
 }
 
-/** Success/error judgment for an ExecResult, shared with the capture wrapper. */
-export function execResultStatus(result: ExecResult): { success: boolean; error?: string } {
+/** Success/error judgment for an ExecResult. */
+function execResultStatus(result: ExecResult): { success: boolean; error?: string } {
 	return {
 		success: result.exit_code === 0 && !result.timed_out,
 		error:
@@ -756,8 +768,8 @@ function globPrimitive(): Primitive {
 // fetch
 // ---------------------------------------------------------------------------
 
-/** One fetch's structured outcome: capture binds the raw body from this. */
-export interface FetchOutcome {
+/** One fetch's structured outcome; the raw body feeds captureSource. */
+interface FetchOutcome {
 	status: number;
 	statusText: string;
 	ok: boolean;
@@ -766,7 +778,7 @@ export interface FetchOutcome {
 }
 
 /** Perform the fetch primitive's request once, structurally. */
-export async function performFetch(args: Record<string, unknown>): Promise<FetchOutcome> {
+async function performFetch(args: Record<string, unknown>): Promise<FetchOutcome> {
 	const response = await fetch(args.url as string, {
 		method: (args.method as string) ?? "GET",
 		headers: args.headers as Record<string, string> | undefined,
@@ -781,8 +793,8 @@ export async function performFetch(args: Record<string, unknown>): Promise<Fetch
 	};
 }
 
-/** Render a FetchOutcome as fetch's tool output (shared with capture). */
-export function renderFetchResponse(outcome: FetchOutcome): string {
+/** Render a FetchOutcome as fetch's tool output. */
+function renderFetchResponse(outcome: FetchOutcome): string {
 	return [
 		`status: ${outcome.status}`,
 		`headers: ${JSON.stringify(outcome.headers)}`,
@@ -951,18 +963,7 @@ function saveAgentPrimitive(ctx: GenomeContext): Primitive {
 			}
 
 			try {
-				// Parse and validate agent spec fields
-				const { parse } = await import("yaml");
-				const {
-					normalizeAgentConstraints,
-					normalizeAgentOutputConfig,
-					normalizeAgentPromptCacheConfig,
-					normalizeAgentSamplingConfig,
-					normalizeAgentTaskPayloadConfig,
-					normalizeAgentThinkingConfig,
-					validateAgentName,
-				} = await import("./types.ts");
-				const raw = parse(spec);
+				const raw = parseYaml(spec);
 
 				for (const field of ["name", "description", "system_prompt", "model"]) {
 					if (!raw[field] || typeof raw[field] !== "string") {
@@ -995,49 +996,32 @@ function saveAgentPrimitive(ctx: GenomeContext): Primitive {
 
 				const tools: string[] = raw.tools ?? [];
 				const agents: string[] = raw.agents ?? [];
-				const agentSpec: import("./types.ts").AgentSpec = {
+				const source = `save_agent spec for '${raw.name as string}'`;
+				const agentSpec: AgentSpec = {
 					name: raw.name as string,
 					description: raw.description as string,
 					system_prompt: raw.system_prompt as string,
 					model: raw.model as string,
 					tools,
 					agents,
-					constraints: normalizeAgentConstraints(
-						raw.constraints,
-						`save_agent spec for '${raw.name as string}'`,
-					),
+					constraints: normalizeAgentConstraints(raw.constraints, source),
 					tags: (raw.tags as string[]) ?? [],
 					version: (raw.version as number) ?? 1,
 				};
 				if (raw.thinking !== undefined) {
-					agentSpec.thinking = normalizeAgentThinkingConfig(
-						raw.thinking,
-						`save_agent spec for '${raw.name as string}'`,
-					);
+					agentSpec.thinking = normalizeAgentThinkingConfig(raw.thinking, source);
 				}
 				if (raw.sampling !== undefined) {
-					agentSpec.sampling = normalizeAgentSamplingConfig(
-						raw.sampling,
-						`save_agent spec for '${raw.name as string}'`,
-					);
+					agentSpec.sampling = normalizeAgentSamplingConfig(raw.sampling, source);
 				}
 				if (raw.output !== undefined) {
-					agentSpec.output = normalizeAgentOutputConfig(
-						raw.output,
-						`save_agent spec for '${raw.name as string}'`,
-					);
+					agentSpec.output = normalizeAgentOutputConfig(raw.output, source);
 				}
 				if (raw.task_payload !== undefined) {
-					agentSpec.task_payload = normalizeAgentTaskPayloadConfig(
-						raw.task_payload,
-						`save_agent spec for '${raw.name as string}'`,
-					);
+					agentSpec.task_payload = normalizeAgentTaskPayloadConfig(raw.task_payload, source);
 				}
 				if (raw.prompt_cache !== undefined) {
-					agentSpec.prompt_cache = normalizeAgentPromptCacheConfig(
-						raw.prompt_cache,
-						`save_agent spec for '${raw.name as string}'`,
-					);
+					agentSpec.prompt_cache = normalizeAgentPromptCacheConfig(raw.prompt_cache, source);
 				}
 
 				await ctx.genome.addAgent(agentSpec);

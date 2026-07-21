@@ -13,11 +13,7 @@
  * fallback — never a marker naming a value the reader cannot see.
  */
 import { redactSensitiveTranscriptContent } from "../kernel/redaction.ts";
-import {
-	captureMarker,
-	resolvePreviewBudgets,
-	SUMMARY_BUDGET_CHARS,
-} from "../kernel/truncation.ts";
+import { captureMarker, resolvePreviewBudgets } from "../kernel/truncation.ts";
 import type { StoreAccess } from "../store/store-access.ts";
 
 const RESULT_FALLBACK_TRUNCATION_CHARS = 30_000;
@@ -30,7 +26,7 @@ const RESULT_FALLBACK_TRUNCATION_CHARS = 30_000;
 const MARKER_RESERVE_CHARS = 160;
 
 /** Delegate budget resolved once per process (capture-all spec v10). */
-const DELEGATE_BUDGET = resolvePreviewBudgets(process.env).delegate ?? SUMMARY_BUDGET_CHARS;
+const DELEGATE_BUDGET = resolvePreviewBudgets(process.env).delegate;
 
 /**
  * Auto-bind name for a run's overflowed result: a slug from the goal's first

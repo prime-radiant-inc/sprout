@@ -253,6 +253,28 @@ describe("registry gate (capture-all v10)", () => {
 		expect(result.output).not.toContain("stderr: ⟦");
 	});
 
+	it("captureSource never escapes the gate — raw unredacted content stays inside the registry", async () => {
+		// The gate redacts output/error at the boundary; a result that still
+		// carries captureSource hands any future caller the raw bytes one
+		// property away, bypassing redaction.
+		const small = "token: hunter2secretvalue";
+		const big = `${small}\n${"x".repeat(5_000)}`;
+		for (const output of [small, big]) {
+			const registry = registryWith(
+				stub("exec", { output, success: true, captureSource: { content: output, type: "text" } }),
+			);
+			const result = await registry.execute("exec", {});
+			expect(result.captureSource).toBeUndefined();
+		}
+		// Legacy path (store absent) must strip it too.
+		const registry = registryWith(
+			stub("exec", { output: big, success: true, captureSource: { content: big, type: "text" } }),
+			false,
+		);
+		const result = await registry.execute("exec", {});
+		expect(result.captureSource).toBeUndefined();
+	});
+
 	it("a stderr-companion bind failure degrades only the stderr mention — the main capture stands", async () => {
 		// Fail the SECOND bind only (the stderr companion): the stdout value is
 		// in the store, so its marker must stand — a blanket 'content not

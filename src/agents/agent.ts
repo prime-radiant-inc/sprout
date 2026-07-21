@@ -219,7 +219,7 @@ const MANIFEST_RETRY_BACKOFF_MS = 250;
 const AGENT_MESSAGE_RENDER_CLAMP = 4_000;
 
 /** Delegate render budget resolved once per process (capture-all spec v10). */
-const DELEGATE_RENDER_BUDGET = resolvePreviewBudgets(process.env).delegate ?? 4_000;
+const DELEGATE_RENDER_BUDGET = resolvePreviewBudgets(process.env).delegate;
 /** Marker headroom inside the clamp (64-char names fit comfortably). */
 const DELEGATE_MARKER_RESERVE = 160;
 
