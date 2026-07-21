@@ -245,3 +245,107 @@ describe("act mode — flag-off data-plane field gates (sap §6)", () => {
 		expect(String(end?.data.error)).toContain("env");
 	});
 });
+
+describe("act mode — agent-tool dispatch honors the granted surface (Phase 7)", () => {
+	function recordingSpawner(): { spawner: AgentSpawner; calls: string[] } {
+		const calls: string[] = [];
+		const spawner = {
+			storeAccess: stubStore(),
+			spawnAgent: async (...args: unknown[]) => {
+				calls.push("spawnAgent");
+				throw new Error(`unexpected spawn: ${JSON.stringify(args[0])}`);
+			},
+			waitAgent: async () => {
+				calls.push("waitAgent");
+				throw new Error("unexpected wait");
+			},
+			messageAgent: async () => {
+				calls.push("messageAgent");
+				throw new Error("unexpected message");
+			},
+		} as unknown as AgentSpawner;
+		return { spawner, calls };
+	}
+
+	test("a code-mode agent cannot delegate via an explicit delegate tool call", async () => {
+		const { spawner, calls } = recordingSpawner();
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: codeSpec(),
+			env,
+			client: scriptedClient([
+				toolCallResponse("call-gate-1", "delegate", { agent_name: "leaf", goal: "do it" }),
+				STOP_RESPONSE,
+			]),
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [codeSpec(), leafSpec],
+			spawner,
+			cellHost: stubCellHost(),
+			events,
+		});
+		await agent.run("try to delegate");
+		expect(calls).toEqual([]);
+		const denial = events
+			.collected()
+			.find((e) => e.kind === "act_end" && e.data.success === false);
+		expect(denial).toBeDefined();
+		expect(String(denial!.data.error)).toContain("not in this agent's granted tool surface");
+	});
+
+	test("a code-mode agent cannot delegate via a bare agent-name tool call", async () => {
+		const { spawner, calls } = recordingSpawner();
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: codeSpec(),
+			env,
+			client: scriptedClient([
+				toolCallResponse("call-gate-2", "leaf", { goal: "do it" }),
+				STOP_RESPONSE,
+			]),
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [codeSpec(), leafSpec],
+			spawner,
+			cellHost: stubCellHost(),
+			events,
+		});
+		await agent.run("try the legacy path");
+		expect(calls).toEqual([]);
+		const denial = events
+			.collected()
+			.find((e) => e.kind === "act_end" && e.data.success === false);
+		expect(denial).toBeDefined();
+		expect(String(denial!.data.error)).toContain("not in this agent's granted tool surface");
+	});
+
+	test("a code-mode agent cannot dispatch wait_agent or message_agent", async () => {
+		const { spawner, calls } = recordingSpawner();
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: codeSpec(),
+			env,
+			client: scriptedClient([
+				toolCallResponse("call-gate-3", "wait_agent", { handle: "h1" }),
+				toolCallResponse("call-gate-4", "message_agent", { handle: "h1", message: "hi" }),
+				STOP_RESPONSE,
+			]),
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [codeSpec(), leafSpec],
+			spawner,
+			cellHost: stubCellHost(),
+			events,
+		});
+		await agent.run("try the command tools");
+		expect(calls).toEqual([]);
+		const denials = events
+			.collected()
+			.filter(
+				(e) =>
+					e.kind === "act_end" &&
+					String(e.data.error ?? "").includes("not in this agent's granted tool surface"),
+			);
+		expect(denials.length).toBeGreaterThanOrEqual(2);
+	});
+});

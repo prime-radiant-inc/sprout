@@ -72,10 +72,10 @@ import type {
 } from "../llm/types.ts";
 import { Msg, messageText } from "../llm/types.ts";
 import { createReplayRecorder, type ReplayRecorder } from "../replay/recorder.ts";
-import { computePreview } from "../store/value.ts";
 import { LIVENESS_LOST_AFTER_MS, PING_INTERVAL_MS } from "../shared/liveness.ts";
 import { shouldTagAgentEventWithSessionId } from "../shared/session-event-scope.ts";
 import { getToolDisplayName } from "../shared/tool-display.ts";
+import { computePreview } from "../store/value.ts";
 import { ulid } from "../util/ulid.ts";
 import { getContextWindowSize } from "./context-window.ts";
 import {
@@ -102,6 +102,7 @@ import {
 	buildMessageAgentTool,
 	buildSystemPrompt,
 	buildWaitAgentTool,
+	DELEGATE_TOOL_NAME,
 	MESSAGE_AGENT_TOOL_NAME,
 	parsePlanResponse,
 	primitivesForAgent,
@@ -3008,6 +3009,29 @@ export class Agent {
 		// Collect results keyed by call ID so we can add them to history in original order.
 		const resultByCallId = new Map<string, Message>();
 
+		// The dispatchable surface = exactly what this agent was offered. Phase 7
+		// hardening covers the WHOLE dispatch, not just primitives: a delegation
+		// (including a legacy bare-agent-name call, which is semantically a
+		// delegate) requires the delegate tool to have been offered, and
+		// wait/message commands require their tools — otherwise a code-mode
+		// agent whose surface is "exactly cell" could still delegate or message
+		// with one hallucinated or injected tool call.
+		const allowedDispatchNames = new Set(this.resolvedTools().map((tool) => tool.name));
+		const surfaceDenial = (callId: string, toolName: string, agentName: string) => {
+			const errorMsg =
+				`Tool '${toolName}' is not in this agent's granted tool surface ` +
+				`(granted: ${[...allowedDispatchNames].join(", ") || "none"}).`;
+			const toolResultMsg = Msg.toolResult(callId, `Error: ${errorMsg}`, true);
+			resultByCallId.set(callId, toolResultMsg);
+			this.emitAndLog("act_end", agentId, this.depth, {
+				agent_name: agentName,
+				success: false,
+				error: errorMsg,
+				tool_result_message: toolResultMsg,
+			});
+			stumbles++;
+		};
+
 		// Handle malformed delegations — add error tool results so history stays valid
 		for (const err of delegationErrors) {
 			this.emitAndLog("error", agentId, this.depth, { error: err.error });
@@ -3037,17 +3061,25 @@ export class Agent {
 				: this.executeDelegation(d, agentId);
 		};
 
-		const delegationPromises = delegations.map((delegation) =>
-			executeDelegationFn(delegation).then((dr) => {
+		const delegationPromises = delegations.map((delegation) => {
+			if (!allowedDispatchNames.has(DELEGATE_TOOL_NAME)) {
+				surfaceDenial(delegation.call_id, DELEGATE_TOOL_NAME, delegation.agent_name);
+				return Promise.resolve();
+			}
+			return executeDelegationFn(delegation).then((dr) => {
 				resultByCallId.set(delegation.call_id, dr.toolResultMsg);
 				stumbles += dr.stumbles;
 				if (dr.output !== undefined) lastOutput = dr.output;
-			}),
-		);
+			});
+		});
 		await Promise.all(delegationPromises);
 
 		// Handle agent commands (wait_agent, message_agent)
 		for (const cmd of agentCommands) {
+			if (!allowedDispatchNames.has(cmd.kind)) {
+				surfaceDenial(cmd.call_id, cmd.kind, cmd.kind);
+				continue;
+			}
 			// Flag-off (spec §6): env grants on message_agent are a data-plane
 			// field — reject loudly naming the flag.
 			if (!this.dataPlaneEnabled && cmd.kind === "message_agent" && cmd.env !== undefined) {
@@ -3068,10 +3100,6 @@ export class Agent {
 			if (result.stumbles > 0) stumbles += result.stumbles;
 			if (result.output !== undefined) lastOutput = result.output;
 		}
-
-		// The dispatchable primitive surface = exactly what this agent was
-		// offered (granted primitives, cell, and its own workspace tools).
-		const allowedDispatchNames = new Set(this.resolvedTools().map((tool) => tool.name));
 
 		// Execute primitives sequentially (they're fast, may depend on each other)
 		for (const call of toolCalls) {
