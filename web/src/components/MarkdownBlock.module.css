@@ -122,6 +122,10 @@
 	border-collapse: collapse;
 	margin: var(--space-xs) 0;
 	font-size: var(--font-size-sm);
+	/* Wide tables scroll within their own box rather than widening the page */
+	display: block;
+	max-width: 100%;
+	overflow-x: auto;
 }
 
 .markdown th,

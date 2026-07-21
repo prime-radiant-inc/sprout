@@ -4,6 +4,7 @@ import {
 	computeActiveWorkForStatus,
 	createCommandFromSlashCommand,
 	createSwitchModelCommand,
+	defaultSidebarOpen,
 	getSettingsProviderFromSearch,
 	shouldOpenSettingsFromSearch,
 } from "./App.tsx";
@@ -158,6 +159,14 @@ describe("App session model helpers", () => {
 				},
 			},
 		});
+	});
+});
+
+describe("defaultSidebarOpen", () => {
+	test("sidebar starts collapsed on phone/tablet widths and expanded on desktop", () => {
+		expect(defaultSidebarOpen(375)).toBe(false);
+		expect(defaultSidebarOpen(1024)).toBe(false);
+		expect(defaultSidebarOpen(1440)).toBe(true);
 	});
 });
 

@@ -71,3 +71,11 @@
 .stopBtn:hover {
 	opacity: 0.9;
 }
+
+/* Phones: taller send/stop button for a comfortable tap target */
+@media (max-width: 640px) {
+	.sendBtn,
+	.stopBtn {
+		padding: 10px var(--space-lg);
+	}
+}

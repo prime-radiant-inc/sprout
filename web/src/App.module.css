@@ -2,7 +2,8 @@
 
 .app {
 	display: grid;
-	grid-template-rows: var(--statusbar-height) 1fr;
+	/* Status bar sizes to content so it can wrap onto extra rows on narrow screens */
+	grid-template-rows: auto 1fr;
 	height: 100vh;
 	background: var(--color-canvas);
 	color: var(--color-text-primary);
@@ -14,6 +15,8 @@
 .body {
 	display: flex;
 	overflow: hidden;
+	/* Containing block for the overlay sidebar and thread panels on narrow screens */
+	position: relative;
 }
 
 .body[data-sidebar-open="false"] .sidebar {
@@ -34,6 +37,13 @@
 	background: var(--color-canvas);
 	border-right: 1px solid var(--color-border);
 	position: relative;
+}
+
+/* Backdrop behind the overlay sidebar — invisible on desktop, tap-to-close on narrow screens */
+.sidebarBackdrop {
+	display: none;
+	border: none;
+	padding: 0;
 }
 
 .dragHandle {
@@ -107,13 +117,38 @@
 		top: 0;
 		left: 0;
 		bottom: 0;
-		width: var(--sidebar-width);
+		/* Cap the (resizable) inline width so the overlay never exceeds the screen */
+		max-width: 85vw;
 		z-index: 20;
 		background: var(--color-canvas);
 		box-shadow: var(--shadow-lg);
 	}
 
-	.body[data-sidebar-open="true"] {
-		position: relative;
+	/* Resizing is a desktop affordance; disable the drag handle under the overlay */
+	.dragHandle {
+		display: none;
+	}
+
+	.body[data-sidebar-open="true"] .sidebarBackdrop {
+		display: block;
+		position: absolute;
+		inset: 0;
+		z-index: 15;
+		background: color-mix(in srgb, var(--color-canvas) 30%, transparent);
+	}
+}
+
+/* Phones: thread panels take over the screen instead of squeezing the conversation */
+@media (max-width: 640px) {
+	.mainColumn {
+		min-width: 0;
+	}
+
+	.panelContainer {
+		position: absolute;
+		inset: 0;
+		max-width: 100%;
+		z-index: 25;
+		background: var(--color-canvas);
 	}
 }

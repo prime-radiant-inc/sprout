@@ -32,6 +32,7 @@ export interface StatusBarProps {
 	onSwitchModel?: (selection: SessionModelSelection) => void;
 	onOpenSettings?: () => void;
 	onToggleTheme?: () => void;
+	onToggleSidebar?: () => void;
 	theme?: string;
 }
 
@@ -239,6 +240,7 @@ export function StatusBar({
 	onSwitchModel,
 	onOpenSettings,
 	onToggleTheme,
+	onToggleSidebar,
 	theme,
 }: StatusBarProps) {
 	const {
@@ -271,6 +273,20 @@ export function StatusBar({
 
 	return (
 		<div className={styles.statusBar}>
+			{/* Sidebar toggle — only shown on narrow viewports where the sidebar is an overlay */}
+			{onToggleSidebar && (
+				<button
+					type="button"
+					className={styles.menuButton}
+					data-action="toggle-sidebar"
+					onClick={onToggleSidebar}
+					aria-label="Toggle sidebar"
+					title="Toggle sidebar"
+				>
+					{"☰"}
+				</button>
+			)}
+
 			{/* Connection + status */}
 			<div className={styles.group}>
 				<span className={styles.connectionDot} data-connected={String(connected)} />

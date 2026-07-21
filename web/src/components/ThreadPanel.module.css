@@ -186,3 +186,12 @@
 	0%, 100% { opacity: 1; }
 	50% { opacity: 0.3; }
 }
+
+/* Phones: the panel fills its full-screen overlay container instead of a fixed column */
+@media (max-width: 640px) {
+	.panel {
+		min-width: 0;
+		width: 100%;
+		max-width: 100%;
+	}
+}
