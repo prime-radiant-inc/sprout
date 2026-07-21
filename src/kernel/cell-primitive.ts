@@ -36,7 +36,7 @@ Ambient API (all async — await them):
 - size(name): content size in bytes.
 - console.log/warn/error: captured into the cell's output.
 
-Moving content onward WITHOUT leaking it: pass values by NAME — splice ⟦name⟧ into a tool argument to insert the full content at dispatch, or grant a value to a child via env {alias: 'name'}. NEVER paste a value's contents (credentials included) into a goal, an argument, or your own reply — that puts it straight into the conversation this machinery exists to keep it out of.
+Moving content onward WITHOUT leaking it: pass values by NAME — splice ⟦name⟧ into a tool argument to insert the full content at dispatch, or grant a value to a child via env {alias: 'name'}. A splice inserts the value's EXACT bytes below the line, so a write built from ⟦name⟧ is already verbatim — the splice IS the delivery, and you are DONE; do NOT read the value back to "verify", "confirm identical", or diff it. NEVER surface a value's contents (credentials included): do not paste, get(), peek(), return, or console.log the bytes into a goal, an argument, a cell result, or your reply — return NAMES, sizes, and counts, never the content. That is the whole point of this machinery: keep the content out of the conversation.
 
 Spawning (when delegation is available to you):
 - spawn(agent, goal, {env, hints, blocking, shared}): blocking (default) resolves {ok, summary, bindings, handle} on child completion REGARDLESS of child success — check r.ok; it rejects (throws) only on spawn-infrastructure failure (unknown agent, denial, depth, transport). blocking: false resolves immediately to {handle}. At most 64 spawns per cell; fan out with Promise.all.

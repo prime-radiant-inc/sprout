@@ -99,4 +99,14 @@ describe("cell primitive", () => {
 		const prim = buildCellPrimitive(runner(okResult()));
 		expect(prim.description).not.toContain("<programs>");
 	});
+
+	it("steers against reading a moved value back to verify it (keeps content below the line)", () => {
+		const prim = buildCellPrimitive(runner(okResult()));
+		// The splice is the delivery — a write built from ⟦name⟧ is verbatim, so the
+		// description must tell weak models NOT to read the value back to confirm it,
+		// and NOT to surface a value's bytes via get/peek/return/console.log.
+		expect(prim.description).toContain("the splice IS the delivery");
+		expect(prim.description).toMatch(/do NOT read the value back/);
+		expect(prim.description).toMatch(/return NAMES, sizes, and counts, never the content/);
+	});
 });

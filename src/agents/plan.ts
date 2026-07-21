@@ -38,7 +38,7 @@ export function buildDelegateTool(): ToolDefinition {
 		name: DELEGATE_TOOL_NAME,
 		displayName: getToolDisplayName(DELEGATE_TOOL_NAME),
 		description:
-			"Delegate a task to a specialist agent. Hand it data BY REFERENCE: grant bound values via env (each binds into the child's scope) — never paste file contents or credentials into goal text, which leaks them into the conversation. A large child result auto-binds into your scope as ⟦name⟧ for cells and splicing. See the <agents> section in your instructions for available agents and their descriptions.",
+			"Delegate a task to a specialist agent. When a task both reads AND writes files and you have no file tools yourself, hand the WHOLE job to ONE file-capable agent so the content stays in that agent's scope and never returns to you — do NOT read it into a value and try to relay it onward. Hand data you own BY REFERENCE: grant bound values via env (each binds into the child's scope); a value you RECEIVED from a child belongs to that child's scope and cannot be re-granted to another agent. Never paste file contents or credentials into goal text, and never read a value back to inspect or verify it — either one leaks it into the conversation. A large child result auto-binds into your scope as ⟦name⟧ for cells and splicing. See the <agents> section in your instructions for available agents and their descriptions.",
 		parameters: {
 			type: "object",
 			properties: {

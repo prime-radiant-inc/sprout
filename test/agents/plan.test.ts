@@ -34,6 +34,16 @@ const testAgent: AgentSpec = {
 };
 
 describe("buildDelegateTool", () => {
+	test("steers file read+write tasks to a single agent and forbids cross-scope relay", () => {
+		const tool = buildDelegateTool();
+		// A caller with no file tools must hand the whole read+write to one agent
+		// rather than capturing content and relaying it — a value from one child
+		// cannot be re-granted to another, and reading it back to verify leaks it.
+		expect(tool.description).toContain("hand the WHOLE job to ONE file-capable agent");
+		expect(tool.description).toMatch(/cannot be re-granted to another agent/);
+		expect(tool.description).toMatch(/never read a value back to inspect or verify/);
+	});
+
 	test("creates a single delegate tool with standard schema", () => {
 		const tool = buildDelegateTool();
 		expect(tool.name).toBe("delegate");

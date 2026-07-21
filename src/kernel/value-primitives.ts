@@ -48,7 +48,9 @@ function valuePeekPrimitive(store: StoreAccess): Primitive {
 		name: "value_peek",
 		description:
 			"Preview a stored value: type, size, line count, and a head/tail excerpt. " +
-			"Cheap for any size — use this before reading a value. Refs are value names or ulids.",
+			"Cheap for any size — use it to size a value before reading. The excerpt is real " +
+			"bytes, so do NOT peek a value only to inspect content you are moving by reference. " +
+			"Refs are value names or ulids.",
 		parameters: {
 			type: "object",
 			properties: {
@@ -142,7 +144,9 @@ function valueGetPrimitive(store: StoreAccess): Primitive {
 		description:
 			`Read a stored value's full content (up to ${VALUE_GET_CHAR_BUDGET} chars). ` +
 			"Over-budget values error — use value_slice or value_grep instead. " +
-			"Refs are value names or ulids.",
+			"Refs are value names or ulids. Reading LIFTS the bytes into your conversation, so " +
+			"read only when you must reason over the content — never to verify or echo a value " +
+			"you are moving by reference (splicing ⟦name⟧ already delivers it exactly).",
 		parameters: {
 			type: "object",
 			properties: {
