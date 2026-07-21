@@ -255,6 +255,33 @@ describe("GeminiAdapter", () => {
 		await vcr.afterTest();
 	}, 15_000);
 
+	test("stream maps the real finish reason (MAX_TOKENS -> length), not a hardcoded stop", async () => {
+		const adapter = new GeminiAdapter("test-key");
+		(adapter as any).client = {
+			models: {
+				generateContentStream: async () =>
+					(async function* () {
+						yield { candidates: [{ content: { parts: [{ text: "trunc" }] } }] };
+						yield {
+							candidates: [{ content: { parts: [] }, finishReason: "MAX_TOKENS" }],
+							usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 100, totalTokenCount: 105 },
+						};
+					})(),
+			},
+		};
+
+		const events = [];
+		for await (const event of adapter.stream({
+			model: "gemini-2.5-flash",
+			messages: [Msg.user("Write a long essay.")],
+			max_tokens: 100,
+		})) {
+			events.push(event);
+		}
+		const finish = events.find((e) => e.type === "finish");
+		expect(finish?.finish_reason?.reason).toBe("length");
+	});
+
 	test("complete creates and uses explicit cached content when Gemini cache is enabled", async () => {
 		const adapter = new GeminiAdapter("test-key");
 		const captured: { cache?: unknown; generate?: unknown } = {};

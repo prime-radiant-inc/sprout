@@ -109,8 +109,11 @@ export class GeminiAdapter implements ProviderAdapter {
 		let textThoughtSignature: string | undefined;
 		const toolCalls: import("./types.ts").ContentPart[] = [];
 		let usage: Usage | undefined;
+		let providerFinishReason: string | undefined;
 
 		for await (const chunk of stream) {
+			const chunkFinish = chunk.candidates?.[0]?.finishReason;
+			if (chunkFinish) providerFinishReason = chunkFinish;
 			if (chunk.candidates?.[0]?.content?.parts) {
 				for (const part of chunk.candidates[0].content.parts) {
 					if (part.text) {
@@ -179,7 +182,12 @@ export class GeminiAdapter implements ProviderAdapter {
 		contentParts.push(...toolCalls);
 
 		const hasToolCalls = toolCalls.length > 0;
-		const finishReason: FinishReason = hasToolCalls ? { reason: "tool_calls" } : { reason: "stop" };
+		// Honor the provider's real finish reason (MAX_TOKENS → length, SAFETY →
+		// content_filter) exactly as complete() does — a hardcoded "stop" hid
+		// truncation from the agent's length-recovery path.
+		const finishReason: FinishReason = hasToolCalls
+			? { reason: "tool_calls" }
+			: mapGeminiFinishReason(providerFinishReason);
 
 		const finalResponse: Response = {
 			id: "",

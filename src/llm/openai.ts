@@ -150,7 +150,10 @@ export class OpenAIAdapter implements ProviderAdapter {
 			yield { type: "tool_call_end", tool_call: toolCall };
 		}
 
-		if (toolCalls.size > 0) {
+		// Tool calls present usually means a clean tool-call stop, but a
+		// truncated response can end mid-tool-call — keep "length" so the
+		// agent's length-recovery path fires instead of executing garbage args.
+		if (toolCalls.size > 0 && finalReason.reason !== "length") {
 			finalReason = { reason: "tool_calls" };
 		}
 		const finalResponse: Response = {
@@ -307,11 +310,16 @@ function parseChatCompletionsResponse(raw: any, provider: ProviderKind): Respons
 			},
 		});
 	}
-	const finishReason =
+	const mappedReason = mapChatFinishReason(choice?.finish_reason ?? "stop");
+	const hasToolCalls =
 		contentParts.some((part) => part.kind === ContentKind.TOOL_CALL) ||
-		message.tool_calls?.length > 0
-			? ({ reason: "tool_calls", raw: choice?.finish_reason } as FinishReason)
-			: mapChatFinishReason(choice?.finish_reason ?? "stop");
+		(message.tool_calls?.length ?? 0) > 0;
+	// A truncated mid-tool-call response keeps "length" so the agent recovers
+	// instead of executing the half-parsed arguments.
+	const finishReason: FinishReason =
+		hasToolCalls && mappedReason.reason !== "length"
+			? { reason: "tool_calls", raw: choice?.finish_reason }
+			: mappedReason;
 
 	return {
 		id: raw.id ?? "",

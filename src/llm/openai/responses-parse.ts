@@ -52,9 +52,14 @@ export function parseResponsesResponse(
 		}
 	}
 
-	const finishReason: FinishReason = hasToolCalls
-		? { reason: "tool_calls", raw: raw.status ?? undefined }
-		: mapOpenAIFinishReason(raw.status ?? "completed");
+	// Mirror the streaming path: only a completed terminal status with tool
+	// calls is a tool-call stop — an "incomplete" (length) response carrying a
+	// half-emitted tool call keeps "length" so the agent's recovery path fires.
+	const terminalStatus = raw.status ?? "completed";
+	const finishReason: FinishReason =
+		hasToolCalls && terminalStatus === "completed"
+			? { reason: "tool_calls", raw: raw.status ?? undefined }
+			: mapOpenAIFinishReason(terminalStatus);
 
 	return {
 		id: raw.id,
