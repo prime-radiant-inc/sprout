@@ -72,6 +72,7 @@ import type {
 } from "../llm/types.ts";
 import { Msg, messageText } from "../llm/types.ts";
 import { createReplayRecorder, type ReplayRecorder } from "../replay/recorder.ts";
+import { computePreview } from "../store/value.ts";
 import { LIVENESS_LOST_AFTER_MS, PING_INTERVAL_MS } from "../shared/liveness.ts";
 import { shouldTagAgentEventWithSessionId } from "../shared/session-event-scope.ts";
 import { getToolDisplayName } from "../shared/tool-display.ts";
@@ -2084,23 +2085,17 @@ export class Agent {
 	}
 
 	/**
-	 * Rewrite the child's `⟦sourceName⟧` references in its delivered summary
-	 * text to the bound-as names. Exact-token: the closing bracket makes each
-	 * `⟦name⟧` a distinct literal, so prefix names (⟦log⟧ vs ⟦log_2⟧) cannot
-	 * cross-match. Single-pass so one rewrite's output never feeds another
-	 * (log→log_2 alongside log_2→log_2_2 in the same delta).
-	 */
-	/**
 	 * The ONE parent-side seam every child-result render passes through
 	 * (capture-all spec v10): redacts unconditionally, and implements the
 	 * recovery clamp — clamp iff `recovered` AND the manifest delta delivered
-	 * the result value (content-identity: a delivered value whose size equals
-	 * the raw output's byte length — the durable log and the child's bind store
-	 * the same string) AND the redacted output exceeds the delegate budget.
-	 * Fail-closed: no match, no clamp — the generic backstop renders instead.
-	 * Live results never carry `recovered`, so they can never reach the clamp.
-	 * The marker is appended AFTER name rewriting so a delivered alias cannot
-	 * collide with a rewrite key.
+	 * the result value (content-identity: size AND the bind-time preview
+	 * recomputed from the raw output — the durable log and the child's bind
+	 * store the same string, and previews are deterministic, so identical
+	 * bytes reproduce the stored preview exactly) AND the redacted output
+	 * exceeds the delegate budget. Fail-closed: no match, no clamp — the
+	 * generic backstop renders instead. Live results never carry `recovered`,
+	 * so they can never reach the clamp. The marker is appended AFTER name
+	 * rewriting so a delivered alias cannot collide with a rewrite key.
 	 */
 	static renderDelegationResult(
 		output: string,
@@ -2108,13 +2103,17 @@ export class Agent {
 		manifest: {
 			lines: string;
 			rewrites: Map<string, string>;
-			values: Array<{ name: string; size: number }>;
+			values: Array<{ name: string; size: number; preview: string }>;
 		},
 		recovered: boolean,
 	): string {
 		const redacted = redactSensitiveTranscriptContent(output);
+		const outputBytes = recovered ? Buffer.byteLength(output, "utf8") : 0;
+		const expectedPreview = recovered
+			? redactSensitiveTranscriptContent(computePreview(output, "text"))
+			: "";
 		const resultValue = recovered
-			? manifest.values.find((v) => v.size === Buffer.byteLength(output, "utf8"))
+			? manifest.values.find((v) => v.size === outputBytes && v.preview === expectedPreview)
 			: undefined;
 		if (resultValue !== undefined && redacted.length > DELEGATE_RENDER_BUDGET) {
 			const head = redacted.slice(0, DELEGATE_RENDER_BUDGET - DELEGATE_MARKER_RESERVE);
@@ -2130,6 +2129,13 @@ export class Agent {
 		);
 	}
 
+	/**
+	 * Rewrite the child's `⟦sourceName⟧` references in its delivered summary
+	 * text to the bound-as names. Exact-token: the closing bracket makes each
+	 * `⟦name⟧` a distinct literal, so prefix names (⟦log⟧ vs ⟦log_2⟧) cannot
+	 * cross-match. Single-pass so one rewrite's output never feeds another
+	 * (log→log_2 alongside log_2→log_2_2 in the same delta).
+	 */
 	private static rewriteManifestNames(summary: string, rewrites: Map<string, string>): string {
 		if (rewrites.size === 0) return summary;
 		const escapeLiteral = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -3324,9 +3330,10 @@ export class Agent {
 		const timeoutController: AbortController | undefined =
 			timeoutMs > 0 ? new AbortController() : undefined;
 
-		// Inactivity timeout: reset after planning and after each tool batch. Pausable so
-		// sap Phase 1 can suspend it during blocking waits on other agents; nothing pauses
-		// yet, so behavior matches the prior inline timer. reset()/clear() are no-ops when
+		// Inactivity timeout: reset after planning and after each tool batch.
+		// Pausable — blocking waits on other agents (withInactivitySuspendedFor)
+		// and cell runs (withTimerSuspended) suspend it so a busy child cannot
+		// time out an idle-looking parent. reset()/clear() are no-ops when
 		// timeoutMs <= 0 (disabled), matching the old guard.
 		const inactivityTimer = createInactivityTimer({
 			timeoutMs,
