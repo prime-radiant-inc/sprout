@@ -1,0 +1,77 @@
+# Capture-all tool outputs — implementation tracker
+
+**Spec:** `docs/superpowers/specs/2026-07-21-capture-all-tool-outputs-design.md` (v10,
+CONVERGED after 8 adversarial review rounds / 81 findings). Implementation authorized by
+Jesse 2026-07-21 ("move to a complete implementation"). TDD mandatory: failing test first
+for every item; commit frequently through the full pre-commit hook (NEVER --no-verify —
+prefix commits with `PATH="/home/jesse/.bun/bin:$PATH"` so the hook finds bun/bunx).
+
+## Pre-P1 — agent-message clamp (standalone; waits on nothing)
+
+- [ ] Failing test: a long `message_agent` text renders into the system prompt clamped at
+      `AGENT_MESSAGE_RENDER_CLAMP = 4_000` chars + `[... N chars truncated]` banner, and
+      redacted (`renderAgentMessagesForPrompt`, `agent.ts:912–933` — today unbounded and
+      unredacted). Test via the public surface (queue a message, render the prompt).
+- [ ] Implement: redact + clamp in `renderAgentMessagesForPrompt`; own constant, NOT the
+      `delegate` budget row.
+- [ ] Commit.
+
+## P1 — registry gate + shared data (spec §Design)
+
+- [ ] `DEFAULT_PREVIEW_BUDGETS` record beside `DEFAULT_CHAR_LIMITS` (`truncation.ts`):
+      default 2000, read_file 4000, delegate 4000, cell 2000. Resolver:
+      `SPROUT_PREVIEW_BUDGETS` JSON env map merged over defaults, resolved once per
+      process, invalid → warn + defaults. Programmatic override channel for tests.
+- [ ] `captureMarker(dropped, tail)` helper — prefix `[... ${dropped} truncated${tail}]`;
+      five canonical forms (content/body/stderr-companion/store-full/capture-failed).
+- [ ] The predicate in `createPrimitiveRegistry.execute` (`primitives.ts:87–170`): svelte
+      path iff `captureSource !== undefined` AND capture store set; `boundValues`
+      non-empty selects no-double-store branch within it. Chars-only trigger (line limits
+      no longer apply/trigger on the predicate path — stated change); capture-failed →
+      re-truncate at `DEFAULT_CHAR_LIMITS` + `content not captured` banner.
+- [ ] `value_*` bypass hoisted ABOVE truncation (delete dead post-truncation clause at
+      `primitives.ts:98`); `value_get` over-budget error routed through `fail()`
+      (`value-primitives.ts:159–167`).
+- [ ] Redaction: registry output + `result.error` (errors never budgeted/captured).
+- [ ] Stderr companion containment predicate → redacted space (`primitives.ts:134–137`).
+- [ ] `glob`: `captureSource` (the listing) + `CAPTURE_PRIMITIVE_NAMES` entry +
+      `summarizeArgs` pattern arm (`capture.ts:18, 207–217`).
+- [ ] Fetch marker noun `body`.
+- [ ] Test churn: recorded per test (pins at `test/kernel/capture.test.ts:345,360,399,432`
+      move; truncation tests asserting old inline behavior move).
+- [ ] Commit per item or coherent group; Fable review pass at P1 end.
+
+## P2 — delegation + cell + prove
+
+- [ ] Subprocess `prepareResultOutput` (`agent-process.ts:828–855`): redact-THEN-slice
+      (redaction lengthens); budget-inclusive preview (slice + marker ≤ delegate budget);
+      budget from record; marker via helper (delegate-side pins at
+      `agent-process.test.ts:1729,2507` move); two-branch fallback + bind/publish
+      unchanged in shape, redacted.
+- [ ] Featherweight: `prepareResultOutput` reuse with `{ publish: boolean }` (move to
+      shared module — import cycle agent-process↔spawner); spawner's parent-scoped
+      `StoreAccess`; PRIVATE handles only; called at settle points (`spawner.ts:890,
+      1152`); child handleId provenance (tier inconsistency documented); capture-failure
+      → raw path; `plan_end`/replay stays raw.
+- [ ] Delegation-render helper in agent.ts replacing the five `truncateToolOutput` sites
+      (1500, 2302, 2466, 2512, 2556): redact once; `recovered` flag stamped in
+      `readHandleResult` (`resume.ts:144–181`, single constructor); clamp iff recovered
+      AND content-identity match (delta value with `size === utf8ByteLength(raw)` +
+      preview check — the log and the bind store the same string) AND over budget; clamp
+      marker = form 1 naming the delivered ALIAS, inserted after `rewriteManifestNames`;
+      else generic 30 K backstop. No fetchManifestLines/store contract changes.
+- [ ] Cell gate: threshold from `cell` record row + marker helper (zero churn, asserted).
+- [ ] Tests per spec P2 list: both flavors preview+ref; shared featherweight → raw;
+      capture-failure → raw; publish-failure → fallback never marker; recovered
+      clamp/backstop matrix incl. stale-prior-goal + live-capture-failed-never-clamped;
+      rewrites in both branches.
+- [ ] Measurement: payload bytes capture on/off; N-way fan-out e2e (orchestrator payload
+      flat); tune budgets. Fable review at P2 end.
+
+## Deferred / parked
+
+- QuickJS cutover (separate track; greenlit earlier). BLOCKER noted: load-dependent
+  teardown flake — `Assertion failed: list_empty(&rt->gc_obj_list)` in `JS_FreeRuntime`
+  on the runaway-recursion probe under parallel shard load (seen once 2026-07-21 during a
+  spec commit; passes isolated and on retry). Root-cause before flipping the default.
+- Genome-prompt survey for marker-wording assumptions (per phase, per spec Risks).
