@@ -25,7 +25,8 @@ import {
 import { type SettingsLoadResult, SettingsStore } from "../host/settings/store.ts";
 import { LocalExecutionEnvironment } from "../kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../kernel/primitives.ts";
-import { SUMMARY_BUDGET_CHARS } from "../kernel/truncation.ts";
+import { redactSensitiveTranscriptContent } from "../kernel/redaction.ts";
+import { captureMarker, resolvePreviewBudgets, SUMMARY_BUDGET_CHARS } from "../kernel/truncation.ts";
 import { Client } from "../llm/client.ts";
 import { loggingMiddleware } from "../llm/logging-middleware.ts";
 import { ProviderRegistry, type ProviderRegistryEntry } from "../llm/provider-registry.ts";
@@ -825,13 +826,26 @@ function resultValueName(goal: string): string {
  * final (possibly suffixed) name. If bind or publish fails for any reason,
  * degrade to today's inline truncation with no marker naming a value.
  */
+/**
+ * Reserved headroom for the marker inside the budget-inclusive preview: a
+ * 64-char value name plus the marker frame stays well under this, so head +
+ * marker together always fit the delegate budget.
+ */
+const MARKER_RESERVE_CHARS = 160;
+
+/** Delegate budget resolved once per process (capture-all spec v10). */
+const DELEGATE_BUDGET = resolvePreviewBudgets(process.env).delegate ?? SUMMARY_BUDGET_CHARS;
+
 async function prepareResultOutput(
 	store: StoreAccess | undefined,
 	handleId: string,
 	goal: string,
 	output: string,
 ): Promise<string> {
-	if (store === undefined || output.length <= SUMMARY_BUDGET_CHARS) return output;
+	// Redact FIRST: redaction can lengthen text, so slicing before it could
+	// push a budget-inclusive preview back over budget at the parent.
+	const redacted = redactSensitiveTranscriptContent(output);
+	if (store === undefined || redacted.length <= DELEGATE_BUDGET) return redacted;
 	try {
 		const metadata = await store.bind({
 			name: resultValueName(goal),
@@ -841,14 +855,18 @@ async function prepareResultOutput(
 			explicit: false,
 		});
 		await store.publish(metadata.ulid);
-		return (
-			`${output.slice(0, SUMMARY_BUDGET_CHARS)}\n` +
-			`[... output truncated at the summary budget — full output: ⟦${metadata.name}⟧]`
+		// Budget-INCLUSIVE: the whole message fits the delegate budget, so the
+		// parent-side render clamp can never re-cut a live gated result.
+		const head = redacted.slice(0, DELEGATE_BUDGET - MARKER_RESERVE_CHARS);
+		const marker = captureMarker(
+			`${redacted.length - head.length} chars`,
+			` — full content: ⟦${metadata.name}⟧`,
 		);
+		return `${head}\n${marker}`;
 	} catch {
-		if (output.length <= RESULT_FALLBACK_TRUNCATION_CHARS) return output;
+		if (redacted.length <= RESULT_FALLBACK_TRUNCATION_CHARS) return redacted;
 		return (
-			`${output.slice(0, RESULT_FALLBACK_TRUNCATION_CHARS)}\n` +
+			`${redacted.slice(0, RESULT_FALLBACK_TRUNCATION_CHARS)}\n` +
 			`[... output truncated at ${RESULT_FALLBACK_TRUNCATION_CHARS} chars]`
 		);
 	}

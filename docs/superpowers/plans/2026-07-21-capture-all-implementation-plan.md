@@ -28,15 +28,15 @@ prefix commits with `PATH="/home/jesse/.bun/bin:$PATH"` so the hook finds bun/bu
       `summarizeArgs` pattern arm; withCapture provenance test.
 - [x] Fetch marker noun `body` (in the gate).
 - [x] Test churn recorded (4 capture.test.ts pins + allow-list pin 4→5).
-- [ ] Fable review pass at P1 end.
+- [x] Fable review pass at P1 end (diff walked against acceptance; cell lands on the
+      source-less 30K path by construction; zero genome marker pins — verified round 8).
 
 ## P2 — delegation + cell + prove
 
-- [ ] Subprocess `prepareResultOutput` (`agent-process.ts:828–855`): redact-THEN-slice
-      (redaction lengthens); budget-inclusive preview (slice + marker ≤ delegate budget);
-      budget from record; marker via helper (delegate-side pins at
-      `agent-process.test.ts:1729,2507` move); two-branch fallback + bind/publish
-      unchanged in shape, redacted.
+- [x] Subprocess `prepareResultOutput`: redact-then-slice; budget-inclusive preview
+      (MARKER_RESERVE_CHARS = 160; whole message ≤ delegate budget); budget from record
+      (DELEGATE_BUDGET resolved once per process); canonical marker via helper; fallback
+      redacted, shape unchanged. Both delegate-side pins moved (recorded).
 - [ ] Featherweight: `prepareResultOutput` reuse with `{ publish: boolean }` (move to
       shared module — import cycle agent-process↔spawner); spawner's parent-scoped
       `StoreAccess`; PRIVATE handles only; called at settle points (`spawner.ts:890,

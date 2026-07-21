@@ -1723,12 +1723,14 @@ describe("runAgentProcess", () => {
 			await processPromise;
 
 			const result = JSON.parse(resultPayload) as ResultMessage;
-			// Inline: the head of the output plus a marked mechanical cut.
-			expect(result.output.startsWith(fullOutput.slice(0, SUMMARY_BUDGET_CHARS))).toBe(true);
-			expect(result.output).toContain(
-				"[... output truncated at the summary budget — full output: ⟦implement_the_six_endpoints_result⟧]",
+			// Inline: budget-INCLUSIVE head + canonical marker (capture-all v10) —
+			// the whole message fits the delegate budget, so the parent-side
+			// render clamp can never re-cut a live gated result.
+			expect(result.output.length).toBeLessThanOrEqual(SUMMARY_BUDGET_CHARS);
+			expect(result.output.startsWith("judgment first line")).toBe(true);
+			expect(result.output).toMatch(
+				/\[\.\.\. \d+ chars truncated — full content: ⟦implement_the_six_endpoints_result⟧\]/,
 			);
-			expect(result.output.length).toBeLessThan(fullOutput.length);
 
 			// The store holds the FULL output, bound (auto) and published.
 			const records = await new SessionJournal(journalPath).replay();
@@ -2503,10 +2505,10 @@ describe("runAgentProcess", () => {
 			// never the whole error payload.
 			expect(results[1]!.output.length).toBeLessThan(hugeError.length);
 			expect(results[1]!.output.startsWith("Continue failed: ")).toBe(true);
-			expect(results[1]!.output).toContain(
-				"[... output truncated at the summary budget — full output: ⟦first_task_result⟧]",
+			expect(results[1]!.output).toMatch(
+				/\[\.\.\. \d+ chars truncated — full content: ⟦first_task_result⟧\]/,
 			);
-			expect(results[1]!.output.length).toBeLessThan(SUMMARY_BUDGET_CHARS + 200);
+			expect(results[1]!.output.length).toBeLessThanOrEqual(SUMMARY_BUDGET_CHARS);
 
 			controller.abort();
 			await processPromise;
