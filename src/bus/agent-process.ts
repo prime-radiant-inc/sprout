@@ -25,8 +25,7 @@ import {
 import { type SettingsLoadResult, SettingsStore } from "../host/settings/store.ts";
 import { LocalExecutionEnvironment } from "../kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../kernel/primitives.ts";
-import { redactSensitiveTranscriptContent } from "../kernel/redaction.ts";
-import { captureMarker, resolvePreviewBudgets, SUMMARY_BUDGET_CHARS } from "../kernel/truncation.ts";
+
 import { Client } from "../llm/client.ts";
 import { loggingMiddleware } from "../llm/logging-middleware.ts";
 import { ProviderRegistry, type ProviderRegistryEntry } from "../llm/provider-registry.ts";
@@ -36,6 +35,7 @@ import { validateValueName } from "../store/value.ts";
 import { ensureProjectDirs } from "../util/project-id.ts";
 import { BusClient } from "./client.ts";
 import { BusLearnForwarder } from "./learn-forwarder.ts";
+import { prepareResultOutput } from "./result-gate.ts";
 import { loadCompletedChildHandles, replayHandleLog } from "./resume.ts";
 import { AgentSpawner, type SpawnerAuthChannel } from "./spawner.ts";
 import { agentEvents, agentInbox, agentReady, agentResult, sessionEvents } from "./topics.ts";
@@ -536,7 +536,9 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		const resultMsg: ResultMessage = {
 			kind: "result",
 			handle_id: handleId,
-			output: await prepareResultOutput(storeAccess, handleId, startMsg.goal, agentResult_.output),
+			output: await prepareResultOutput(storeAccess, handleId, startMsg.goal, agentResult_.output, {
+				publish: true,
+			}),
 			success: agentResult_.success,
 			stumbles: agentResult_.stumbles,
 			turns: agentResult_.turns,
@@ -677,7 +679,7 @@ async function idleLoop(
 				const resultMsg: ResultMessage = {
 					kind: "result",
 					handle_id: handleId,
-					output: await prepareResultOutput(storeAccess, handleId, goal, result.output),
+					output: await prepareResultOutput(storeAccess, handleId, goal, result.output, { publish: true }),
 					success: result.success,
 					stumbles: result.stumbles,
 					turns: result.turns,
@@ -696,6 +698,7 @@ async function idleLoop(
 						handleId,
 						goal,
 						`Continue failed: ${err instanceof Error ? err.message : String(err)}`,
+						{ publish: true },
 					),
 					success: false,
 					stumbles: 0,
@@ -795,81 +798,6 @@ async function claimEnvGrants(
 	if (claimed.length > 0) sections.push(`Values now in your scope:\n${claimed.join("\n")}`);
 	sections.push(...notes);
 	return { announcement: sections.join("\n"), warnings };
-}
-
-/** Fallback inline cap when the store can't take the overflow (today's semantics). */
-const RESULT_FALLBACK_TRUNCATION_CHARS = 30_000;
-
-/**
- * Auto-bind name for a run's overflowed result: a slug from the goal's first
- * few words, suffixed `_result` (sap spec §1 Naming #2 — deterministic, no LLM).
- */
-function resultValueName(goal: string): string {
-	const slug = goal
-		.toLowerCase()
-		.split(/\s+/)
-		.slice(0, 4)
-		.map((word) => word.replace(/[^a-z0-9_]/g, ""))
-		.filter((word) => word.length > 0)
-		.join("_");
-	// A slug that is empty or not a valid name head falls back rather than
-	// producing a bind the store would reject.
-	if (slug.length === 0 || !/^[a-z_]/.test(slug)) return "agent_result";
-	const suffix = "_result";
-	return `${slug.slice(0, 64 - suffix.length)}${suffix}`;
-}
-
-/**
- * The child-boundary auto-bind (sap spec §2 Auto-bind): output over the
- * summary budget binds the FULL output (auto), publishes it, and sends the
- * head inline with a marked mechanical cut — the marker names the value's
- * final (possibly suffixed) name. If bind or publish fails for any reason,
- * degrade to today's inline truncation with no marker naming a value.
- */
-/**
- * Reserved headroom for the marker inside the budget-inclusive preview: a
- * 64-char value name plus the marker frame stays well under this, so head +
- * marker together always fit the delegate budget.
- */
-const MARKER_RESERVE_CHARS = 160;
-
-/** Delegate budget resolved once per process (capture-all spec v10). */
-const DELEGATE_BUDGET = resolvePreviewBudgets(process.env).delegate ?? SUMMARY_BUDGET_CHARS;
-
-async function prepareResultOutput(
-	store: StoreAccess | undefined,
-	handleId: string,
-	goal: string,
-	output: string,
-): Promise<string> {
-	// Redact FIRST: redaction can lengthen text, so slicing before it could
-	// push a budget-inclusive preview back over budget at the parent.
-	const redacted = redactSensitiveTranscriptContent(output);
-	if (store === undefined || redacted.length <= DELEGATE_BUDGET) return redacted;
-	try {
-		const metadata = await store.bind({
-			name: resultValueName(goal),
-			content: output,
-			type: "text",
-			provenance: { agentHandleId: handleId, origin: { kind: "delegation" } },
-			explicit: false,
-		});
-		await store.publish(metadata.ulid);
-		// Budget-INCLUSIVE: the whole message fits the delegate budget, so the
-		// parent-side render clamp can never re-cut a live gated result.
-		const head = redacted.slice(0, DELEGATE_BUDGET - MARKER_RESERVE_CHARS);
-		const marker = captureMarker(
-			`${redacted.length - head.length} chars`,
-			` — full content: ⟦${metadata.name}⟧`,
-		);
-		return `${head}\n${marker}`;
-	} catch {
-		if (redacted.length <= RESULT_FALLBACK_TRUNCATION_CHARS) return redacted;
-		return (
-			`${redacted.slice(0, RESULT_FALLBACK_TRUNCATION_CHARS)}\n` +
-			`[... output truncated at ${RESULT_FALLBACK_TRUNCATION_CHARS} chars]`
-		);
-	}
 }
 
 async function ackAgentMessage(bus: BusClient, message: AgentMessageMessage): Promise<void> {

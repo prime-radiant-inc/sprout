@@ -10,6 +10,7 @@ import type { StoreAccess } from "../store/store-access.ts";
 import { buildInternalSproutCommand } from "../util/self-command.ts";
 import { ulid } from "../util/ulid.ts";
 import type { BusClient } from "./client.ts";
+import { prepareResultOutput } from "./result-gate.ts";
 import { readHandleResult, replayHandleLog } from "./resume.ts";
 import { agentInbox, agentMessageAck, agentReady, agentResult, sessionEvents } from "./topics.ts";
 import type {
@@ -958,10 +959,23 @@ export class AgentSpawner {
 
 		this.publishSessionEvent(handle.handleId, "session_end", agentIdOf(handle), depth, endData);
 
+		// Featherweight capture (capture-all spec v10): the live result gates
+		// through the shared boundary — parent-scope bind, NO publish (the value
+		// is already in the parent's scope). PRIVATE handles only: a shared
+		// handle's future waiter could not reach a parent-scope value, so shared
+		// results keep the raw path. The durable log above stays full-fidelity
+		// raw (child-facing replay must not lose its own prior answer).
+		const gatedOutput =
+			handle.visibility !== "shared" && this.storeAccess !== undefined
+				? await prepareResultOutput(this.storeAccess, handle.handleId, goal, exec.output, {
+						publish: false,
+					})
+				: exec.output;
+
 		return {
 			kind: "result",
 			handle_id: handle.handleId,
-			output: exec.output,
+			output: gatedOutput,
 			success: exec.success,
 			stumbles: exec.stumbles,
 			turns: exec.turns,

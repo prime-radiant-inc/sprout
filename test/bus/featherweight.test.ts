@@ -71,6 +71,112 @@ describe("featherweight placement (spec §5)", () => {
 		return { fn, calls };
 	}
 
+	/** Minimal StoreAccess fake for the featherweight capture flavor. */
+	function fakeStore() {
+		const bound: Array<{ name: string; content: string; explicit: boolean }> = [];
+		const published: string[] = [];
+		const store = {
+			bindError: undefined as string | undefined,
+			bound,
+			published,
+			async bind(args: { name: string; content: string | Uint8Array; explicit: boolean }) {
+				if (store.bindError !== undefined) throw new Error(store.bindError);
+				const content =
+					typeof args.content === "string" ? args.content : new TextDecoder().decode(args.content);
+				bound.push({ name: args.name, content, explicit: args.explicit });
+				return {
+					ulid: `ulid_${bound.length}`,
+					name: args.name,
+					scopeId: "parent",
+					type: "text",
+					size: content.length,
+					provenance: { agentHandleId: "", origin: { kind: "delegation" as const } },
+					preview: "",
+					createdAt: 1,
+				};
+			},
+			async publish(ref: string) {
+				published.push(ref);
+			},
+		};
+		return store;
+	}
+
+	function spawnerWithStore(fn: FeatherweightFn, store: ReturnType<typeof fakeStore>) {
+		// Only .store is consulted by the featherweight capture path.
+		const authChannel = { store } as unknown as ConstructorParameters<typeof AgentSpawner>[6];
+		return new AgentSpawner(
+			bus,
+			server.url,
+			SESSION_ID,
+			undefined,
+			undefined,
+			undefined,
+			authChannel,
+			fn,
+		);
+	}
+
+	test("an over-budget private featherweight result binds into the parent scope: preview + ref, no publish", async () => {
+		const store = fakeStore();
+		const full = `judgment first\n${"x".repeat(6_000)}`;
+		const fn: FeatherweightFn = async () => ({
+			output: full,
+			success: true,
+			stumbles: 0,
+			turns: 1,
+			timed_out: false,
+		});
+		const spawner = spawnerWithStore(fn, store);
+		const result = (await spawner.spawnAgent(baseOpts("crunch the numbers"))) as ResultMessage;
+		expect(result.output.length).toBeLessThanOrEqual(4_000);
+		expect(result.output.startsWith("judgment first")).toBe(true);
+		expect(result.output).toMatch(
+			/\[\.\.\. \d+ chars truncated — full content: ⟦crunch_the_numbers_result⟧\]/,
+		);
+		// The full RAW output is bound in the parent's own scope — and NOT
+		// published (publishing would push it to the grandparent).
+		expect(store.bound).toHaveLength(1);
+		expect(store.bound[0]!.content).toBe(full);
+		expect(store.bound[0]!.explicit).toBe(false);
+		expect(store.published).toHaveLength(0);
+	});
+
+	test("a shared featherweight result keeps the raw path", async () => {
+		const store = fakeStore();
+		const full = `judgment first\n${"x".repeat(6_000)}`;
+		const fn: FeatherweightFn = async () => ({
+			output: full,
+			success: true,
+			stumbles: 0,
+			turns: 1,
+			timed_out: false,
+		});
+		const spawner = spawnerWithStore(fn, store);
+		const result = (await spawner.spawnAgent(
+			baseOpts("crunch the numbers", { shared: true, blocking: true }),
+		)) as ResultMessage;
+		expect(result.output).toBe(full);
+		expect(store.bound).toHaveLength(0);
+	});
+
+	test("featherweight capture failure falls back to the raw path", async () => {
+		const store = fakeStore();
+		store.bindError = "store full: cap reached";
+		const full = `judgment first\n${"x".repeat(6_000)}`;
+		const fn: FeatherweightFn = async () => ({
+			output: full,
+			success: true,
+			stumbles: 0,
+			turns: 1,
+			timed_out: false,
+		});
+		const spawner = spawnerWithStore(fn, store);
+		const result = (await spawner.spawnAgent(baseOpts("crunch the numbers"))) as ResultMessage;
+		expect(result.output).toBe(full);
+		expect(result.output).not.toContain("truncated");
+	});
+
 	test("runs in-process without touching the subprocess spawnFn", async () => {
 		let spawnFnCalled = false;
 		const spawnFn = () => {

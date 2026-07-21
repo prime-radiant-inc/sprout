@@ -37,11 +37,11 @@ prefix commits with `PATH="/home/jesse/.bun/bin:$PATH"` so the hook finds bun/bu
       (MARKER_RESERVE_CHARS = 160; whole message ≤ delegate budget); budget from record
       (DELEGATE_BUDGET resolved once per process); canonical marker via helper; fallback
       redacted, shape unchanged. Both delegate-side pins moved (recorded).
-- [ ] Featherweight: `prepareResultOutput` reuse with `{ publish: boolean }` (move to
-      shared module — import cycle agent-process↔spawner); spawner's parent-scoped
-      `StoreAccess`; PRIVATE handles only; called at settle points (`spawner.ts:890,
-      1152`); child handleId provenance (tier inconsistency documented); capture-failure
-      → raw path; `plan_end`/replay stays raw.
+- [x] Featherweight: `prepareResultOutput` moved to `src/bus/result-gate.ts` with
+      `{ publish: boolean }`; gated inside `runFeatherweight` (covers both settle
+      points), `handle.visibility !== "shared"` + parent-scoped store, publish:false;
+      log records stay raw. Tests: preview+ref+no-publish; shared → raw; capture-fail
+      → raw.
 - [ ] Delegation-render helper in agent.ts replacing the five `truncateToolOutput` sites
       (1500, 2302, 2466, 2512, 2556): redact once; `recovered` flag stamped in
       `readHandleResult` (`resume.ts:144–181`, single constructor); clamp iff recovered
