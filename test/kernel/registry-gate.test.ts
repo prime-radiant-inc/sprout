@@ -2,9 +2,7 @@ import { beforeEach, describe, expect, it } from "bun:test";
 import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
 import { createPrimitiveRegistry, type Primitive } from "../../src/kernel/primitives.ts";
 import type { PrimitiveResult } from "../../src/kernel/types.ts";
-import type { GrepResult, ManifestDelta } from "../../src/store/store.ts";
-import type { StoreAccess, StoreBindInput } from "../../src/store/store-access.ts";
-import type { ValueMetadata } from "../../src/store/value.ts";
+import { FakeStore } from "../helpers/fake-store.ts";
 
 /**
  * The registry gate predicate (capture-all spec v10): the svelte/capture path
@@ -13,64 +11,6 @@ import type { ValueMetadata } from "../../src/store/value.ts";
  * predicate path; capture failure → today's limits (principle 1); value_*
  * bypasses the gate wholesale; outputs and errors redacted.
  */
-
-interface BoundEntry extends Omit<StoreBindInput, "content"> {
-	content: string;
-}
-
-class FakeStore implements StoreAccess {
-	bound: BoundEntry[] = [];
-	published: string[] = [];
-	bindError: string | undefined;
-
-	async bind(args: StoreBindInput): Promise<ValueMetadata> {
-		if (this.bindError !== undefined) throw new Error(this.bindError);
-		const content =
-			typeof args.content === "string" ? args.content : new TextDecoder().decode(args.content);
-		this.bound.push({ ...args, content });
-		return {
-			ulid: `ulid_${this.bound.length}`,
-			name: args.name,
-			scopeId: "scope_test",
-			type: args.type,
-			size: content.length,
-			provenance: args.provenance,
-			preview: `${args.type} · ${content.length} bytes`,
-			createdAt: 1,
-		};
-	}
-	async publish(ref: string): Promise<void> {
-		this.published.push(ref);
-	}
-	async peek(): Promise<string> {
-		throw new Error("not implemented");
-	}
-	async metadata(): Promise<ValueMetadata> {
-		throw new Error("not implemented");
-	}
-	async get(): Promise<Uint8Array> {
-		throw new Error("not implemented");
-	}
-	async slice(): Promise<string> {
-		throw new Error("not implemented");
-	}
-	async grep(): Promise<GrepResult> {
-		throw new Error("not implemented");
-	}
-	async manifestDelta(): Promise<ManifestDelta> {
-		throw new Error("not implemented");
-	}
-	async registerEnvGrant(): Promise<ValueMetadata> {
-		throw new Error("not implemented");
-	}
-	async claimEnvGrant(): Promise<ValueMetadata> {
-		throw new Error("not implemented");
-	}
-	async recordCell(): Promise<void> {}
-	async names(): Promise<string[]> {
-		return this.bound.map((b) => b.name);
-	}
-}
 
 function stub(name: string, result: PrimitiveResult): Primitive {
 	return {

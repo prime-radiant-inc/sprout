@@ -96,112 +96,126 @@ export function createPrimitiveRegistry(
 			if (name.startsWith("value_")) {
 				return result;
 			}
-			// captureSource stays inside the gate: it carries the raw, unredacted
-			// content, and every path below spreads `redacted` — strip it once here.
-			const { captureSource: source, ...passthrough } = result;
-			const output = redactSensitiveTranscriptContent(passthrough.output);
-			const redacted: PrimitiveResult = { ...passthrough, output };
-			if (passthrough.error !== undefined) {
-				redacted.error = redactSensitiveTranscriptContent(passthrough.error);
-			}
-			// The predicate (capture-all spec v10): the svelte/capture path
-			// engages only when the result carries its source AND a capture store
-			// exists — a svelte cut without a ref to compensate would destroy
-			// information, so everything else keeps today's truncation limits.
-			if (source === undefined || captureStore === undefined) {
-				return { ...redacted, output: truncateToolOutput(output, name) };
-			}
-			const budget =
-				previewBudgets[name] ?? previewBudgets.default ?? DEFAULT_PREVIEW_BUDGETS.default;
-			// Chars-only trigger: below budget renders whole (no line shaping —
-			// a sub-budget many-line output costs less to show than to capture).
-			if (output.length <= budget) {
-				return redacted;
-			}
-			const noun = name === "fetch" ? "body" : "content";
-			const gauge = truncateAtBudgetDetailed(output, name, budget);
-			const dropped = `${gauge.droppedChars} chars`;
-			// An explicit bind already stored the source — never store it twice.
-			// The marker points at the explicitly bound value instead.
-			if (result.boundValues !== undefined && result.boundValues.length > 0) {
-				const marker = captureMarker(dropped, ` — full ${noun}: ⟦${result.boundValues[0]!.name}⟧`);
-				return {
-					...redacted,
-					output: truncateAtBudgetDetailed(output, name, budget, marker).text,
-				};
-			}
+			return applyOutputGate(name, result, captureStore, previewBudgets);
+		},
+	};
+}
+
+/**
+ * The registry output gate (capture-all spec v10): redact at the boundary,
+ * then either keep today's truncation limits (no source / no store) or run
+ * the svelte capture path — preview at budget, raw source bound as a value,
+ * marker naming the ref; capture failure degrades to lossy-but-honest.
+ */
+async function applyOutputGate(
+	name: string,
+	result: PrimitiveResult,
+	captureStore: StoreAccess | undefined,
+	previewBudgets: Record<string, number>,
+): Promise<PrimitiveResult> {
+	// captureSource stays inside the gate: it carries the raw, unredacted
+	// content, and every path below spreads `redacted` — strip it once here.
+	const { captureSource: source, ...passthrough } = result;
+	const output = redactSensitiveTranscriptContent(passthrough.output);
+	const redacted: PrimitiveResult = { ...passthrough, output };
+	if (passthrough.error !== undefined) {
+		redacted.error = redactSensitiveTranscriptContent(passthrough.error);
+	}
+	// The predicate (capture-all spec v10): the svelte/capture path
+	// engages only when the result carries its source AND a capture store
+	// exists — a svelte cut without a ref to compensate would destroy
+	// information, so everything else keeps today's truncation limits.
+	if (source === undefined || captureStore === undefined) {
+		return { ...redacted, output: truncateToolOutput(output, name) };
+	}
+	const budget = previewBudgets[name] ?? previewBudgets.default ?? DEFAULT_PREVIEW_BUDGETS.default;
+	// Chars-only trigger: below budget renders whole (no line shaping —
+	// a sub-budget many-line output costs less to show than to capture).
+	if (output.length <= budget) {
+		return redacted;
+	}
+	const noun = name === "fetch" ? "body" : "content";
+	const gauge = truncateAtBudgetDetailed(output, name, budget);
+	const dropped = `${gauge.droppedChars} chars`;
+	// An explicit bind already stored the source — never store it twice.
+	// The marker points at the explicitly bound value instead.
+	if (result.boundValues !== undefined && result.boundValues.length > 0) {
+		const marker = captureMarker(dropped, ` — full ${noun}: ⟦${result.boundValues[0]!.name}⟧`);
+		return {
+			...redacted,
+			output: truncateAtBudgetDetailed(output, name, budget, marker).text,
+		};
+	}
+	try {
+		const metadata = await captureStore.bind({
+			name: `${name}_output`,
+			content: source.content,
+			type: source.type,
+			// The channel forces agentHandleId to the connection's verified
+			// identity; a direct-scope holder is the scope's owner.
+			provenance: { agentHandleId: "", origin: { kind: "primitive", name } },
+			explicit: false,
+		});
+		const boundValues = [{ name: metadata.name, ulid: metadata.ulid, size: metadata.size }];
+		// Stderr the preview dropped binds as its own value. Containment
+		// runs in REDACTED space: raw stderr can never match a redacted
+		// preview, so a raw comparison would bind spurious companions.
+		const redactedStderr =
+			source.stderr === undefined || source.stderr === ""
+				? undefined
+				: redactSensitiveTranscriptContent(source.stderr);
+		let tail = ` — full ${noun}: ⟦${metadata.name}⟧`;
+		if (redactedStderr !== undefined && !gauge.text.includes(redactedStderr)) {
+			// The companion bind fails ALONE: the main value is already
+			// stored, so its marker must stand — a blanket failure banner
+			// here would falsely claim nothing was captured.
 			try {
-				const metadata = await captureStore.bind({
-					name: `${name}_output`,
-					content: source.content,
-					type: source.type,
-					// The channel forces agentHandleId to the connection's verified
-					// identity; a direct-scope holder is the scope's owner.
+				const stderrMetadata = await captureStore.bind({
+					name: `${name}_output_stderr`,
+					content: source.stderr as string,
+					type: "text",
 					provenance: { agentHandleId: "", origin: { kind: "primitive", name } },
 					explicit: false,
 				});
-				const boundValues = [{ name: metadata.name, ulid: metadata.ulid, size: metadata.size }];
-				// Stderr the preview dropped binds as its own value. Containment
-				// runs in REDACTED space: raw stderr can never match a redacted
-				// preview, so a raw comparison would bind spurious companions.
-				const redactedStderr =
-					source.stderr === undefined || source.stderr === ""
-						? undefined
-						: redactSensitiveTranscriptContent(source.stderr);
-				let tail = ` — full ${noun}: ⟦${metadata.name}⟧`;
-				if (redactedStderr !== undefined && !gauge.text.includes(redactedStderr)) {
-					// The companion bind fails ALONE: the main value is already
-					// stored, so its marker must stand — a blanket failure banner
-					// here would falsely claim nothing was captured.
-					try {
-						const stderrMetadata = await captureStore.bind({
-							name: `${name}_output_stderr`,
-							content: source.stderr as string,
-							type: "text",
-							provenance: { agentHandleId: "", origin: { kind: "primitive", name } },
-							explicit: false,
-						});
-						boundValues.push({
-							name: stderrMetadata.name,
-							ulid: stderrMetadata.ulid,
-							size: stderrMetadata.size,
-						});
-						tail = ` — full ${noun}: ⟦${metadata.name}⟧, stderr: ⟦${stderrMetadata.name}⟧`;
-					} catch {
-						// Stderr mention simply stays absent; the capture is honest.
-					}
-				}
-				const marker = captureMarker(dropped, tail);
-				return {
-					...redacted,
-					output: truncateAtBudgetDetailed(output, name, budget, marker).text,
-					boundValues,
-				};
-			} catch (err) {
-				// Capture failed → today's limits (principle 1: no svelte cut
-				// without a ref). Under today's limit the output rides whole,
-				// honestly unmarked; over it, lossy-but-honest — never a marker
-				// naming a value that does not exist.
-				const legacy = truncateToolOutputDetailed(output, name);
-				if (!legacy.truncated) {
-					return redacted;
-				}
-				const reason = err instanceof Error ? err.message : String(err);
-				const legacyDropped =
-					legacy.droppedLines > 0 ? `${legacy.droppedLines} lines` : `${legacy.droppedChars} chars`;
-				const marker = captureMarker(
-					legacyDropped,
-					reason.includes("store full")
-						? "; store full — content not captured"
-						: "; capture failed — content not captured",
-				);
-				return {
-					...redacted,
-					output: truncateToolOutputDetailed(output, name, undefined, marker).text,
-				};
+				boundValues.push({
+					name: stderrMetadata.name,
+					ulid: stderrMetadata.ulid,
+					size: stderrMetadata.size,
+				});
+				tail = ` — full ${noun}: ⟦${metadata.name}⟧, stderr: ⟦${stderrMetadata.name}⟧`;
+			} catch {
+				// Stderr mention simply stays absent; the capture is honest.
 			}
-		},
-	};
+		}
+		const marker = captureMarker(dropped, tail);
+		return {
+			...redacted,
+			output: truncateAtBudgetDetailed(output, name, budget, marker).text,
+			boundValues,
+		};
+	} catch (err) {
+		// Capture failed → today's limits (principle 1: no svelte cut
+		// without a ref). Under today's limit the output rides whole,
+		// honestly unmarked; over it, lossy-but-honest — never a marker
+		// naming a value that does not exist.
+		const legacy = truncateToolOutputDetailed(output, name);
+		if (!legacy.truncated) {
+			return redacted;
+		}
+		const reason = err instanceof Error ? err.message : String(err);
+		const legacyDropped =
+			legacy.droppedLines > 0 ? `${legacy.droppedLines} lines` : `${legacy.droppedChars} chars`;
+		const marker = captureMarker(
+			legacyDropped,
+			reason.includes("store full")
+				? "; store full — content not captured"
+				: "; capture failed — content not captured",
+		);
+		return {
+			...redacted,
+			output: truncateToolOutputDetailed(output, name, undefined, marker).text,
+		};
+	}
 }
 
 function buildPrimitives(allowExec = true): Primitive[] {
