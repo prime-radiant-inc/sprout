@@ -452,7 +452,22 @@ class CellRun {
 
 	private rejectAmbient(deferred: QuickJSDeferredPromise, err: unknown): void {
 		const message = err instanceof Error ? err.message : String(err);
-		const errorHandle = this.context.newError(message);
+		// Same glue-trap guard as resolveAmbient's newString: newError allocates
+		// through emscripten _malloc, which traps uncleanly at the wasm cap. A
+		// cell that filled its heap gets the typed OOM stumble, not a dead worker.
+		let errorHandle: QuickJSHandle;
+		try {
+			errorHandle = this.context.newError(message);
+		} catch {
+			this.modulePoisoned = true;
+			this.finish({
+				ok: false,
+				error:
+					"out of memory: the cell exhausted its memory budget and could not receive the ambient error",
+				infrastructure: false,
+			});
+			return;
+		}
 		if (this.request.isInfraError(err)) {
 			this.infraHandles.push(errorHandle.dup());
 		}
@@ -544,28 +559,35 @@ class CellRun {
 		if (entry.kind === "timeout") {
 			this.timers.delete(token);
 		}
-		const result = this.context.callFunction(entry.fn, this.context.undefined);
-		if (entry.kind === "timeout") entry.fn.dispose();
-		if (result.error) {
-			const message = this.errorMessage(result.error);
-			result.error.dispose();
-			// A deadline interrupt fired mid-callback (callFunction reports
-			// "interrupted") — end the cell typed, not as the callback's throw.
-			if (this.overDeadline()) {
-				this.finish(this.budgetExceededResult());
+		// The FFI section runs bare inside a host setTimeout: a foreign throw
+		// here would be an uncaught exception that kills the worker. Contain it
+		// with run()'s classification instead.
+		try {
+			const result = this.context.callFunction(entry.fn, this.context.undefined);
+			if (entry.kind === "timeout") entry.fn.dispose();
+			if (result.error) {
+				const message = this.errorMessage(result.error);
+				result.error.dispose();
+				// A deadline interrupt fired mid-callback (callFunction reports
+				// "interrupted") — end the cell typed, not as the callback's throw.
+				if (this.overDeadline()) {
+					this.finish(this.budgetExceededResult());
+					return;
+				}
+				// Any other error — a genuine cell throw or an in-context OOM — fails
+				// the CELL as a stumble. Unlike the vm engine (whose detached host
+				// timer would crash the worker), QuickJS holds the error value, so
+				// the worker survives and the failure is correctly the cell's. Timers
+				// are torn down at cell end, so this only ever fires within the
+				// offending cell's own run.
+				this.finish({ ok: false, error: message, infrastructure: false });
 				return;
 			}
-			// Any other error — a genuine cell throw or an in-context OOM — fails
-			// the CELL as a stumble. Unlike the vm engine (whose detached host
-			// timer would crash the worker), QuickJS holds the error value, so
-			// the worker survives and the failure is correctly the cell's. Timers
-			// are torn down at cell end, so this only ever fires within the
-			// offending cell's own run.
-			this.finish({ ok: false, error: message, infrastructure: false });
-			return;
+			result.value.dispose();
+			this.pump();
+		} catch (err) {
+			this.containHostFault(err);
 		}
-		result.value.dispose();
-		this.pump();
 	}
 
 	private cancelTimer(token: number): void {
@@ -593,11 +615,24 @@ class CellRun {
 		try {
 			this.pumpInner();
 		} catch (err) {
-			this.finish({
-				ok: false,
-				error: `cell engine internal failure: ${err instanceof Error ? err.message : String(err)}`,
-				infrastructure: true,
-			});
+			this.containHostFault(err);
+		}
+	}
+
+	/**
+	 * run()'s foreign-fault classification, shared with the detached paths
+	 * (pump, timer callbacks): the throw crossed the wasm boundary, so
+	 * interpreter state is unknowable — poison the module. A stack-shaped
+	 * fault is the cell's own runaway recursion (a stumble); anything else is
+	 * infrastructure.
+	 */
+	private containHostFault(err: unknown): void {
+		this.modulePoisoned = true;
+		const message = err instanceof Error ? err.message : String(err);
+		if (/stack/i.test(message)) {
+			this.finish({ ok: false, error: `stack overflow: ${message}`, infrastructure: false });
+		} else {
+			this.finish({ ok: false, error: `cell engine fault: ${message}`, infrastructure: true });
 		}
 	}
 

@@ -232,6 +232,51 @@ describe("QuickJSCellEngine host-fault resilience", () => {
 		expect(loads).toBe(2);
 	});
 
+	it("a foreign host throw from a detached pump gets run()'s classification: stack-shaped is a stumble and the module is discarded", async () => {
+		// The same JSC-wasm-stack fault run()'s catch classifies can fire inside
+		// executePendingJobs resumed from a DETACHED ambient continuation. That
+		// path must mirror run(): poison the module, classify stack-shaped as
+		// the cell's own runaway recursion (a stumble, not infrastructure).
+		let loads = 0;
+		let armed = false;
+		const real = await newQuickJSWASMModuleFromVariant(debugVariant);
+		const engine = new QuickJSCellEngine({
+			loadModule: async () => {
+				loads++;
+				return {
+					newRuntime: () => {
+						const rt = real.newRuntime();
+						const executePendingJobs = rt.executePendingJobs.bind(rt);
+						(rt as any).executePendingJobs = (...args: unknown[]) => {
+							if (armed) {
+								armed = false;
+								throw new RangeError("Maximum call stack size exceeded.");
+							}
+							return (executePendingJobs as any)(...args);
+						};
+						return rt;
+					},
+				};
+			},
+		});
+		const result = await engine.runCell({
+			code: "return await peek('x');",
+			...baseRequest,
+			callAmbient: async () => {
+				await new Promise((resolve) => setTimeout(resolve, 20));
+				armed = true;
+				return "ok";
+			},
+		});
+		if (result.ok) throw new Error("expected the detached host fault to fail the cell");
+		expect(result.error).toContain("stack");
+		expect(result.infrastructure).not.toBe(true);
+		expect(loads).toBe(1);
+		const next = await engine.runCell({ code: "return 'alive';", ...baseRequest });
+		expect(next).toEqual({ ok: true, returnValue: "alive" });
+		expect(loads).toBe(2);
+	});
+
 	it("a transient module-load failure is not cached — the next cell retries the load", async () => {
 		// A rejected load must not wedge the engine for the process lifetime:
 		// the parent never respawns a worker for an engine-failure result, so a
