@@ -215,6 +215,9 @@ export interface AgentOptions {
 const MANIFEST_FETCH_RETRIES = 2;
 const MANIFEST_RETRY_BACKOFF_MS = 250;
 
+/** Hard bound on one rendered agent message in the system prompt (chars). */
+const AGENT_MESSAGE_RENDER_CLAMP = 4_000;
+
 const DEFAULT_DELEGATE_OBSERVER_MAX_EVENTS = 12;
 const DEFAULT_DELEGATE_OBSERVER_MAX_CHARS = 3000;
 const DEFAULT_DELEGATE_OBSERVER_TIMEOUT_MS = 1500;
@@ -909,6 +912,20 @@ export class Agent {
 		return queued;
 	}
 
+	/**
+	 * Message text is another agent's free text riding the recipient's system
+	 * prompt: redact it and clamp it (messages are transient — there is no
+	 * capture store guaranteed at this seam, so a ref cannot compensate; the
+	 * clamp is a hard bound, not a capture gate). Redact BEFORE clamping:
+	 * redaction can lengthen text.
+	 */
+	private static clampAgentMessageText(text: string): string {
+		const redacted = redactSensitiveTranscriptContent(text);
+		if (redacted.length <= AGENT_MESSAGE_RENDER_CLAMP) return redacted;
+		const dropped = redacted.length - AGENT_MESSAGE_RENDER_CLAMP;
+		return `${redacted.slice(0, AGENT_MESSAGE_RENDER_CLAMP)}\n[... ${dropped} chars truncated]`;
+	}
+
 	private renderAgentMessagesForPrompt(): string {
 		const queued = this.agentMessageQueue;
 		if (queued.length === 0) return "";
@@ -925,7 +942,7 @@ export class Agent {
 			.map((message) => {
 				const role = message.from.role ? ` role="${escapeXml(message.from.role)}"` : "";
 				return `<message from="${escapeXml(message.from.agentName)}"${role}>\n${escapeXml(
-					message.text,
+					Agent.clampAgentMessageText(message.text),
 				)}\n</message>`;
 			})
 			.join("\n");
