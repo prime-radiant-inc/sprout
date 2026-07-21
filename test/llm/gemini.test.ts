@@ -264,7 +264,11 @@ describe("GeminiAdapter", () => {
 						yield { candidates: [{ content: { parts: [{ text: "trunc" }] } }] };
 						yield {
 							candidates: [{ content: { parts: [] }, finishReason: "MAX_TOKENS" }],
-							usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 100, totalTokenCount: 105 },
+							usageMetadata: {
+								promptTokenCount: 5,
+								candidatesTokenCount: 100,
+								totalTokenCount: 105,
+							},
 						};
 					})(),
 			},

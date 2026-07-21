@@ -89,7 +89,9 @@ describe("Embedding providers", () => {
 				};
 			},
 		});
-		await expect(provider.embedBatch(["alpha"])).rejects.toThrow("transient model download failure");
+		await expect(provider.embedBatch(["alpha"])).rejects.toThrow(
+			"transient model download failure",
+		);
 		await expect(provider.embedBatch(["alpha"])).resolves.toHaveLength(1);
 		expect(loadCount).toBe(2);
 	});

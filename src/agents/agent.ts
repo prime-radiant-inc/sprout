@@ -2371,7 +2371,11 @@ export class Agent {
 		try {
 			const result = await this.spawner.waitAgent(id, undefined, { untimed: true });
 			const outcome = await this.completedOutcomeFor(result, id, "handle.wait");
-			this.recordCellSpawnDigest(outcome, this.spawner.getHandle(id)?.agentName ?? id, "handle.wait");
+			this.recordCellSpawnDigest(
+				outcome,
+				this.spawner.getHandle(id)?.agentName ?? id,
+				"handle.wait",
+			);
 			return outcome;
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);

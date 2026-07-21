@@ -286,9 +286,7 @@ describe("act mode — agent-tool dispatch honors the granted surface (Phase 7)"
 		});
 		await agent.run("try to delegate");
 		expect(calls).toEqual([]);
-		const denial = events
-			.collected()
-			.find((e) => e.kind === "act_end" && e.data.success === false);
+		const denial = events.collected().find((e) => e.kind === "act_end" && e.data.success === false);
 		expect(denial).toBeDefined();
 		expect(String(denial!.data.error)).toContain("not in this agent's granted tool surface");
 	});
@@ -312,9 +310,7 @@ describe("act mode — agent-tool dispatch honors the granted surface (Phase 7)"
 		});
 		await agent.run("try the legacy path");
 		expect(calls).toEqual([]);
-		const denial = events
-			.collected()
-			.find((e) => e.kind === "act_end" && e.data.success === false);
+		const denial = events.collected().find((e) => e.kind === "act_end" && e.data.success === false);
 		expect(denial).toBeDefined();
 		expect(String(denial!.data.error)).toContain("not in this agent's granted tool surface");
 	});

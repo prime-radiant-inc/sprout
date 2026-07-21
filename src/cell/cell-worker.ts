@@ -27,7 +27,7 @@ import {
 	resolveCellEngineName,
 } from "./cell-engine.ts";
 
-export { type WorkerProgram } from "./cell-bootstrap.ts";
+export type { WorkerProgram } from "./cell-bootstrap.ts";
 
 /*
  * The parent's answer to one ambient request is `{id, ok, result}` or
