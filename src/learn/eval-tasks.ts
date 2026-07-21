@@ -30,7 +30,7 @@ import type { EvalTask, ExecOutcome, VerifyResult } from "./eval-harness.ts";
  */
 export const FAILURE_PENALTY = 10;
 
-function anchored(passed: boolean, outcome: ExecOutcome, detail?: string): VerifyResult {
+export function anchored(passed: boolean, outcome: ExecOutcome, detail?: string): VerifyResult {
 	return {
 		passed,
 		stumbles: outcome.stumbles + (passed ? 0 : FAILURE_PENALTY),
@@ -38,7 +38,7 @@ function anchored(passed: boolean, outcome: ExecOutcome, detail?: string): Verif
 	};
 }
 
-function payloadsInclude(outcome: ExecOutcome, needle: string): boolean {
+export function payloadsInclude(outcome: ExecOutcome, needle: string): boolean {
 	return outcome.providerPayloads.some((p) => p.includes(needle));
 }
 
@@ -48,11 +48,11 @@ function payloadsInclude(outcome: ExecOutcome, needle: string): boolean {
  * provider payload can only come from the run transcribing the file's body —
  * the exact leak the keystone forbids. Mirrors the hidden canary's design.
  */
-function newLeakSecret(): string {
+export function newLeakSecret(): string {
 	return `SAP-EVAL-SECRET-${randomBytes(8).toString("hex")}`;
 }
 
-async function materializeLeakSource(
+export async function materializeLeakSource(
 	workDir: string,
 	fileName: string,
 	secret: string,
