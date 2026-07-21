@@ -37,7 +37,7 @@ export function buildDelegateTool(agents: AgentSpec[]): ToolDefinition {
 		name: DELEGATE_TOOL_NAME,
 		displayName: getToolDisplayName(DELEGATE_TOOL_NAME),
 		description:
-			"Delegate a task to a specialist agent. See the <agents> section in your instructions for available agents and their descriptions.",
+			"Delegate a task to a specialist agent. Hand it data BY REFERENCE: grant bound values via env (each binds into the child's scope) — never paste file contents or credentials into goal text, which leaks them into the conversation. A large child result auto-binds into your scope as ⟦name⟧ for cells and splicing. See the <agents> section in your instructions for available agents and their descriptions.",
 		parameters: {
 			type: "object",
 			properties: {
@@ -77,7 +77,7 @@ export function buildDelegateTool(agents: AgentSpec[]): ToolDefinition {
 				env: {
 					type: "object",
 					description:
-						"Give the child values from your scope: alias → your value name or ulid. Each granted value binds into the child's scope under the alias.",
+						"Grant the child bound values from your scope: alias → your bound value's NAME or ulid (not a file path). Each grant binds into the child's scope under the alias — the no-leak way to hand a child content or credentials.",
 				},
 			},
 			required: ["agent_name", "goal", "description"],

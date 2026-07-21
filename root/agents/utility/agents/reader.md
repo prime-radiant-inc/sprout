@@ -1,6 +1,6 @@
 ---
 name: reader
-description: "Ask to find and read specific files or search for patterns — returns extracted information, not raw dumps. Use for quick targeted lookups, not broad exploration"
+description: "Ask to find and read specific files or search for patterns — returns extracted information, not raw dumps. When you need the content downstream, ask for the FULL content as its result: a large result returns as a reusable ⟦value⟧ you can grep/slice in cells or grant onward, instead of flooding your conversation. Use for quick targeted lookups, not broad exploration"
 model: fast
 tools:
   - read_file
