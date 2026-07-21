@@ -37,7 +37,7 @@ flight at that point.
 - [x] src/host (cycle 3)
 - [x] src/kernel (cycle 4)
 - [x] src/agents (cycle 5)
-- [ ] src/cell (cell-host, engines, worker, bootstrap)
+- [x] src/cell (cycle 6)
 - [ ] src/learn + src/llm (eval harnesses, adapters, client)
 - [ ] src/genome + src/web (memory tools, recall, server)
 
@@ -277,6 +277,74 @@ RISKY/observations — recorded for Jesse, not touched:
   attempt; catch doesn't restore) — retry suppressed while context grows.
 - Test-only AgentOptions seams (cellHost, cellWorkerSpawnFn, llmRetryOptions,
   liveness/observer tuning) are documented seams — noted, not removed.
+
+### Cycle 6 — src/cell (both reviewers; the strongest cycle — 3 proven bugs fixed)
+
+BUG 1 (BOTH reviewers independently proved it — fixed, TDD): the ambient
+service path had NO generation guard (the futures path did). Stale completions
+from an ended cell: drove outstandingAmbient to -1 so the next cell's parked
+time accrued as compute (proven wrongful budget SIGKILL of an innocent cell,
+mislabeled infrastructure); pushed stale binds into the next cell's
+newBindings and JOURNAL record (proven — the audit trail lied); inflated the
+next cell's stumbleCount via stale failed-child settlements; and — worst —
+in-flight continuations survived a worker kill and delivered to whichever
+worker was CURRENT, where ambient ids restart per process: cell 1's data
+resolved cell 2's identically-numbered call (proven silent wrong-data
+delivery). Fixed mirroring registerFuture: worker generation gates response
+delivery + stale worker lines; cell generation gates all bookkeeping.
+Same-worker delivery after cell end stays (pinned worker behavior).
+
+BUG 2 (reviewer B, proven — fixed, TDD): QuickJSCellEngine cached a REJECTED
+module-load promise forever; the parent never respawns on engine-failure
+results, so one transient wasm instantiation failure bricked cells for the
+agent process lifetime (the second cell rethrew the first call's error
+object). Rejections now clear the cache.
+
+BUG 3 (reviewer A — fixed, TDD on the pump path): host-fault containment
+covered only run()'s sync path. pump()'s catch (detached ambient/timer
+continuations) produced an unpoisoned infra result — a possibly-corrupt
+module kept serving cells and the cell's own runaway recursion counted zero
+stumbles; fireTimer's FFI section ran bare in a host setTimeout (foreign
+throw = dead worker); rejectAmbient's newError allocates through the same
+emscripten glue trap resolveAmbient guards. All three now share run()'s
+classification (containHostFault); rejectAmbient mirrors the typed-OOM guard.
+
+Done (SAFE): ten internal-only exports unexported (knip-confirmed); dead
+CellWorkerRequest/CellAmbientResponse types deleted (wire doc kept as plain
+comment); RunningCell.killReason dead state + lying comment removed; stale
+"Slice B" comment fixed; dead test export dropped.
+
+DECOMPOSITION (mandate 4b) — cell-host.ts 850 → ~800:
+- done — worker-process.ts (82): the state-free transport
+  (CellWorkerProcessHandle, spawnCellWorkerProcess, readRssBytes).
+- queued — futures unit (~120, co-locate with any future guard work);
+  ambient dispatch (~170, needs a narrower context interface first);
+  runCellSerialized guard/assembly splits; serviceAmbient spawn/handle arms.
+
+RISKY/decisions — recorded for Jesse, not touched:
+- Parked-spin budget hole (A, demonstrated): ONE un-awaited ambient call
+  parks both clocks, so `peek(x); spin(2s)` bills computeTimeMs≈0; combined
+  with untimed handle_wait, `h.wait(); while(true){}` burns a core unbounded.
+  Fix (worker-side CPU accounting) vs document-and-accept needs a call; the
+  threat-model comment implying a flood is required should change either way.
+- The CellHost integration suite runs the env-default engine only — no
+  quickjs matrix leg in CI. Skipped deliberately: the imminent cutover flips
+  the default and the suite covers quickjs from then on.
+- readRssBytes hardcodes 4096-byte pages (16K-page ARM64 under-reads 4×).
+- shutdown() has no production caller (stdin-lease covers production); its
+  mid-cell hang/mislabel behavior only bites tests/bench today.
+- Sync worker.send throw would leak the budget timer (latent; unproven
+  reachability in Bun).
+- vm-engine detached-timer worker-crash + no per-cell timer teardown: known,
+  documented, dies at cutover — logged as cutover-urgency evidence.
+- CUTOVER DELETION INVENTORY (both reviewers, for the cutover commit):
+  vm-engine.ts entire; cell-engine.ts selector (CELL_ENGINE_ENV,
+  CellEngineName, resolveCellEngineName, createCellEngine vm arm,
+  serializeReturnValue); formatConsoleArg JSON/String branches
+  (cell-worker.ts:98-107, quickjs marshals in-realm); resolveWorkerRssKillBytes
+  collapses to budget+headroom + migration-window comment block; ENGINES vm
+  arm + vm-branch RSS test; bench selector plumbing.
+- JSONL line-split loop ×4 across cell/store (S7) — queued util dedup.
 
 ## Decision-queue from Jesse's Q&A (2026-07-21)
 
