@@ -11,11 +11,11 @@ export function redactSensitiveTranscriptContent(content: string): string {
 		.replace(/\bxox[baprs]-[A-Za-z0-9-]{20,}\b/g, "[REDACTED_SLACK_TOKEN]")
 		.replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, "[REDACTED_JWT]")
 		.replace(
-			/\b([A-Z0-9_]*(?:API[_-]?KEY|ACCESS[_-]?KEY|ACCESS[_-]?TOKEN|AUTH[_-]?TOKEN|SECRET|PASSWORD|PASSWD|TOKEN|PRIVATE[_-]?KEY)[A-Z0-9_]*\s*=\s*)("[^"\n]*"|'[^'\n]*'|[^\s]+)/gi,
+			/\b([A-Z0-9_]*(?:API[_-]?KEY|ACCESS[_-]?KEY|ACCESS[_-]?TOKEN|AUTH[_-]?TOKEN|CREDENTIALS?|SECRET|PASSWORD|PASSWD|TOKEN|PRIVATE[_-]?KEY)[A-Z0-9_]*\s*=\s*)("[^"\n]*"|'[^'\n]*'|[^\s]+)/gi,
 			(_match, prefix: string, value: string) => redactGenericKeyedSecret(prefix, value),
 		)
 		.replace(
-			/(["']?\b(?:api[_-]?key|access[_-]?key|access[_-]?token|auth[_-]?token|secret|password|passwd|token|private[_-]?key)\b["']?\s*[:=]\s*)(["'][^"'\n]*["']|[^\s,}]+)/gi,
+			/(["']?\b(?:api[_-]?key|access[_-]?key|access[_-]?token|auth[_-]?token|credentials?|secret|password|passwd|token|private[_-]?key)\b["']?\s*[:=]\s*)(["'][^"'\n]*["']|[^\s,}]+)/gi,
 			(_match, prefix: string, value: string) => redactGenericKeyedSecret(prefix, value),
 		);
 }
