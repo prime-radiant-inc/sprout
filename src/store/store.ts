@@ -48,7 +48,6 @@ export interface SapStoreOptions {
 	/** Total matched-text byte cap for one grep; exceeding truncates (256 KB). */
 	grepOutputBudgetBytes: number;
 	/** Names rejected by validation (ambient API, kernel primitives, ...). */
-	reservedNames: ReadonlySet<string>;
 }
 
 const DEFAULT_OPTIONS: SapStoreOptions = {
@@ -61,7 +60,6 @@ const DEFAULT_OPTIONS: SapStoreOptions = {
 	opBudgetMs: 8_000,
 	sliceBudgetBytes: 262_144,
 	grepOutputBudgetBytes: 262_144,
-	reservedNames: new Set(),
 };
 
 const DEFAULT_GREP_MAX_RESULTS = 1000;
@@ -586,7 +584,7 @@ export class SapStore {
 					`cannot grant a value from another scope: ${args.ref} belongs to scope ${entry.metadata.scopeId}`,
 				);
 			}
-			const result = validateValueName(args.alias, this.options.reservedNames);
+			const result = validateValueName(args.alias);
 			if (!result.ok) throw new Error(`invalid value name: ${result.reason}`);
 			const recipientScope = this.scopes.get(args.recipientHandle);
 			if (recipientScope?.names.has(args.alias)) {
@@ -743,7 +741,7 @@ export class SapStore {
 	 * chunk seam mid-line) with grepChunkBytes as the fallback split for
 	 * pathological single-line values. Between chunks the loop yields a
 	 * macrotask (so timers and abort() can actually fire), honors the abort
-	 * signal, and enforces the wall-clock budget — an honest-but-slow grep
+	 * and enforces the wall-clock budget — an honest-but-slow grep
 	 * fails cleanly here instead of escalating to the client's wedge SIGKILL.
 	 * Matched output is capped at grepOutputBudgetBytes; exceeding it returns
 	 * what was collected with `truncated: true`.
@@ -752,7 +750,7 @@ export class SapStore {
 		scopeId: string,
 		ref: string,
 		pattern: string,
-		options: { maxResults?: number; signal?: AbortSignal } = {},
+		options: { maxResults?: number } = {},
 	): Promise<GrepResult> {
 		return this.serialize(() => this.grepSerialized(scopeId, ref, pattern, options));
 	}
@@ -761,7 +759,7 @@ export class SapStore {
 		scopeId: string,
 		ref: string,
 		pattern: string,
-		options: { maxResults?: number; signal?: AbortSignal },
+		options: { maxResults?: number },
 	): Promise<GrepResult> {
 		const entry = this.resolve(scopeId, ref);
 		let regex: RegExp;
@@ -804,14 +802,12 @@ export class SapStore {
 			// neither an abort armed via setTimeout nor anything else could
 			// interrupt; setTimeout(0) actually drains the event loop.
 			await new Promise((r) => setTimeout(r, 0));
-			if (options.signal?.aborted) throw new Error("grep aborted");
 			if (Date.now() > deadline) {
 				throw new Error(`grep budget exceeded: ran past the ${budgetMs} ms budget`);
 			}
 			return true;
 		};
 
-		if (options.signal?.aborted) throw new Error("grep aborted");
 		for (let i = 0; i < lines.length; i++) {
 			const line = lines[i] as string;
 			const lineNumber = i + 1;
@@ -845,7 +841,7 @@ export class SapStore {
 	 * collision fails loudly, auto-bind collisions take a numeric suffix.
 	 */
 	private resolveBindName(scope: ScopeState, args: BindArgs): string {
-		const result = validateValueName(args.name, this.options.reservedNames);
+		const result = validateValueName(args.name);
 		if (!result.ok) throw new Error(`invalid value name: ${result.reason}`);
 
 		const existing = scope.names.get(args.name);

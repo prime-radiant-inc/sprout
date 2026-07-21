@@ -40,11 +40,7 @@ import {
 	spliceRefArgs,
 } from "../kernel/ref-splice.ts";
 import { buildAgentToolPrimitives } from "../kernel/tool-loading.ts";
-import {
-	captureMarker,
-	resolvePreviewBudgets,
-	truncateToolOutput,
-} from "../kernel/truncation.ts";
+import { captureMarker, resolvePreviewBudgets, truncateToolOutput } from "../kernel/truncation.ts";
 import {
 	type ActResult,
 	type AgentCommand,

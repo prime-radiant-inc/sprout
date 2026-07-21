@@ -17,7 +17,6 @@ import type { PrimitiveResult } from "./types.ts";
 /** The primitives whose calls can capture their source content. */
 export const CAPTURE_PRIMITIVE_NAMES = ["read_file", "exec", "grep", "fetch", "glob"] as const;
 
-const NO_RESERVED_NAMES: ReadonlySet<string> = new Set();
 const ARGS_SUMMARY_MAX = 100;
 
 const CAPTURE_PARAMETERS = {
@@ -76,7 +75,7 @@ export function withCapture(prim: Primitive, store: StoreAccess): Primitive {
 			if (typeof bind !== "string") {
 				return toolError("bind must be a string value name");
 			}
-			const nameCheck = validateValueName(bind, NO_RESERVED_NAMES);
+			const nameCheck = validateValueName(bind);
 			if (!nameCheck.ok) {
 				return toolError(`invalid bind name "${bind}": ${nameCheck.reason}`);
 			}

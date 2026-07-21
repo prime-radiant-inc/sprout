@@ -99,8 +99,11 @@ bus/UI/spawner.
 
 **Store ops are budgeted too — and the contract is honest about JS regex.** The
 store worker runs model-influenced work (grep patterns are model-written; JS regexes
-can backtrack catastrophically). `value_grep` executes chunk-at-a-time with an abort
-check between chunks, and every store op carries an op timeout (default 10 s). The
+can backtrack catastrophically). `value_grep` executes chunk-at-a-time against a wall-clock
+deadline checked between chunks, and every store op carries an op timeout (default
+10 s). (Amended 2026-07-21: the originally sketched per-call abort signal was cut —
+it cannot cross the worker's line protocol, and a mid-chunk regex is uninterruptible
+anyway; the client-side timeout+SIGKILL is the real cancellation contract.) The
 timeout is checked *between* chunks — a single chunk's regex application is
 uninterruptible JS, so the enforceable contract is: ops that exceed budget between
 chunks fail cleanly; an op wedged *inside* one application is recovered by **worker
@@ -163,8 +166,10 @@ now); it prevents accidents, not exfiltration by a determined agent.
    wrote. Suffixing is reserved for auto-binds, whose names no model has
    referenced yet. Global identity is the ULID; names are per-scope.
 4. **Names are validated data, never code.** Charset `[a-z0-9_]`, max 64 chars, no
-   leading digit; reserved names (ambient API names, `programs`, kernel primitive
-   names) rejected. Names are string keys — `peek('x')` — and are **never injected
+   leading digit. (Amended 2026-07-21: the reserved-name clause was cut for VALUE
+   names — values are string keys everywhere, so no name can shadow ambient API or
+   `programs`; reservation is enforced where a real collision surface exists: agent
+   names at creation.) Names are string keys — `peek('x')` — and are **never injected
    as JS identifiers into cell namespaces**: arbitrary names can't be identifiers,
    and globals would collide with the ambient API. The namespace "is the scope" in
    the addressing sense, not the global-variable sense.

@@ -52,7 +52,6 @@ export const NAME_MAX_LENGTH = 64;
  */
 export function validateValueName(
 	name: string,
-	reservedNames: ReadonlySet<string>,
 ): ValidateNameResult {
 	if (name.length === 0) {
 		return { ok: false, reason: "name must not be empty" };
@@ -65,9 +64,6 @@ export function validateValueName(
 			ok: false,
 			reason: "name must use only [a-z0-9_] and must not start with a digit",
 		};
-	}
-	if (reservedNames.has(name)) {
-		return { ok: false, reason: `"${name}" is a reserved name` };
 	}
 	return { ok: true };
 }

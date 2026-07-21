@@ -777,7 +777,7 @@ async function claimEnvGrants(
 	for (const [alias, ulid] of entries) {
 		// A wire alias is untrusted text: an invalid one (e.g. carrying ⟧/newline
 		// injection) is never echoed into the transcript, even inside a note.
-		if (!validateValueName(alias, new Set()).ok) {
+		if (!validateValueName(alias).ok) {
 			notes.push("[an invalid env alias was ignored]");
 			warnings.push("an invalid env alias was ignored");
 			continue;

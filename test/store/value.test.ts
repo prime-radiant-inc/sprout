@@ -6,69 +6,57 @@ import {
 	validateValueName,
 } from "../../src/store/value.ts";
 
-const RESERVED = new Set(["programs", "peek", "bind", "exec"]);
-
 describe("validateValueName", () => {
 	test("accepts a simple lowercase name", () => {
-		expect(validateValueName("failing_tests", RESERVED)).toEqual({ ok: true });
+		expect(validateValueName("failing_tests")).toEqual({ ok: true });
 	});
 
 	test("accepts digits and underscores after the first character", () => {
-		expect(validateValueName("cell_2_output", RESERVED)).toEqual({ ok: true });
+		expect(validateValueName("cell_2_output")).toEqual({ ok: true });
 	});
 
 	test("accepts a leading underscore", () => {
-		expect(validateValueName("_scratch", RESERVED)).toEqual({ ok: true });
+		expect(validateValueName("_scratch")).toEqual({ ok: true });
 	});
 
 	test("accepts a name of exactly 64 characters", () => {
-		expect(validateValueName("a".repeat(64), RESERVED)).toEqual({ ok: true });
+		expect(validateValueName("a".repeat(64))).toEqual({ ok: true });
 	});
 
 	test("rejects the empty name", () => {
-		const result = validateValueName("", RESERVED);
+		const result = validateValueName("");
 		expect(result.ok).toBe(false);
 	});
 
 	test("rejects a 65-character name", () => {
-		const result = validateValueName("a".repeat(65), RESERVED);
+		const result = validateValueName("a".repeat(65));
 		expect(result.ok).toBe(false);
 		if (!result.ok) expect(result.reason).toContain("64");
 	});
 
 	test("rejects a leading digit", () => {
-		const result = validateValueName("2fast", RESERVED);
+		const result = validateValueName("2fast");
 		expect(result.ok).toBe(false);
 	});
 
 	test("rejects uppercase letters", () => {
-		const result = validateValueName("Schema", RESERVED);
+		const result = validateValueName("Schema");
 		expect(result.ok).toBe(false);
 	});
 
 	test("rejects hyphens and spaces", () => {
-		expect(validateValueName("my-name", RESERVED).ok).toBe(false);
-		expect(validateValueName("my name", RESERVED).ok).toBe(false);
+		expect(validateValueName("my-name").ok).toBe(false);
+		expect(validateValueName("my name").ok).toBe(false);
 	});
 
 	test("rejects unicode letters", () => {
-		expect(validateValueName("café", RESERVED).ok).toBe(false);
-		expect(validateValueName("名前", RESERVED).ok).toBe(false);
-	});
-
-	test("rejects reserved names", () => {
-		const result = validateValueName("programs", RESERVED);
-		expect(result.ok).toBe(false);
-		if (!result.ok) expect(result.reason).toContain("reserved");
-	});
-
-	test("accepts a name that is not in the reserved set", () => {
-		expect(validateValueName("programs_copy", RESERVED)).toEqual({ ok: true });
+		expect(validateValueName("café").ok).toBe(false);
+		expect(validateValueName("名前").ok).toBe(false);
 	});
 
 	test("every failure carries a human-readable reason", () => {
-		for (const bad of ["", "2x", "X", "a".repeat(65), "programs"]) {
-			const result = validateValueName(bad, RESERVED);
+		for (const bad of ["", "2x", "X", "a".repeat(65)]) {
+			const result = validateValueName(bad);
 			expect(result.ok).toBe(false);
 			if (!result.ok) expect(result.reason.length).toBeGreaterThan(0);
 		}

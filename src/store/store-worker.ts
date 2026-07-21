@@ -284,16 +284,13 @@ export async function runStoreWorkerFromEnvironment(
 }
 
 /**
- * Option overrides as JSON. `reservedNames` crosses as a string array (Sets
+ * Option overrides as JSON. (Sets
  * are not JSON) and is rebuilt here.
  */
 function parseOptionsEnv(raw: string | undefined): Partial<SapStoreOptions> | undefined {
 	if (!raw) return undefined;
 	const parsed = JSON.parse(raw) as Record<string, unknown>;
 	const options = { ...parsed } as Partial<SapStoreOptions>;
-	if (Array.isArray(parsed.reservedNames)) {
-		options.reservedNames = new Set(parsed.reservedNames as string[]);
-	}
 	return options;
 }
 

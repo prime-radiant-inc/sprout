@@ -146,20 +146,6 @@ describe("SapStore", () => {
 			}
 		});
 
-		it("rejects reserved names", async () => {
-			const store = makeStore({ reservedNames: new Set(["programs"]) });
-			await expect(
-				store.bind({
-					scopeId: ROOT_SCOPE,
-					name: "programs",
-					content: "x",
-					type: "text",
-					provenance: prov(),
-					explicit: true,
-				}),
-			).rejects.toThrow(/reserved/);
-		});
-
 		it("same-agent explicit rebind creates a new version; old ulid stays readable", async () => {
 			const store = makeStore();
 			const v1 = await store.bind({
@@ -552,43 +538,6 @@ describe("SapStore", () => {
 			const { matches } = await store.grep(ROOT_SCOPE, "many", "hit", { maxResults: 3 });
 			expect(matches.length).toBe(3);
 			expect(matches[0]).toEqual({ line: 1, text: "hit 0" });
-		});
-
-		it("throws 'grep aborted' for a pre-aborted signal", async () => {
-			const store = makeStore();
-			await store.bind({
-				scopeId: ROOT_SCOPE,
-				name: "v",
-				content: "a\nb",
-				type: "text",
-				provenance: prov(),
-				explicit: true,
-			});
-			const controller = new AbortController();
-			controller.abort();
-			await expect(store.grep(ROOT_SCOPE, "v", "a", { signal: controller.signal })).rejects.toThrow(
-				/grep aborted/,
-			);
-		});
-
-		it("aborts between chunks when the signal fires from a timer mid-grep", async () => {
-			// Tiny chunk size forces many chunks; the abort fires from a
-			// setTimeout, so only a real macrotask yield between chunks can
-			// observe it — a microtask yield would never let the timer run.
-			const store = makeStore({ grepChunkBytes: 16 });
-			const content = Array.from({ length: 500 }, (_, i) => `line ${i}`).join("\n");
-			await store.bind({
-				scopeId: ROOT_SCOPE,
-				name: "big",
-				content,
-				type: "text",
-				provenance: prov(),
-				explicit: true,
-			});
-			const controller = new AbortController();
-			setTimeout(() => controller.abort(), 0);
-			const pending = store.grep(ROOT_SCOPE, "big", "line", { signal: controller.signal });
-			await expect(pending).rejects.toThrow(/grep aborted/);
 		});
 
 		it("fails cleanly with 'grep budget exceeded' when the deadline passes between chunks", async () => {

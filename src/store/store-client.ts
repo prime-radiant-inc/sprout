@@ -384,9 +384,6 @@ function spawnStoreWorkerProcess(init: StoreWorkerClientInit): StoreWorkerHandle
 	if (init.options !== undefined) {
 		env[STORE_WORKER_OPTIONS_ENV] = JSON.stringify({
 			...init.options,
-			...(init.options.reservedNames !== undefined
-				? { reservedNames: [...init.options.reservedNames] }
-				: {}),
 		});
 	}
 	const proc = Bun.spawn(buildInternalSproutCommand("store-worker"), {
