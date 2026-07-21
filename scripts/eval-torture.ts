@@ -232,7 +232,14 @@ async function main(): Promise<void> {
 	}
 }
 
-main().catch((err) => {
-	console.error(err);
-	process.exit(1);
-});
+main().then(
+	() => {
+		// Arm A's in-process runtime leaves live handles (cell/store workers, bus
+		// server) that would keep the event loop alive forever — exit hard.
+		process.exit(0);
+	},
+	(err) => {
+		console.error(err);
+		process.exit(1);
+	},
+);
