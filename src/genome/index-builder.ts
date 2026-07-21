@@ -85,7 +85,9 @@ async function rebuildMemoryIndexFromJsonlLocked(
 		let stats: MemoryIndexStats | undefined;
 		let sourcesChangedDuringBuild = false;
 		let rebuildError: unknown;
-		const index = MemoryIndex.open(tempIndexPath);
+		// Scratch open: the temp file is discarded on failure and renamed into
+		// place on success, so its writes need no fsync.
+		const index = MemoryIndex.openScratch(tempIndexPath);
 		try {
 			index.rebuild(store.all(), segments.all());
 			stats = index.stats();

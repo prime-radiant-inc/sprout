@@ -101,6 +101,7 @@ export interface AgentFixtureOptions {
 	env?: LocalExecutionEnvironment;
 	initialHistory?: Message[];
 	enableStreaming?: boolean;
+	llmRetryOptions?: AgentOptions["llmRetryOptions"];
 }
 
 export function createAgentFixture(options: AgentFixtureOptions = {}) {
@@ -117,6 +118,7 @@ export function createAgentFixture(options: AgentFixtureOptions = {}) {
 			events: options.events,
 			initialHistory: options.initialHistory,
 			enableStreaming: options.enableStreaming,
+			llmRetryOptions: options.llmRetryOptions,
 		}),
 	);
 

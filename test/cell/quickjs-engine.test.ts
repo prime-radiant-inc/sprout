@@ -207,7 +207,7 @@ describe("QuickJSCellEngine host-fault resilience", () => {
 						const rt = real.newRuntime();
 						const newContext = rt.newContext.bind(rt);
 						(rt as any).newContext = (...args: unknown[]) => {
-								const ctx = (newContext as any)(...args);
+							const ctx = (newContext as any)(...args);
 							const evalCode = ctx.evalCode.bind(ctx);
 							ctx.evalCode = (code: string, ...rest: unknown[]) => {
 								if (String(code).includes("__HOST_BOOM__")) {

@@ -126,7 +126,9 @@ describe("capture-all structural advantage (e2e)", () => {
 	});
 
 	test("tool mode: capture on puts ~budget bytes in the payload; capture off puts today's limit", async () => {
-		const bigLog = Array.from({ length: 2_000 }, (_, i) => `line ${i} request served ok`).join("\n");
+		const bigLog = Array.from({ length: 2_000 }, (_, i) => `line ${i} request served ok`).join(
+			"\n",
+		);
 		await writeFile(join(tempDir, "server.log"), bigLog);
 		const env = new LocalExecutionEnvironment(tempDir);
 

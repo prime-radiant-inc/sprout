@@ -20,24 +20,42 @@ describe("prepareResultOutput", () => {
 	const long = `judgment\n${"x".repeat(10_000)}`;
 
 	test("publish failure produces the fallback, never a marker", async () => {
-		const out = await prepareResultOutput(store({ publishError: "grant refused" }), "h1", "do the thing", long, {
-			publish: true,
-		});
+		const out = await prepareResultOutput(
+			store({ publishError: "grant refused" }),
+			"h1",
+			"do the thing",
+			long,
+			{
+				publish: true,
+			},
+		);
 		expect(out).toBe(long);
 		expect(out).not.toContain("⟦");
 	});
 
 	test("publish:false skips publish entirely (featherweight flavor)", async () => {
-		const out = await prepareResultOutput(store({ publishError: "would throw" }), "h1", "do the thing", long, {
-			publish: false,
-		});
+		const out = await prepareResultOutput(
+			store({ publishError: "would throw" }),
+			"h1",
+			"do the thing",
+			long,
+			{
+				publish: false,
+			},
+		);
 		expect(out).toMatch(/full content: ⟦do_the_thing_result⟧/);
 	});
 
 	test("no store → redacted passthrough", async () => {
-		const out = await prepareResultOutput(undefined, "h1", "goal", "token: hunter2secretvalue result", {
-			publish: true,
-		});
+		const out = await prepareResultOutput(
+			undefined,
+			"h1",
+			"goal",
+			"token: hunter2secretvalue result",
+			{
+				publish: true,
+			},
+		);
 		expect(out).toContain("[REDACTED_SECRET]");
 		expect(out).not.toContain("hunter2secretvalue");
 	});

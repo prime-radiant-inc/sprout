@@ -67,8 +67,7 @@ describe("ContentStore", () => {
 				await expect(store.get(sha)).rejects.toThrow(/invalid sha/i);
 			});
 
-			it(`has rejects ${label}`, async () => {
-			});
+			it(`has rejects ${label}`, async () => {});
 		}
 
 		it("get throws a clear error for a valid-format but unknown sha", async () => {
@@ -76,8 +75,7 @@ describe("ContentStore", () => {
 			await expect(store.get(missing)).rejects.toThrow(/unknown sha/i);
 		});
 
-		it("has returns false for a valid-format but unknown sha", async () => {
-		});
+		it("has returns false for a valid-format but unknown sha", async () => {});
 	});
 
 	describe("totalBytes", () => {

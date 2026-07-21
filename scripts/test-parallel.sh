@@ -61,10 +61,48 @@ for ((i = 0; i < jobs; i++)); do
   : > "$tmp_dir/shard-$i.txt"
 done
 
-for i in "${!files[@]}"; do
-  shard=$((i % jobs))
-  echo "${files[$i]}" >> "$tmp_dir/shard-$shard.txt"
+# Balance shards by measured file duration (longest-processing-time-first):
+# wall-clock is the slowest shard, so heavy files are spread first and each
+# file goes to the currently lightest shard. Weights are measured seconds
+# (as centiseconds here) from scripts/test-file-weights.txt; regenerate with
+# scripts/measure-test-weights.sh when shards drift uneven. Unknown files get
+# a small default weight.
+default_weight_cs=30
+declare -A weight_cs=()
+weights_file="$ROOT_DIR/scripts/test-file-weights.txt"
+if [[ -f "$weights_file" ]]; then
+  while read -r seconds path; do
+    [[ -n "$seconds" && -n "$path" ]] || continue
+    weight_cs["$path"]="$(awk -v s="$seconds" 'BEGIN { printf "%d", s * 100 }')"
+  done < "$weights_file"
+fi
+
+file_weight_cs() {
+  local path="${1#./}"
+  echo "${weight_cs[$path]:-$default_weight_cs}"
+}
+
+# Sort files heaviest-first (stable for equal weights).
+weighted_list="$tmp_dir/weighted-files.txt"
+for path in "${files[@]}"; do
+  printf '%s\t%s\n' "$(file_weight_cs "$path")" "$path"
+done | sort -s -t $'\t' -k1,1rn > "$weighted_list"
+
+declare -a shard_load_cs=()
+for ((i = 0; i < jobs; i++)); do
+  shard_load_cs[i]=0
 done
+
+while IFS=$'\t' read -r w path; do
+  lightest=0
+  for ((i = 1; i < jobs; i++)); do
+    if (( shard_load_cs[i] < shard_load_cs[lightest] )); then
+      lightest=$i
+    fi
+  done
+  echo "$path" >> "$tmp_dir/shard-$lightest.txt"
+  shard_load_cs[lightest]=$(( shard_load_cs[lightest] + w ))
+done < "$weighted_list"
 
 start_epoch="$(date +%s)"
 

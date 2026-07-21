@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createResolverSettings } from "../../src/agents/model-resolver.ts";
@@ -141,19 +141,33 @@ function delay(ms = 50): Promise<void> {
 describe("AgentSpawner", () => {
 	let server: BusServer;
 	let bus: BusClient;
+	let suiteTempDir: string;
+	let genomeTemplateDir: string;
 	let tempDir: string;
 	let genomeDir: string;
 	let spawner: AgentSpawner;
 
 	const SESSION_ID = "spawner-test-session";
 
-	beforeEach(async () => {
-		tempDir = await mkdtemp(join(tmpdir(), "sprout-spawner-"));
-		genomeDir = join(tempDir, "genome");
-		const genome = new Genome(genomeDir);
+	beforeAll(async () => {
+		// Build the genome once and copy it per test: init + addAgent run git
+		// commits, which are too slow to repeat for every test.
+		suiteTempDir = await mkdtemp(join(tmpdir(), "sprout-spawner-"));
+		genomeTemplateDir = join(suiteTempDir, "__genome-template");
+		const genome = new Genome(genomeTemplateDir);
 		await genome.init();
 		await genome.addAgent(AGENT_SPEC as any);
 		await genome.addAgent(OBSERVER_AGENT_SPEC as any);
+	});
+
+	afterAll(async () => {
+		await rm(suiteTempDir, { recursive: true, force: true });
+	});
+
+	beforeEach(async () => {
+		tempDir = await mkdtemp(join(suiteTempDir, "case-"));
+		genomeDir = join(tempDir, "genome");
+		await cp(genomeTemplateDir, genomeDir, { recursive: true });
 
 		server = new BusServer({ port: 0 });
 		await server.start();

@@ -77,12 +77,12 @@ import { shouldTagAgentEventWithSessionId } from "../shared/session-event-scope.
 import { getToolDisplayName } from "../shared/tool-display.ts";
 import { ulid } from "../util/ulid.ts";
 import { getContextWindowSize } from "./context-window.ts";
+import { secretBearingDelegationError } from "./delegation-guard.ts";
 import {
 	formatDelegationGoal,
 	type NormalizedTaskPayload,
 	normalizeTaskPayload,
 } from "./delegation-payload.ts";
-import { secretBearingDelegationError } from "./delegation-guard.ts";
 import { AgentEventEmitter } from "./events.ts";
 import { createInactivityTimer, type InactivityTimer } from "./inactivity-timer.ts";
 import type { AgentTreeEntry, Preambles } from "./loader.ts";
@@ -3020,9 +3020,7 @@ export class Agent {
 			// delegation text never reach the child — reject before dispatch with
 			// the corrective env/⟦ref⟧ guidance. This cannot un-emit the model's
 			// own tool call; it contains the secret and teaches the right path.
-			const guardError = secretBearingDelegationError(
-				[d.goal, ...(d.hints ?? [])].join("\n"),
-			);
+			const guardError = secretBearingDelegationError([d.goal, ...(d.hints ?? [])].join("\n"));
 			if (guardError !== undefined) {
 				const toolResultMsg = Msg.toolResult(d.call_id, `Error: ${guardError}`, true);
 				this.emitAndLog("act_end", agentId, this.depth, {

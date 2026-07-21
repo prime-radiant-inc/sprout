@@ -679,7 +679,9 @@ async function idleLoop(
 				const resultMsg: ResultMessage = {
 					kind: "result",
 					handle_id: handleId,
-					output: await prepareResultOutput(storeAccess, handleId, goal, result.output, { publish: true }),
+					output: await prepareResultOutput(storeAccess, handleId, goal, result.output, {
+						publish: true,
+					}),
 					success: result.success,
 					stumbles: result.stumbles,
 					turns: result.turns,

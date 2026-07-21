@@ -1443,7 +1443,11 @@ describe("runAgentProcess", () => {
 					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
 				};
 			}
-			throw new Error("LLM provider unavailable");
+			// retry_after keeps the real retry-exhaustion path (2 retries, then the
+			// error surfaces) but replaces the ~1-2s default backoff with 1ms waits.
+			const error = new Error("LLM provider unavailable") as Error & { retry_after: number };
+			error.retry_after = 0.001;
+			throw error;
 		});
 
 		const controller = new AbortController();

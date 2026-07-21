@@ -53,12 +53,14 @@ describe("resolvePreviewBudgets", () => {
 
 	test("non-positive or non-numeric rows warn and fall back wholesale", () => {
 		const warnings: string[] = [];
-		expect(resolvePreviewBudgets({ SPROUT_PREVIEW_BUDGETS: '{"default": -5}' }, (m) => warnings.push(m))).toEqual(
-			DEFAULT_PREVIEW_BUDGETS,
-		);
-		expect(resolvePreviewBudgets({ SPROUT_PREVIEW_BUDGETS: '{"default": "big"}' }, (m) => warnings.push(m))).toEqual(
-			DEFAULT_PREVIEW_BUDGETS,
-		);
+		expect(
+			resolvePreviewBudgets({ SPROUT_PREVIEW_BUDGETS: '{"default": -5}' }, (m) => warnings.push(m)),
+		).toEqual(DEFAULT_PREVIEW_BUDGETS);
+		expect(
+			resolvePreviewBudgets({ SPROUT_PREVIEW_BUDGETS: '{"default": "big"}' }, (m) =>
+				warnings.push(m),
+			),
+		).toEqual(DEFAULT_PREVIEW_BUDGETS);
 		expect(warnings).toHaveLength(2);
 	});
 });
@@ -81,9 +83,9 @@ describe("captureMarker", () => {
 	});
 
 	test("stderr companion form", () => {
-		expect(captureMarker("9 chars", " — full content: ⟦exec_output⟧, stderr: ⟦exec_output_stderr⟧")).toBe(
-			"[... 9 chars truncated — full content: ⟦exec_output⟧, stderr: ⟦exec_output_stderr⟧]",
-		);
+		expect(
+			captureMarker("9 chars", " — full content: ⟦exec_output⟧, stderr: ⟦exec_output_stderr⟧"),
+		).toBe("[... 9 chars truncated — full content: ⟦exec_output⟧, stderr: ⟦exec_output_stderr⟧]");
 	});
 
 	test("degradation forms", () => {

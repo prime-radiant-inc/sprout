@@ -32,6 +32,9 @@ function createLlmEventsAgent(client: Client, events: AgentEventEmitter, enableS
 		availableAgents: [],
 		events,
 		enableStreaming,
+		// These tests assert the events around LLM calls, not retry pacing, so
+		// retryable mock errors should not ride the real ~1-2s backoff.
+		llmRetryOptions: { baseDelayMs: 1, jitter: false },
 	});
 	return fixture.agent;
 }

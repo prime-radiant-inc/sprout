@@ -4,7 +4,9 @@ import { renderCellApiTypes } from "../../src/kernel/cell-api-types";
 describe("renderCellApiTypes", () => {
 	it("the prose description carries every ambient value method (the declaration block was deduplicated into prose)", () => {
 		const { buildCellPrimitive } = require("../../src/kernel/cell-primitive");
-		const cell = buildCellPrimitive({ runCell: async () => ({ ok: true, output: "", newBindings: [] }) });
+		const cell = buildCellPrimitive({
+			runCell: async () => ({ ok: true, output: "", newBindings: [] }),
+		});
 		for (const method of [
 			"bind(name, value)",
 			"publish(name)",

@@ -104,6 +104,21 @@ export class MemoryIndex {
 		return index;
 	}
 
+	/**
+	 * Open a scratch index whose file needs no crash durability: writes skip fsync
+	 * entirely, so builds run at memory speed. Use for temp files that are
+	 * discarded on failure and atomically renamed into place on success — a
+	 * torn file after a power loss is caught by index stale detection and rebuilt.
+	 */
+	static openScratch(path: string): MemoryIndex {
+		mkdirSync(dirname(path), { recursive: true });
+		const db = new Database(path, { create: true, readwrite: true });
+		db.run("PRAGMA synchronous = OFF");
+		const index = new MemoryIndex(db);
+		index.ensureSchema();
+		return index;
+	}
+
 	static openReadOnly(path: string): MemoryIndex {
 		return new MemoryIndex(new Database(path, { readonly: true, create: false }));
 	}
@@ -139,6 +154,12 @@ export class MemoryIndex {
 	}
 
 	ensureSchema(): void {
+		// One transaction so the schema commits with a single fsync; statement-at-a-time
+		// DDL pays a journal commit per statement, which dominates index open time.
+		this.db.transaction(() => this.applySchema())();
+	}
+
+	private applySchema(): void {
 		this.db.run(`
 			CREATE TABLE IF NOT EXISTS memory_index_meta (
 				key TEXT PRIMARY KEY,
