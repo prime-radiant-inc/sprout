@@ -711,7 +711,6 @@ describe("resolveProjectDir", () => {
 	});
 });
 
-
 describe("handleSlashCommand", () => {
 	function makeBus() {
 		const commands: any[] = [];

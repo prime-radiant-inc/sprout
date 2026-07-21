@@ -115,4 +115,3 @@ export function selectionRequestToCurrentModel(
 	}
 	return undefined;
 }
-

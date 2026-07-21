@@ -108,7 +108,6 @@ export async function loadResumeState(
 	};
 }
 
-
 function metadataSnapshotToSelectionRequest(
 	snapshot: SessionMetadataSnapshot,
 ): SessionSelectionRequest {

@@ -521,4 +521,3 @@ export async function configureTerminal(options: ConfigureTerminalOptions = {}):
 
 	return sections.join("\n\n");
 }
-

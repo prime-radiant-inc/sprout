@@ -4,17 +4,18 @@
  * Split from agent-process.ts (cycle-2 decomposition): zero bus coupling —
  * this is host/llm wiring the bus lifecycle merely consumes.
  */
-import { importSettingsFromEnv } from "../host/settings/env-import.ts";
+
+import type { SessionLogger } from "../host/logger.ts";
 import {
 	OpenAICodexOAuthService,
 	type OpenAICodexRuntimeCredentials,
 } from "../host/openai-codex-oauth/service.ts";
+import { importSettingsFromEnv } from "../host/settings/env-import.ts";
 import {
 	createSecretStoreRuntime,
 	type SecretStoreRuntime,
 } from "../host/settings/secret-store.ts";
 import { type SettingsLoadResult, SettingsStore } from "../host/settings/store.ts";
-import type { SessionLogger } from "../host/logger.ts";
 import { Client } from "../llm/client.ts";
 import { loggingMiddleware } from "../llm/logging-middleware.ts";
 import { ProviderRegistry, type ProviderRegistryEntry } from "../llm/provider-registry.ts";

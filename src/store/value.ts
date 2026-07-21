@@ -50,9 +50,7 @@ export const NAME_MAX_LENGTH = 64;
  * never code: charset [a-z0-9_], max 64 chars, no leading digit, non-empty,
  * reserved names (ambient API, `programs`, kernel primitives) rejected.
  */
-export function validateValueName(
-	name: string,
-): ValidateNameResult {
+export function validateValueName(name: string): ValidateNameResult {
 	if (name.length === 0) {
 		return { ok: false, reason: "name must not be empty" };
 	}

@@ -16,7 +16,7 @@ import { SessionLogger } from "../host/logger.ts";
 import { LocalExecutionEnvironment } from "../kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../kernel/primitives.ts";
 
-import { Client } from "../llm/client.ts";
+import type { Client } from "../llm/client.ts";
 import { ChannelStoreAccess, type StoreAccess } from "../store/store-access.ts";
 import { validateValueName } from "../store/value.ts";
 import { ensureProjectDirs } from "../util/project-id.ts";

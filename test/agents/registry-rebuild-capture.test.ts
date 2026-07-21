@@ -1,16 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
-import { Agent as RawAgent, type AgentOptions } from "../../src/agents/agent.ts";
+import { type AgentOptions, Agent as RawAgent } from "../../src/agents/agent.ts";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
 import type { AgentSpawner } from "../../src/bus/spawner.ts";
 import type { Genome } from "../../src/genome/genome.ts";
 import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../../src/kernel/primitives.ts";
-import {
-	makeMockClient,
-	rootSpec,
-	withDefaultResolverContext,
-} from "../agents/fixtures.ts";
+import { makeMockClient, rootSpec, withDefaultResolverContext } from "../agents/fixtures.ts";
 import "../helpers/test-env.ts";
 
 class Agent extends RawAgent {

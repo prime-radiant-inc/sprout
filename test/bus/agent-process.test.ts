@@ -3,8 +3,8 @@ import { cp, exists, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/pro
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createResolverSettings } from "../../src/agents/model-resolver.ts";
-import { createAgentProcessClient } from "../../src/bus/agent-process-client.ts";
 import { runAgentProcess } from "../../src/bus/agent-process.ts";
+import { createAgentProcessClient } from "../../src/bus/agent-process-client.ts";
 import { BusClient } from "../../src/bus/client.ts";
 import { BusServer } from "../../src/bus/server.ts";
 import {
