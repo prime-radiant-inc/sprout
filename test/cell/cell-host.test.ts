@@ -633,6 +633,49 @@ describe("CellHost", () => {
 		const request = JSON.parse(sent[0] ?? "{}") as { limits?: unknown };
 		expect(request.limits).toEqual({ memoryBytes: 55 * 1024 * 1024, budgetMs: 1234 });
 	});
+
+	it("a leftover ambient op from an ended cell must not corrupt the next cell's budget clock", async () => {
+		// Cell 1 fires an un-awaited slow peek and returns; its completion lands
+		// during cell 2. Without the generation guard the stale decrement drives
+		// outstandingAmbient to -1, so cell 2's properly-parked slow peek accrues
+		// as compute and a 1000 ms budget wrongly kills it.
+		const slowStore: StoreAccess = Object.create(store);
+		slowStore.peek = async (ref: string) => {
+			await new Promise((resolve) => setTimeout(resolve, ref === "a" ? 300 : 1500));
+			return store.peek(ref);
+		};
+		host = new CellHost(slowStore, { spawnFn: spawnRealWorker, budgetMs: 1000 });
+		await host.runCell('await bind("a", "1"); await bind("b", "2");');
+		const first = await host.runCell("peek('a'); return 'early';");
+		expect(first.ok).toBe(true);
+		const second = await host.runCell("return (await peek('b')).length > 0 ? 'ok' : 'bad';");
+		expect(second.ok).toBe(true);
+		expect(second.returnValue).toBe("ok");
+	}, 30_000);
+
+	it("a leftover bind from an ended cell is not attributed to the next cell", async () => {
+		// Cell 1's un-awaited bind completes during cell 2: the value may exist in
+		// the store (latest-wins residual, as documented for futures), but it must
+		// not appear in cell 2's newBindings or journal attribution.
+		const slowStore: StoreAccess = Object.create(store);
+		const realBind = store.bind.bind(store);
+		slowStore.bind = async (args: Parameters<StoreAccess["bind"]>[0]) => {
+			if (args.name === "leftover") await new Promise((resolve) => setTimeout(resolve, 300));
+			return realBind(args);
+		};
+		slowStore.peek = async (ref: string) => {
+			await new Promise((resolve) => setTimeout(resolve, 600));
+			return store.peek(ref);
+		};
+		host = new CellHost(slowStore, { spawnFn: spawnRealWorker });
+		await host.runCell('await bind("seed", "1");');
+		const first = await host.runCell("bind('leftover', 'x'); return 'early';");
+		expect(first.ok).toBe(true);
+		expect(first.newBindings).toEqual([]);
+		const second = await host.runCell("await peek('seed'); return 'done';");
+		expect(second.ok).toBe(true);
+		expect(second.newBindings).toEqual([]);
+	}, 30_000);
 });
 
 describe("resolveWorkerRssKillBytes (P2)", () => {

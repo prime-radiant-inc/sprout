@@ -441,7 +441,11 @@ export class CellHost {
 		const generation = this.generation;
 		const worker = this.spawnFn();
 		this.worker = worker;
-		worker.onLine((line) => this.handleWorkerLine(line));
+		worker.onLine((line) => {
+			// Buffered lines from a killed worker must not be serviced late.
+			if (generation !== this.generation) return;
+			this.handleWorkerLine(line);
+		});
 		worker.onExit(() => {
 			if (generation !== this.generation || this.closed) return;
 			this.worker = undefined;
@@ -474,18 +478,34 @@ export class CellHost {
 				});
 				return;
 			}
+			// Generation guards (mirroring registerFuture): a completion whose
+			// WORKER has been replaced must not deliver to the new worker (its
+			// ambient ids restart, so a stale response would resolve the wrong
+			// call with the wrong data); one whose CELL has ended must not touch
+			// the next cell's bookkeeping (counter, newBindings, stumbles).
+			// Same-worker delivery after cell end stays — the worker pins
+			// un-awaited ambient survival as supported behavior.
+			const workerGen = this.generation;
+			const cellGen = this.cellGen;
+			const staleCell = () => this.cellGen !== cellGen;
 			this.outstandingAmbient++;
-			void this.serviceAmbient(message.method, message.args)
-				.then((result) => this.respondAmbient(message.id, { ok: true, result }))
-				.catch((err) =>
-					this.respondAmbient(message.id, {
-						ok: false,
-						error: err instanceof Error ? err.message : String(err),
-						...(isInfrastructureError(err) ? { infrastructure: true } : {}),
-					}),
-				)
+			void this.serviceAmbient(message.method, message.args, staleCell)
+				.then((result) => {
+					if (this.generation === workerGen) {
+						this.respondAmbient(message.id, { ok: true, result });
+					}
+				})
+				.catch((err) => {
+					if (this.generation === workerGen) {
+						this.respondAmbient(message.id, {
+							ok: false,
+							error: err instanceof Error ? err.message : String(err),
+							...(isInfrastructureError(err) ? { infrastructure: true } : {}),
+						});
+					}
+				})
 				.finally(() => {
-					this.outstandingAmbient--;
+					if (!staleCell()) this.outstandingAmbient--;
 				});
 			return;
 		}
@@ -508,7 +528,11 @@ export class CellHost {
 	 * return RAW to the cell — redaction is an above-the-line gate, and cell
 	 * code runs below the line.
 	 */
-	private async serviceAmbient(method: string, args: unknown[]): Promise<unknown> {
+	private async serviceAmbient(
+		method: string,
+		args: unknown[],
+		staleCell: () => boolean = () => false,
+	): Promise<unknown> {
 		// $ref pipelining (spec §2): a value op naming a not-yet-settled future
 		// registers as a dependent on its wait and resumes when it settles — no
 		// busy-await in the cell. After settlement the value is a normal store
@@ -529,12 +553,17 @@ export class CellHost {
 					provenance: { agentHandleId: "", origin: { kind: "cell" } },
 					explicit: true,
 				});
-				this.newBindings.push({
-					name: metadata.name,
-					ulid: metadata.ulid,
-					size: metadata.size,
-					preview: metadata.preview,
-				});
+				// A bind completing after its cell ended stays in the store
+				// (latest-wins residual, as documented for futures) but is never
+				// attributed to the next cell's result or journal record.
+				if (!staleCell()) {
+					this.newBindings.push({
+						name: metadata.name,
+						ulid: metadata.ulid,
+						size: metadata.size,
+						preview: metadata.preview,
+					});
+				}
 				return metadata;
 			}
 			case "publish":
@@ -584,12 +613,12 @@ export class CellHost {
 					...(opts.shared !== undefined ? { shared: opts.shared } : {}),
 					...(opts.model !== undefined ? { model: opts.model } : {}),
 				};
-				return this.consumeOutcome(await this.delegate(request));
+				return this.consumeOutcome(await this.delegate(request), staleCell);
 			}
 			case "handle_wait": {
 				if (!this.waitHandle)
 					throw new Error("handle.wait() is unavailable here (no delegation runtime)");
-				return this.consumeOutcome(await this.waitHandle(refArg(args, "handle_wait")));
+				return this.consumeOutcome(await this.waitHandle(refArg(args, "handle_wait")), staleCell);
 			}
 			case "handle_message": {
 				if (!this.messageHandle)
@@ -599,7 +628,7 @@ export class CellHost {
 				if (typeof text !== "string")
 					throw new Error("handle.message(text, opts?): text must be a string");
 				const opts = (args[2] ?? {}) as { env?: Record<string, string>; blocking?: boolean };
-				return this.consumeOutcome(await this.messageHandle(id, text, opts));
+				return this.consumeOutcome(await this.messageHandle(id, text, opts), staleCell);
 			}
 			case "handle_future": {
 				if (!this.waitHandle)
@@ -629,14 +658,16 @@ export class CellHost {
 	 * completed child counts toward stumbleCount when it failed (once per
 	 * handle); the wire shape for the worker carries plain data only.
 	 */
-	private consumeOutcome(outcome: DelegationOutcome): unknown {
+	private consumeOutcome(outcome: DelegationOutcome, staleCell: () => boolean = () => false): unknown {
 		if (outcome.kind === "infrastructure_error") {
 			throw infrastructureError(outcome.reason);
 		}
 		if (outcome.kind === "started") {
 			return { kind: "started", handleId: outcome.handleId };
 		}
-		if (!outcome.ok && !this.failedChildHandles.has(outcome.handleId)) {
+		// A child settling after its cell ended must not add a stumble to the
+		// NEXT cell's count — the stale-cell guard drops the attribution.
+		if (!outcome.ok && !staleCell() && !this.failedChildHandles.has(outcome.handleId)) {
 			this.failedChildHandles.add(outcome.handleId);
 		}
 		return {
