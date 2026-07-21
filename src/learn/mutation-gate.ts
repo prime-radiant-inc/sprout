@@ -25,6 +25,22 @@ import type { EvalArm, GenomeComparison } from "./eval-harness.ts";
 import { compareGenomes } from "./eval-harness.ts";
 import type { CompareOptions } from "./multi-run-ab.ts";
 
+/**
+ * What a mutation is FOR, which decides the A/B acceptance direction:
+ *
+ * - `improvement` (the default): an agent-prompt change, a fabricated program,
+ *   a repair — must be a SIGNIFICANT improvement to adopt. This is the sap
+ *   non-negotiable for anything meant to make the genome better.
+ * - `curation`: pure library-rot removal — a never-invoked program, a
+ *   never-delegated overlay agent, a stale memory. It cannot improve pinned-eval
+ *   fitness (the eval never exercised the dead thing), so requiring an
+ *   improvement would make curation impossible. The correct criterion is
+ *   NON-REGRESSION: adopt when the removal is not significantly worse and no
+ *   canary regresses. Still multi-run, still significance-gated, still
+ *   canary-fail-closed — only the direction flips.
+ */
+export type MutationIntent = "improvement" | "curation";
+
 export interface EvaluateMutationForAdoptionInput {
 	/** The candidate genome arm (mutation applied), run as the A/B treatment. */
 	candidateArm: EvalArm;
@@ -40,15 +56,19 @@ export interface EvaluateMutationForAdoptionInput {
 	runs: number;
 	/** Forwarded to compareArms (alpha, minRuns, …). */
 	compare?: CompareOptions;
+	/** Acceptance direction (default `improvement`); see MutationIntent. */
+	intent?: MutationIntent;
 }
 
 /** Why the chokepoint reached its verdict. */
 export type MutationAdoptionReason =
 	| "adopted"
+	| "curation-adopted"
 	| "canary-regression"
 	| "ab-underpowered"
 	| "ab-not-significant"
-	| "ab-worse";
+	| "ab-worse"
+	| "curation-regressed";
 
 export interface MutationAdoptionResult {
 	/** TRUE only when the A/B is a significant improvement AND no canary regressed. */
@@ -83,8 +103,22 @@ export async function evaluateMutationForAdoption(
 		return { adopt: false, abReport, canaryBefore, canaryAfter, reason: "canary-regression" };
 	}
 
+	const gate = abReport.perTier[abReport.gateTier];
+
+	if ((input.intent ?? "improvement") === "curation") {
+		// Rot removal adopts on NON-REGRESSION: enough runs to decide, and the
+		// removal is not significantly worse. The multi-run non-negotiable still
+		// holds — an underpowered A/B can't confirm safety, so it rejects.
+		if (gate.underpowered) {
+			return { adopt: false, abReport, canaryBefore, canaryAfter, reason: "ab-underpowered" };
+		}
+		if (gate.significant && gate.direction === "worse") {
+			return { adopt: false, abReport, canaryBefore, canaryAfter, reason: "curation-regressed" };
+		}
+		return { adopt: true, abReport, canaryBefore, canaryAfter, reason: "curation-adopted" };
+	}
+
 	if (!abReport.accepted) {
-		const gate = abReport.perTier[abReport.gateTier];
 		const reason: MutationAdoptionReason = gate.underpowered
 			? "ab-underpowered"
 			: gate.direction === "worse"

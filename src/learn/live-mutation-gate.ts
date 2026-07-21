@@ -24,7 +24,7 @@ import type { Canary, CanaryHarness } from "./canary-suite.ts";
 import type { EvalTask, GenomeSnapshot, TaskExecutor } from "./eval-harness.ts";
 import { createEvalSnapshot } from "./eval-harness.ts";
 import type { LearnMutation, MutationGate, MutationGateDecision } from "./learn-process.ts";
-import { applyMutationToGenome } from "./learn-process.ts";
+import { applyMutationToGenome, mutationIntent } from "./learn-process.ts";
 import type { CompareOptions } from "./multi-run-ab.ts";
 import { evaluateMutationForAdoption } from "./mutation-gate.ts";
 
@@ -133,6 +133,7 @@ export function createSnapshotMutationGate(opts: SnapshotMutationGateOptions): M
 					),
 					runs: opts.runs,
 					compare: opts.compare,
+					intent: mutationIntent(mutation),
 				});
 
 				return { adopt: result.adopt, reason: result.reason };

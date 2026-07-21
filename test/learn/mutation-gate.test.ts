@@ -164,4 +164,78 @@ describe("evaluateMutationForAdoption", () => {
 		);
 		expect(result.adopt).toBe(true);
 	});
+
+	describe("curation intent (rot removal — must not regress, need not improve)", () => {
+		const neutralScript = { "sap-1": [1, 0, 1, 0, 1, 0], "sap-2": [0, 1, 0, 1, 0, 1] };
+
+		test("ADOPTS a neutral A/B with clean canaries — the same case improvement REJECTS", async () => {
+			const result = await evaluateMutationForAdoption({
+				candidateArm: arm(neutralScript),
+				baselineArm: arm(neutralScript),
+				canaries: exampleCanaries,
+				candidateCanaryHarness: cleanCanaryHarness,
+				baselineCanaryHarness: cleanCanaryHarness,
+				runs: 6,
+				intent: "curation",
+			});
+			expect(result.adopt).toBe(true);
+			expect(result.reason).toBe("curation-adopted");
+		});
+
+		test("REJECTS curation on a canary regression (removing it broke a canary)", async () => {
+			const result = await evaluateMutationForAdoption({
+				candidateArm: arm(neutralScript),
+				baselineArm: arm(neutralScript),
+				canaries: exampleCanaries,
+				candidateCanaryHarness: execLeakCanaryHarness,
+				baselineCanaryHarness: cleanCanaryHarness,
+				runs: 6,
+				intent: "curation",
+			});
+			expect(result.adopt).toBe(false);
+			expect(result.reason).toBe("canary-regression");
+		});
+
+		test("REJECTS curation that is significantly WORSE (removing it hurt fitness)", async () => {
+			const result = await evaluateMutationForAdoption({
+				candidateArm: arm(baselineScript),
+				baselineArm: arm(improvedScript),
+				canaries: exampleCanaries,
+				candidateCanaryHarness: cleanCanaryHarness,
+				baselineCanaryHarness: cleanCanaryHarness,
+				runs: 6,
+				intent: "curation",
+			});
+			expect(result.adopt).toBe(false);
+			expect(result.reason).toBe("curation-regressed");
+		});
+
+		test("REJECTS curation when the A/B is underpowered (multi-run non-negotiable)", async () => {
+			const result = await evaluateMutationForAdoption({
+				candidateArm: arm({ "sap-1": [0], "sap-2": [0] }),
+				baselineArm: arm({ "sap-1": [0], "sap-2": [0] }),
+				canaries: exampleCanaries,
+				candidateCanaryHarness: cleanCanaryHarness,
+				baselineCanaryHarness: cleanCanaryHarness,
+				runs: 2,
+				intent: "curation",
+			});
+			expect(result.adopt).toBe(false);
+			expect(result.reason).toBe("ab-underpowered");
+		});
+
+		test("still ADOPTS curation that also improves fitness", async () => {
+			const result = await evaluateMutationForAdoption({
+				candidateArm: arm(improvedScript),
+				baselineArm: arm(baselineScript),
+				canaries: exampleCanaries,
+				candidateCanaryHarness: cleanCanaryHarness,
+				baselineCanaryHarness: cleanCanaryHarness,
+				runs: 6,
+				intent: "curation",
+			});
+			expect(result.adopt).toBe(true);
+			expect(result.reason).toBe("curation-adopted");
+		});
+	});
 });

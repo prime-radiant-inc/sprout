@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { AgentEventEmitter } from "../agents/events.ts";
+import type { MutationIntent } from "./mutation-gate.ts";
 import {
 	createResolverSettings,
 	type ResolvedModel,
@@ -62,6 +63,23 @@ export type LearnMutation =
 	| { type: "retire_memory"; memory_id: string };
 
 type ReasonedLearnMutation = LearnMutation;
+
+/**
+ * A mutation's adoption INTENT (mutation-gate.ts): retirements are `curation`
+ * (rot removal — adopt on non-regression), everything else is `improvement`
+ * (must be significantly better). This is the single source of truth for the
+ * classification; the gate reads it to pick the A/B acceptance direction.
+ */
+export function mutationIntent(mutation: LearnMutation): MutationIntent {
+	switch (mutation.type) {
+		case "retire_program":
+		case "retire_agent":
+		case "retire_memory":
+			return "curation";
+		default:
+			return "improvement";
+	}
+}
 
 /**
  * The verdict of the frozen adoption chokepoint (mutation-gate.ts) for one
@@ -568,6 +586,11 @@ export class LearnProcess {
 		if (!this.mutationGate) return false;
 		const observations = this.cellObservations();
 		let adopted = false;
+		// Programs fabricated in THIS pass have zero window invocations, so the
+		// curator (step 3) would immediately propose retiring them — and under the
+		// non-regression curation verdict that retirement could adopt, undoing the
+		// fabrication in the same cycle. Guard against that self-churn.
+		const fabricatedThisPass = new Set<string>();
 
 		// 1. Fabrication: recurring, non-program cell shapes → new programs.
 		for (const candidate of detectRecurringPatterns(observations)) {
@@ -580,7 +603,10 @@ export class LearnProcess {
 				// gate would reject it too, but never fabricating it is cheaper.
 				continue;
 			}
-			if (await this.adoptMutation({ type: "create_program", program })) adopted = true;
+			if (await this.adoptMutation({ type: "create_program", program })) {
+				adopted = true;
+				fabricatedThisPass.add(program.name);
+			}
 		}
 
 		// 2. Repair: programs stumbling at a high rate → propose retirement.
@@ -596,6 +622,7 @@ export class LearnProcess {
 			const targets =
 				proposal.action === "consolidate" ? proposal.targets.slice(1) : proposal.targets;
 			for (const name of targets) {
+				if (fabricatedThisPass.has(name)) continue;
 				if (!this.genome.getProgram(name)) continue;
 				if (await this.adoptMutation({ type: "retire_program", program_name: name }))
 					adopted = true;
@@ -793,14 +820,28 @@ Choose the most appropriate non-memory improvement. Use skip for factual learnin
 			description = `Retired memory ${mutation.memory_id}`;
 		}
 
-		this._pendingEvaluations.push({
-			agentName,
-			mutationType: mutation.type,
-			timestamp: now,
-			commitHash,
-			description,
-		});
-		await this.savePendingEvaluations();
+		// The legacy single-delta rollback ledger (evaluatePendingImprovements) is
+		// valid ONLY for an un-gated AGENT mutation: the agent then acts under its
+		// name so the post-hoc stumble-rate delta has data. Enqueue exactly that
+		// and nothing else —
+		//  - gated mutations already passed the frozen N-run A/B + canary gate; the
+		//    noisy single delta must never override that verdict;
+		//  - non-agent mutations (programs, routing rules, retirements) accrue no
+		//    actions, so an entry could never reach the ≥5-action threshold and
+		//    would pile up in the ledger forever.
+		const evaluable =
+			this.mutationGate === undefined &&
+			(mutation.type === "update_agent" || mutation.type === "create_agent");
+		if (evaluable) {
+			this._pendingEvaluations.push({
+				agentName,
+				mutationType: mutation.type,
+				timestamp: now,
+				commitHash,
+				description,
+			});
+			await this.savePendingEvaluations();
+		}
 
 		this.events.emit("learn_mutation", "learn", 0, { mutation_type: mutation.type });
 	}
@@ -855,15 +896,11 @@ Choose the most appropriate non-memory improvement. Use skip for factual learnin
 		});
 		if (result.memories.length === 0) return false;
 
-		const commitHash = await this.genome.lastCommitHash();
-		this._pendingEvaluations.push({
-			agentName: "learn",
-			mutationType: MEMORY_EXTRACTION_MUTATION_TYPE,
-			timestamp: now,
-			commitHash,
-			description: `Extracted ${result.memories.length} memories from learn signal`,
-		});
-		await this.savePendingEvaluations();
+		// Memory extraction is not enqueued for post-hoc rollback: it has no agent
+		// that accrues actions, so the single-delta ledger could never evaluate it
+		// (an entry would accumulate forever). It is committed to the genome
+		// directly; a rollback net for memory extraction, if ever needed, is a
+		// separate mechanism, not this agent-stumble ledger.
 		this.events.emit("learn_mutation", "learn", 0, {
 			mutation_type: MEMORY_EXTRACTION_MUTATION_TYPE,
 			extracted_count: result.memories.length,

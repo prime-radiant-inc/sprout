@@ -331,6 +331,65 @@ describe("LearnProcess", () => {
 		expect(agent!.constraints.can_spawn).toBe(false);
 	});
 
+	describe("pending-evaluation ledger scoping", () => {
+		test("un-gated: only agent mutations enqueue a post-hoc rollback entry", async () => {
+			const { learn } = await setupGenome(tempDir, "ledger-scope");
+			await learn.applyMutation({
+				type: "create_routing_rule",
+				condition: "x",
+				preference: "code-editor",
+				strength: 0.5,
+			});
+			// A routing rule has no agent that accrues actions — nothing to evaluate.
+			expect(learn.pendingEvaluations()).toHaveLength(0);
+
+			await learn.applyMutation({
+				type: "update_agent",
+				agent_name: "root",
+				system_prompt: "improved root",
+			});
+			// An agent mutation IS evaluable (root then accrues actions).
+			expect(learn.pendingEvaluations().map((p) => p.agentName)).toEqual(["root"]);
+		});
+
+		test("a retirement (curation) never enqueues a ledger entry", async () => {
+			const { learn, genome } = await setupGenome(tempDir, "ledger-retire");
+			await genome.addAgent({
+				name: "rot-agent",
+				description: "unused",
+				system_prompt: "x",
+				model: "fast",
+				tools: ["read_file"],
+				agents: [],
+				constraints: { ...DEFAULT_CONSTRAINTS, can_spawn: false },
+				tags: [],
+				version: 1,
+			});
+			await learn.applyMutation({ type: "retire_agent", agent_name: "rot-agent" });
+			expect(learn.pendingEvaluations()).toHaveLength(0);
+		});
+
+		test("gated: an approved agent mutation does NOT re-enter the legacy single-delta ledger", async () => {
+			const { genome, metrics, events, genomeDir } = await setupGenome(tempDir, "ledger-gated-src");
+			const gated = new LearnProcess({
+				genome,
+				metrics,
+				events,
+				pendingEvaluationsPath: join(genomeDir, "metrics", "pending-evaluations.json"),
+				mutationGate: { evaluate: async () => ({ adopt: true, reason: "adopted" }) },
+			});
+			const applied = await gated.adoptMutation({
+				type: "update_agent",
+				agent_name: "root",
+				system_prompt: "gated improvement",
+			});
+			expect(applied).toBe(true);
+			// The frozen N-run A/B + canary gate already vetted it; the noisy single
+			// delta must never be able to override that verdict.
+			expect(gated.pendingEvaluations()).toHaveLength(0);
+		});
+	});
+
 	test("emits learn_mutation event on applyMutation", async () => {
 		const { learn, events } = await setupGenome(tempDir, "emit-mutation");
 		const mutation: LearnMutation = {
@@ -554,8 +613,10 @@ describe("LearnProcess", () => {
 
 		expect(result).toBe("applied");
 		expect(genome.memories.all()).toHaveLength(2);
-		expect(learn.pendingEvaluations()).toHaveLength(1);
-		expect(learn.pendingEvaluations()[0]?.mutationType).toBe("memory_extraction");
+		// Memory extraction is committed but NOT enqueued for post-hoc rollback —
+		// it has no agent that accrues actions, so a ledger entry could never
+		// evaluate and would accumulate forever.
+		expect(learn.pendingEvaluations()).toHaveLength(0);
 		expect(
 			events
 				.collected()
@@ -1379,20 +1440,19 @@ OPENAI_API_KEY=sk-${"a".repeat(32)}`,
 	});
 
 	describe("pending evaluation tracking", () => {
-		test("applyMutation adds a pending evaluation", async () => {
+		test("applyMutation adds a pending evaluation for an un-gated agent mutation", async () => {
 			const { learn } = await setupGenome(tempDir, "pending-add");
 			const mutation: LearnMutation = {
-				type: "create_routing_rule",
-				condition: "pending evaluation tasks",
-				preference: "code-editor",
-				strength: 0.8,
+				type: "update_agent",
+				agent_name: "root",
+				system_prompt: "improved root",
 			};
 			await learn.applyMutation(mutation);
 
 			const pending = learn.pendingEvaluations();
 			expect(pending).toHaveLength(1);
-			expect(pending[0]!.mutationType).toBe("create_routing_rule");
-			expect(pending[0]!.agentName).toBe("learn");
+			expect(pending[0]!.mutationType).toBe("update_agent");
+			expect(pending[0]!.agentName).toBe("root");
 			expect(typeof pending[0]!.timestamp).toBe("number");
 			expect(typeof pending[0]!.commitHash).toBe("string");
 			expect(pending[0]!.commitHash).toMatch(/^[0-9a-f]{40}$/);
@@ -1415,17 +1475,16 @@ OPENAI_API_KEY=sk-${"a".repeat(32)}`,
 		test("pending evaluations persist to disk", async () => {
 			const { learn, pendingEvaluationsPath } = await setupGenome(tempDir, "pending-persist");
 			await learn.applyMutation({
-				type: "create_routing_rule",
-				condition: "persist pending evaluations",
-				preference: "code-editor",
-				strength: 0.8,
+				type: "update_agent",
+				agent_name: "root",
+				system_prompt: "persisted improvement",
 			});
 
 			// Verify file exists on disk
 			const raw = await readFile(pendingEvaluationsPath, "utf-8");
 			const parsed = JSON.parse(raw) as PendingEvaluation[];
 			expect(parsed).toHaveLength(1);
-			expect(parsed[0]!.mutationType).toBe("create_routing_rule");
+			expect(parsed[0]!.mutationType).toBe("update_agent");
 		});
 
 		test("pending evaluations load across sessions", async () => {
@@ -1442,10 +1501,9 @@ OPENAI_API_KEY=sk-${"a".repeat(32)}`,
 				pendingEvaluationsPath,
 			});
 			await learn1.applyMutation({
-				type: "create_routing_rule",
-				condition: "cross-session pending evaluation",
-				preference: "code-editor",
-				strength: 0.8,
+				type: "update_agent",
+				agent_name: "root",
+				system_prompt: "cross-session improvement",
 			});
 			expect(learn1.pendingEvaluations()).toHaveLength(1);
 
@@ -1458,7 +1516,7 @@ OPENAI_API_KEY=sk-${"a".repeat(32)}`,
 			});
 			await learn2.loadPendingEvaluations();
 			expect(learn2.pendingEvaluations()).toHaveLength(1);
-			expect(learn2.pendingEvaluations()[0]!.mutationType).toBe("create_routing_rule");
+			expect(learn2.pendingEvaluations()[0]!.mutationType).toBe("update_agent");
 		});
 	});
 
