@@ -2,26 +2,25 @@ import { describe, expect, it } from "bun:test";
 import { renderCellApiTypes } from "../../src/kernel/cell-api-types";
 
 describe("renderCellApiTypes", () => {
-	it("declares every ambient value method with its worker signature", () => {
-		const block = renderCellApiTypes([]);
-		expect(block).toContain(
-			"declare function bind(name: string, value: unknown): Promise<BoundValue>;",
-		);
-		expect(block).toContain("declare function publish(name: string): Promise<void>;");
-		expect(block).toContain("declare function peek(name: string): Promise<string>;");
-		expect(block).toContain("declare function get(name: string): Promise<string>;");
-		expect(block).toContain("declare function parse(name: string): Promise<unknown>;");
-		expect(block).toContain(
-			"declare function slice(name: string, start: number, end: number): Promise<string>;",
-		);
-		expect(block).toContain(
-			"declare function lines(name: string, from: number, to: number): Promise<string>;",
-		);
-		expect(block).toContain(
-			"declare function grep(name: string, pattern: string, opts?: { maxResults?: number }): Promise<GrepResult>;",
-		);
-		expect(block).toContain("declare function size(name: string): Promise<number>;");
-		expect(block).toContain("console");
+	it("the prose description carries every ambient value method (the declaration block was deduplicated into prose)", () => {
+		const { buildCellPrimitive } = require("../../src/kernel/cell-primitive");
+		const cell = buildCellPrimitive({ runCell: async () => ({ ok: true, output: "", newBindings: [] }) });
+		for (const method of [
+			"bind(name, value)",
+			"publish(name)",
+			"peek(name)",
+			"get(name)",
+			"parse(name)",
+			"slice(name, start, end)",
+			"lines(name, from, to)",
+			"grep(name, pattern, {maxResults})",
+			"size(name)",
+			"console.log",
+		]) {
+			expect(cell.description).toContain(method);
+		}
+		// And the typed block no longer duplicates the ambient declarations.
+		expect(renderCellApiTypes([])).not.toContain("declare function bind(");
 	});
 
 	it("declares spawn/handle with the outcome envelope shape", () => {

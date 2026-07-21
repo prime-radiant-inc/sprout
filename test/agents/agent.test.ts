@@ -7191,10 +7191,10 @@ describe("Agent", () => {
 		const names = tools.map((t) => t.name);
 		expect(names).toContain("delegate");
 		// The delegate tool description should mention the agent names
-		const delegateTool = tools.find((t) => t.name === "delegate");
-		const desc = (delegateTool!.parameters as any).properties.agent_name.description;
-		expect(desc).toContain("engineer");
-		expect(desc).toContain("reviewer");
+		expect(tools.find((t) => t.name === "delegate")).toBeDefined();
+		const delegatable = (agent as any).getDelegatableAgents().map((a: any) => a.name);
+		expect(delegatable).toContain("engineer");
+		expect(delegatable).toContain("reviewer");
 	});
 
 	test("without agentTree, falls back to spec.agents-based resolution", () => {
@@ -7213,9 +7213,8 @@ describe("Agent", () => {
 		const tools = agent.resolvedTools();
 		const names = tools.map((t) => t.name);
 		expect(names).toContain("delegate");
-		const delegateTool = tools.find((t) => t.name === "delegate");
-		const desc = (delegateTool!.parameters as any).properties.agent_name.description;
-		expect(desc).toContain("leaf");
+		expect(tools.find((t) => t.name === "delegate")).toBeDefined();
+		expect((agent as any).getDelegatableAgents().map((a: any) => a.name)).toContain("leaf");
 	});
 
 	test("code-mode agent's cell tool description carries the SpawnableAgent union for its allowlist", () => {
@@ -7334,11 +7333,10 @@ describe("Agent", () => {
 		});
 
 		const tools = agent.resolvedTools();
-		const delegateTool = tools.find((t) => t.name === "delegate");
-		expect(delegateTool).toBeDefined();
-		const desc = (delegateTool!.parameters as any).properties.agent_name.description;
-		expect(desc).toContain("reader");
-		expect(desc).toContain("command-runner");
+		expect(tools.find((t) => t.name === "delegate")).toBeDefined();
+		const delegatable = (agent as any).getDelegatableAgents().map((a: any) => a.name);
+		expect(delegatable).toContain("reader");
+		expect(delegatable).toContain("command-runner");
 	});
 
 	test("throws when agent has zero tools (prevents hallucination)", () => {
@@ -7406,10 +7404,10 @@ describe("Agent", () => {
 		});
 
 		const tools = agent.resolvedTools();
-		const delegateTool = tools.find((t) => t.name === "delegate");
-		const desc = (delegateTool!.parameters as any).properties.agent_name.description;
-		expect(desc).toContain("engineer");
-		expect(desc).toContain("reader");
+		expect(tools.find((t) => t.name === "delegate")).toBeDefined();
+		const delegatable = (agent as any).getDelegatableAgents().map((a: any) => a.name);
+		expect(delegatable).toContain("engineer");
+		expect(delegatable).toContain("reader");
 	});
 
 	test("executeDelegation resolves path-based agent names from tree", async () => {

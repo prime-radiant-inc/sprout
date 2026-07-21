@@ -30,9 +30,10 @@ const DEFAULT_PLAN_MAX_TOKENS = 16_384;
  * Agent descriptions are listed in the system prompt; the tool accepts agent_name + goal + hints.
  * This keeps the tool list stable (preserving prompt cache) when agents are added/removed.
  */
-export function buildDelegateTool(agents: AgentSpec[]): ToolDefinition {
-	const nameList =
-		agents.length > 0 ? ` Known agents: ${agents.map((a) => a.name).join(", ")}.` : "";
+export function buildDelegateTool(_agents: AgentSpec[]): ToolDefinition {
+	// No embedded name list: the <agents> section already carries names AND
+	// descriptions, and repeating names here both costs tokens per turn and
+	// invalidates the prompt cache whenever the agent set changes.
 	return {
 		name: DELEGATE_TOOL_NAME,
 		displayName: getToolDisplayName(DELEGATE_TOOL_NAME),
@@ -43,7 +44,8 @@ export function buildDelegateTool(agents: AgentSpec[]): ToolDefinition {
 			properties: {
 				agent_name: {
 					type: "string",
-					description: `Name or path of the agent to delegate to.${nameList}`,
+					description:
+						"Name or path of the agent to delegate to — see <agents> in your instructions.",
 				},
 				goal: {
 					type: "string",

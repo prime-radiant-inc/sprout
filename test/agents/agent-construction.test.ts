@@ -100,7 +100,8 @@ describe("Agent construction and tool resolution", () => {
 		const props = (delegateTool!.parameters as any).properties;
 		expect(props.agent_name).toBeDefined();
 		expect(props.agent_name.enum).toBeUndefined();
-		expect(props.agent_name.description).toContain("leaf");
+		// Resolution is observable on the domain query, not the (cache-stable) schema.
+		expect((agent as any).getDelegatableAgents().map((a: any) => a.name)).toContain("leaf");
 		expect(props.goal).toBeDefined();
 		expect(props.hints).toBeDefined();
 	});

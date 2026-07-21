@@ -27,28 +27,8 @@ export interface ProgramInfo {
 }
 
 /** Fixed declaration of the ambient value + spawn API (worker-exact). */
-const AMBIENT_DECLARATIONS = `interface BoundValue { name: string; ulid: string; size: number; preview: string; type: "text" | "json" | "bytes" }
-interface GrepMatch { line: number; text: string }
-interface GrepResult { matches: GrepMatch[]; truncated: boolean }
-
-// Value API — all calls are async; await them. Only bind() persists.
-declare function bind(name: string, value: unknown): Promise<BoundValue>;
-declare function publish(name: string): Promise<void>;
-declare function peek(name: string): Promise<string>;
-declare function get(name: string): Promise<string>;
-declare function parse(name: string): Promise<unknown>;
-declare function slice(name: string, start: number, end: number): Promise<string>;
-declare function lines(name: string, from: number, to: number): Promise<string>;
-declare function grep(name: string, pattern: string, opts?: { maxResults?: number }): Promise<GrepResult>;
-declare function size(name: string): Promise<number>;
-declare const console: {
-	log(...args: unknown[]): void;
-	warn(...args: unknown[]): void;
-	error(...args: unknown[]): void;
-};`;
-
-/** Fixed declaration of the spawn/handle surface (references SpawnableAgent). */
-const SPAWN_DECLARATIONS = `interface SpawnOptions { env?: Record<string, string>; hints?: string[]; blocking?: boolean; shared?: boolean; model?: string }
+const SPAWN_DECLARATIONS = `interface BoundValue { name: string; ulid: string; size: number; preview: string; type: "text" | "json" | "bytes" }
+interface SpawnOptions { env?: Record<string, string>; hints?: string[]; blocking?: boolean; shared?: boolean; model?: string }
 interface SpawnResult { ok: boolean; summary: string; bindings: BoundValue[]; handle: Handle }
 // A future binds a started child's not-yet-settled result to \`name\`; a $ref to
 // that name pipelines (waits for settlement, no busy-await), then reads it as a
@@ -125,11 +105,13 @@ export function renderProgramsBlock(programs: ProgramInfo[]): string {
  * write cells. Pure: same allowlist → same string (cache-friendly).
  */
 export function renderCellApiTypes(spawnableAgents: SpawnableAgentInfo[]): string {
+	// The ambient function signatures live in the prose description; repeating
+	// them here as declarations measurably added tokens without adding signal
+	// (both workshop models flagged the duplicated block as dead weight). What
+	// stays is what the prose does NOT spell: the exact spawn union and the
+	// result/handle shapes.
 	return [
 		"```ts",
-		"// Ambient API available inside a cell (sap data plane). Declaration only — do not redeclare.",
-		AMBIENT_DECLARATIONS,
-		"",
 		"// Delegation — spawn a subagent by name; the union lists exactly what you can spawn.",
 		renderSpawnableAgentUnion(spawnableAgents),
 		SPAWN_DECLARATIONS,

@@ -62,9 +62,8 @@ describe("buildDelegateTool", () => {
 		const agentNameProp = (tool.parameters as any).properties.agent_name;
 		// Should NOT have an enum — accepts any string
 		expect(agentNameProp.enum).toBeUndefined();
-		// But should list known agents in description
-		expect(agentNameProp.description).toContain("reader");
-		expect(agentNameProp.description).toContain("editor");
+		// No embedded name list (cache stability): names live in <agents> only.
+		expect(agentNameProp.description).not.toContain("reader");
 	});
 
 	test("no known agents listed when agents array is empty", () => {

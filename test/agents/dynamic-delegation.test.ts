@@ -251,12 +251,13 @@ describe("Dynamic delegation list refresh", () => {
 		await agent.continue("keep going", undefined);
 
 		const toolsAfter = agent.resolvedTools();
-		const delegateToolAfter = toolsAfter.find((t) => t.name === "delegate");
-		expect(delegateToolAfter).toBeDefined();
+		expect(toolsAfter.find((t) => t.name === "delegate")).toBeDefined();
 
-		// The delegate tool schema should now reference the new agent
-		const schemaStr = JSON.stringify(delegateToolAfter!.parameters);
-		expect(schemaStr).toContain("tools-test-agent");
+		// The delegable SET refreshes with the genome; the tool schema stays
+		// cache-stable by design and never embeds names.
+		expect((agent as any).getDelegatableAgents().map((a: any) => a.name)).toContain(
+			"tools-test-agent",
+		);
 	});
 
 	test("no steering when genome.generation unchanged between turns", async () => {
