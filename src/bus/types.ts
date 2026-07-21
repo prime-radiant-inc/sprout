@@ -103,6 +103,12 @@ export interface ResultMessage {
 	stumbles: number;
 	turns: number;
 	timed_out: boolean;
+	/**
+	 * Set only on results reconstructed from the durable log (crash recovery /
+	 * cold resume) — never on live bus results. The parent-side render clamp
+	 * keys on it: live results are structurally unclampable.
+	 */
+	recovered?: boolean;
 }
 
 /** Published by an agent throughout execution */

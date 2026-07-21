@@ -651,6 +651,8 @@ describe("loadCompletedChildHandles", () => {
 					stumbles: 0,
 					turns: 3,
 					timed_out: false,
+					// Log-reconstructed results carry the recovered flag (v10).
+					recovered: true,
 				},
 			},
 		]);

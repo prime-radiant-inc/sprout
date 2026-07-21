@@ -172,6 +172,9 @@ export async function readHandleResult(
 					stumbles: parsed.data.stumbles as number,
 					turns: parsed.data.turns as number,
 					timed_out: parsed.data.timed_out as boolean,
+					// The log's raw output, not a live gated message: the parent-side
+					// render clamp keys on this flag (capture-all spec v10).
+					recovered: true,
 				};
 			}
 		} catch {}

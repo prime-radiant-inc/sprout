@@ -40,7 +40,11 @@ import {
 	spliceRefArgs,
 } from "../kernel/ref-splice.ts";
 import { buildAgentToolPrimitives } from "../kernel/tool-loading.ts";
-import { truncateToolOutput } from "../kernel/truncation.ts";
+import {
+	captureMarker,
+	resolvePreviewBudgets,
+	truncateToolOutput,
+} from "../kernel/truncation.ts";
 import {
 	type ActResult,
 	type AgentCommand,
@@ -217,6 +221,11 @@ const MANIFEST_RETRY_BACKOFF_MS = 250;
 
 /** Hard bound on one rendered agent message in the system prompt (chars). */
 const AGENT_MESSAGE_RENDER_CLAMP = 4_000;
+
+/** Delegate render budget resolved once per process (capture-all spec v10). */
+const DELEGATE_RENDER_BUDGET = resolvePreviewBudgets(process.env).delegate ?? 4_000;
+/** Marker headroom inside the clamp (64-char names fit comfortably). */
+const DELEGATE_MARKER_RESERVE = 160;
 
 const DEFAULT_DELEGATE_OBSERVER_MAX_EVENTS = 12;
 const DEFAULT_DELEGATE_OBSERVER_MAX_CHARS = 3000;
@@ -1514,7 +1523,12 @@ export class Agent {
 				}
 			}
 
-			const resultContent = truncateToolOutput(subResult.output, delegation.agent_name);
+			const resultContent = Agent.renderDelegationResult(
+				subResult.output,
+				delegation.agent_name,
+				{ lines: "", rewrites: new Map(), values: [] },
+				false,
+			);
 			const toolResultMsg = Msg.toolResult(delegation.call_id, resultContent);
 
 			this.emitAndLog("act_end", agentId, this.depth, {
@@ -2069,6 +2083,46 @@ export class Agent {
 	 * cross-match. Single-pass so one rewrite's output never feeds another
 	 * (log→log_2 alongside log_2→log_2_2 in the same delta).
 	 */
+	/**
+	 * The ONE parent-side seam every child-result render passes through
+	 * (capture-all spec v10): redacts unconditionally, and implements the
+	 * recovery clamp — clamp iff `recovered` AND the manifest delta delivered
+	 * the result value (content-identity: a delivered value whose size equals
+	 * the raw output's byte length — the durable log and the child's bind store
+	 * the same string) AND the redacted output exceeds the delegate budget.
+	 * Fail-closed: no match, no clamp — the generic backstop renders instead.
+	 * Live results never carry `recovered`, so they can never reach the clamp.
+	 * The marker is appended AFTER name rewriting so a delivered alias cannot
+	 * collide with a rewrite key.
+	 */
+	static renderDelegationResult(
+		output: string,
+		label: string,
+		manifest: {
+			lines: string;
+			rewrites: Map<string, string>;
+			values: Array<{ name: string; size: number }>;
+		},
+		recovered: boolean,
+	): string {
+		const redacted = redactSensitiveTranscriptContent(output);
+		const resultValue = recovered
+			? manifest.values.find((v) => v.size === Buffer.byteLength(output, "utf8"))
+			: undefined;
+		if (resultValue !== undefined && redacted.length > DELEGATE_RENDER_BUDGET) {
+			const head = redacted.slice(0, DELEGATE_RENDER_BUDGET - DELEGATE_MARKER_RESERVE);
+			const marker = captureMarker(
+				`${redacted.length - head.length} chars`,
+				` — full content: ⟦${resultValue.name}⟧`,
+			);
+			return `${Agent.rewriteManifestNames(head, manifest.rewrites)}\n${marker}${manifest.lines}`;
+		}
+		return (
+			Agent.rewriteManifestNames(truncateToolOutput(redacted, label), manifest.rewrites) +
+			manifest.lines
+		);
+	}
+
 	private static rewriteManifestNames(summary: string, rewrites: Map<string, string>): string {
 		if (rewrites.size === 0) return summary;
 		const escapeLiteral = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -2316,9 +2370,13 @@ export class Agent {
 				this.learnProcess.recordAction(agentId);
 			}
 
-			const truncated = truncateToolOutput(resultMsg.output, delegation.agent_name);
 			const manifest = await this.fetchManifestLines(resultMsg.handle_id);
-			const summary = Agent.rewriteManifestNames(truncated, manifest.rewrites) + manifest.lines;
+			const summary = Agent.renderDelegationResult(
+				resultMsg.output,
+				delegation.agent_name,
+				manifest,
+				resultMsg.recovered === true,
+			);
 			const outcome: DelegationOutcome = {
 				kind: "completed",
 				ok: resultMsg.success,
@@ -2479,9 +2537,12 @@ export class Agent {
 		label: string,
 	): Promise<DelegationOutcome> {
 		const manifest = await this.fetchManifestLines(handleId);
-		const summary =
-			Agent.rewriteManifestNames(truncateToolOutput(result.output, label), manifest.rewrites) +
-			manifest.lines;
+		const summary = Agent.renderDelegationResult(
+			result.output,
+			label,
+			manifest,
+			result.recovered === true,
+		);
 		return {
 			kind: "completed",
 			ok: result.success,
@@ -2524,11 +2585,12 @@ export class Agent {
 					spawner.waitAgent(cmd.handle, caller),
 				);
 				const manifest = await this.fetchManifestLines(cmd.handle);
-				const content =
-					Agent.rewriteManifestNames(
-						truncateToolOutput(result.output, "wait_agent"),
-						manifest.rewrites,
-					) + manifest.lines;
+				const content = Agent.renderDelegationResult(
+					result.output,
+					"wait_agent",
+					manifest,
+					result.recovered === true,
+				);
 				const toolResultMsg = Msg.toolResult(cmd.call_id, content);
 				this.emitAndLog("act_end", agentId, this.depth, {
 					agent_name: cmd.kind,
@@ -2568,11 +2630,12 @@ export class Agent {
 			}
 
 			const manifest = await this.fetchManifestLines(cmd.handle);
-			const content =
-				Agent.rewriteManifestNames(
-					truncateToolOutput(result.output, "message_agent"),
-					manifest.rewrites,
-				) + manifest.lines;
+			const content = Agent.renderDelegationResult(
+				result.output,
+				"message_agent",
+				manifest,
+				result.recovered === true,
+			);
 			const toolResultMsg = Msg.toolResult(cmd.call_id, content);
 			this.emitAndLog("act_end", agentId, this.depth, {
 				agent_name: cmd.kind,

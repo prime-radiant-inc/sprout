@@ -42,13 +42,11 @@ prefix commits with `PATH="/home/jesse/.bun/bin:$PATH"` so the hook finds bun/bu
       points), `handle.visibility !== "shared"` + parent-scoped store, publish:false;
       log records stay raw. Tests: preview+ref+no-publish; shared → raw; capture-fail
       → raw.
-- [ ] Delegation-render helper in agent.ts replacing the five `truncateToolOutput` sites
-      (1500, 2302, 2466, 2512, 2556): redact once; `recovered` flag stamped in
-      `readHandleResult` (`resume.ts:144–181`, single constructor); clamp iff recovered
-      AND content-identity match (delta value with `size === utf8ByteLength(raw)` +
-      preview check — the log and the bind store the same string) AND over budget; clamp
-      marker = form 1 naming the delivered ALIAS, inserted after `rewriteManifestNames`;
-      else generic 30 K backstop. No fetchManifestLines/store contract changes.
+- [x] Delegation-render helper `Agent.renderDelegationResult` wired at all five sites;
+      `recovered?: boolean` on ResultMessage, stamped once in `readHandleResult`; clamp
+      iff recovered AND size-identity match AND over budget, form-1 marker with the
+      delivered alias appended after rewrites; fail-closed to the 30 K backstop; redaction
+      at the seam. Tests: test/agents/delegation-render.test.ts (5) + resume pin updated.
 - [ ] Cell gate: threshold from `cell` record row + marker helper (zero churn, asserted).
 - [ ] Tests per spec P2 list: both flavors preview+ref; shared featherweight → raw;
       capture-failure → raw; publish-failure → fallback never marker; recovered
