@@ -12,6 +12,8 @@ const MUTATING_GENOME_METHODS = new Set([
 	"removeAgent",
 	"addRoutingRule",
 	"removeRoutingRule",
+	"addProgram",
+	"removeProgram",
 	"addMemory",
 	"addMemories",
 	"stageMemoryForMutation",
@@ -22,8 +24,12 @@ const MUTATING_GENOME_METHODS = new Set([
 	"markMemoriesUsed",
 	"recordProjectActivity",
 	"saveProjectActivityMutation",
+	"applyMemoryAndProjectActivityMutation",
 	"recomputeMemoryScores",
 	"recordMemoryMentions",
+	"retireMemory",
+	"compactMemoryLog",
+	"compactMemoryLogIfDue",
 	"pruneMemories",
 	"pruneUnusedRoutingRules",
 	"rollback",
@@ -43,6 +49,7 @@ const MUTATING_MEMORY_METHODS = new Set([
 	"save",
 	"mergeLatestFromDisk",
 	"pruneByConfidence",
+	"removeArchivedOrSuperseded",
 ]);
 const MUTATING_SEGMENT_METHODS = new Set(["add", "stage", "save"]);
 const MUTATING_PROJECT_METHODS = new Set([

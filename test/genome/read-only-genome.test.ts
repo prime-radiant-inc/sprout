@@ -117,6 +117,30 @@ describe("createReadOnlyGenome", () => {
 		expect(() => readOnlyGenome.segments.stage(segment)).toThrow("read-only genome");
 	});
 
+	test("rejects the later-added mutators that the blocklist had missed", async () => {
+		const readOnlyGenome = createReadOnlyGenome(genome);
+		await expect(
+			readOnlyGenome.addProgram({
+				name: "blocked_prog",
+				description: "x",
+				params: [],
+				spawns: [],
+				version: 1,
+				body: "return 1;",
+			}),
+		).rejects.toThrow("read-only genome");
+		await expect(readOnlyGenome.removeProgram("blocked_prog")).rejects.toThrow("read-only genome");
+		await expect(readOnlyGenome.retireMemory("memory-x", "test")).rejects.toThrow(
+			"read-only genome",
+		);
+		await expect(readOnlyGenome.compactMemoryLog()).rejects.toThrow("read-only genome");
+		await expect(readOnlyGenome.compactMemoryLogIfDue()).rejects.toThrow("read-only genome");
+		await expect(
+			readOnlyGenome.applyMemoryAndProjectActivityMutation("blocked", async () => {}),
+		).rejects.toThrow("read-only genome");
+		expect(() => readOnlyGenome.memories.removeArchivedOrSuperseded()).toThrow("read-only genome");
+	});
+
 	test("rejects project and operational memory mutations", async () => {
 		const readOnlyGenome = createReadOnlyGenome(genome);
 		const project = { id: "sprout", name: "Sprout", confidence: 1, source: "explicit" as const };

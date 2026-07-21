@@ -1457,6 +1457,7 @@ export class Genome {
 
 	/** Save an executable tool script to an agent's workspace. */
 	async saveAgentTool(agentName: string, opts: SaveAgentToolOptions): Promise<void> {
+		assertWorkspaceFilename(opts.name);
 		const interpreter = opts.interpreter ?? "bash";
 		const toolDir = join(this.agentDir(agentName), "tools");
 		await mkdir(toolDir, { recursive: true });
@@ -1483,6 +1484,7 @@ export class Genome {
 
 	/** Save a reference file to an agent's workspace. */
 	async saveAgentFile(agentName: string, opts: SaveAgentFileOptions): Promise<void> {
+		assertWorkspaceFilename(opts.name);
 		const fileDir = join(this.agentDir(agentName), "files");
 		await mkdir(fileDir, { recursive: true });
 
@@ -1677,6 +1679,27 @@ export interface AgentFileInfo {
 interface TextFileSnapshot {
 	existed: boolean;
 	content: string;
+}
+
+/**
+ * Guard a model-authored workspace filename before it is joined into the
+ * agent's tools/files directory: a name with a path separator or `..` segment
+ * would escape the workspace and clobber a sibling agent's files or other
+ * genome paths. The name must be a single, plain path component.
+ */
+function assertWorkspaceFilename(name: string): void {
+	if (
+		name.length === 0 ||
+		name.includes("/") ||
+		name.includes("\\") ||
+		name === "." ||
+		name === ".." ||
+		name.startsWith("..")
+	) {
+		throw new Error(
+			`invalid workspace name '${name}': must be a plain filename with no path separators or '..'`,
+		);
+	}
 }
 
 function assertCanStageMemoryBatch(
