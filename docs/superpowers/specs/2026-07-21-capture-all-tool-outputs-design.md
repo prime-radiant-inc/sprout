@@ -1,7 +1,7 @@
 # Capture-all tool outputs — one budget table, one marker, three gates
 
 **Date:** 2026-07-21
-**Status:** design v8 (six adversarial review rounds; 66 verified findings folded in;
+**Status:** design v9 (seven adversarial review rounds; 76 verified findings folded in;
 implementation authorized by Jesse 2026-07-21)
 **Predecessor specs:** `2026-07-16-sap-data-plane-and-repl-design.md` (capture/splice, §2),
 `2026-07-19-sap-completion-and-roadmap-design.md` (data plane)
@@ -105,8 +105,10 @@ condition, `boundValues` the branch selector). The former exemption classes are 
 
 Capture-capable after P1: `read_file`, `exec`, `grep`, `fetch`, `glob`. P1 gives glob a
 `captureSource` AND adds it to `CAPTURE_PRIMITIVE_NAMES` — one capability list, no
-two-lists caveat; glob gains the explicit `bind:` surface like its peers (`withCapture` is
-generic over any source-bearing primitive).
+two-lists caveat; glob gains the explicit `bind:` surface like its peers. One caveat the
+"generic" claim misses: `summarizeArgs` hardcodes per-tool arg keys and defaults to `url`,
+so P1 also adds glob's `pattern` arm — otherwise every glob bind records empty
+`argsSummary` provenance.
 
 ### The registry gate (modified in place)
 
@@ -129,11 +131,12 @@ generic over any source-bearing primitive).
 
 - **Subprocess** (`prepareResultOutput`, in place): gains redaction, reads the `delegate`
   budget from the record, adopts the marker helper, and its preview becomes
-  **budget-inclusive** (head slice + marker together ≤ the delegate budget) — which makes
-  "live results are never re-cut by the render clamp" structural. Child-identity bind +
-  publish (all-or-nothing; publish failure → fallback, never a marker), goal-slug naming,
-  and the two-branch fallback (raw ≤ 30,000; slice + banner above) unchanged in shape, now
-  redacted.
+  **budget-inclusive** (head slice + marker together ≤ the delegate budget). Ordering
+  matters: **redact THEN slice** — redaction can lengthen text (`token: abc` →
+  `token: [REDACTED_SECRET]`), so slicing first could push a boundary-length preview back
+  over budget after the parent re-redacts. Child-identity bind + publish (all-or-nothing;
+  publish failure → fallback, never a marker), goal-slug naming, and the two-branch
+  fallback (raw ≤ 30,000; slice + banner above) unchanged in shape, now redacted.
 - **Featherweight**: **reuses `prepareResultOutput` with a `{ publish: boolean }` flag**
   (moved to a shared module to avoid an import cycle) — it is field-for-field the same
   mechanism: bind full output, goal-slug name, `{ kind: "delegation" }` origin, head +
@@ -143,34 +146,54 @@ generic over any source-bearing primitive).
   visibility is the exact discriminator for owner-only readability, and on every path that
   can reach featherweight, keep-alive ⟺ shared (verified), so one clause suffices. Called
   at the two featherweight settle points; `plan_end`/child-facing replay stays raw.
+  Provenance note: the bind passes the CHILD's handleId (as subprocess does); over a
+  channel the host forces the connection identity, so a mid-tier parent's featherweight
+  captures stamp the parent while a root parent's stamp the child — a documented
+  inconsistency in audit metadata only, accepted.
 - **In-process fallback**: storeless by construction (`agent.ts:2942–2944`); no capture;
   covered by the render helper below.
 
 ### The delegation-render helper (parent side — one seam for redaction AND recovery)
 
 The five current render sites (`agent.ts:1500, 2302, 2466, 2512, 2556` — the complete
-caller set of `truncateToolOutput`, and four of them the same expression) collapse into one
-private helper the parent uses for every child result:
+caller set of `truncateToolOutput`, and four of them the same expression **including the
+`rewriteManifestNames` step**, which the helper keeps) collapse into one private helper
+the parent uses for every child result:
 
 ```
-renderDelegationResult(output, label, manifest):
+renderDelegationResult(output, label, manifest, recovered):
     redacted = redact(output)
-    if manifest available AND redacted.length > delegateBudget:   # recovered/raw result —
-        return clamp(redacted, delegateBudget) + mechanical-cut banner + manifest lines
-    return truncateToolOutput(redacted, label) + manifest lines   # generic 30 K backstop
+    if recovered AND manifest.deliveredResultValue AND redacted.length > delegateBudget:
+        body = clamp(redacted, delegateBudget) + recovered-clamp banner
+    else:
+        body = truncateToolOutput(redacted, label)     # generic 30 K backstop
+    return rewriteManifestNames(body, manifest.rewrites) + manifest.lines
 ```
+
+Two inputs make the clamp honest and structural, and both are named work items:
+
+- **`recovered`** — stamped (in-memory only; no log change) on the `ResultMessage`
+  reconstructed at the two recovery sites (`readPersistedHandleResult`,
+  `loadCompletedChildHandles`). LIVE results — gated (≤ budget by the budget-inclusive
+  marker) or capture-failed (raw ≤ 30 K, which principle 1 requires stay at today's
+  limits) — never carry the flag and can never reach the clamp.
+- **`manifest.deliveredResultValue`** — `fetchManifestLines` gains a typed return
+  (`status: ok | no-store | unavailable`, plus whether the delta delivered the child's
+  auto-published delegation-origin result value). This IS a contract change to
+  `fetchManifestLines`, owned as such: today no-store and empty-delta are
+  indistinguishable (`lines: ""` both) and the unavailable case returns text, not a
+  signal. The clamp fires only when the ref the reader needs actually arrived; every
+  other case — store unavailable, delta already consumed by an earlier render
+  (delivery cursors are durable), child died before publishing, other-values-published-
+  but-result-failed — lands on the 30 K backstop, redacted.
 
 This implements the predecessor's recovery requirement ("summary + manifest like a live
 one; … only if the store itself is unavailable does the fallback drop to the full logged
-output at today's 30 K") at the ONE place that already has everything it needs: the
-manifest lines (and the store-unavailable signal — `fetchManifestLines` already returns
-empty/unavailable markers) render here. No spawner/resume changes; the durable log and
-`handle.result` are untouched; no marker is synthesized (the manifest delivers any
-published ref); live subprocess results are ≤ budget by construction (budget-inclusive
-marker, above) and are structurally never re-cut; the storeless in-process path lands on
-the 30 K branch automatically. Redaction is written exactly once and covers live,
-recovered, resumed, in-process, `wait_agent`, and `message_agent` renders — plus any
-future caller.
+output at today's 30 K") at the one place that renders both the summary and the manifest.
+The durable log and `handle.result` are untouched; no `⟦ref⟧` is synthesized (the manifest
+line delivers the published ref, adjacent); the storeless in-process path lands on the
+30 K branch automatically. Redaction is written exactly once and covers live, recovered,
+resumed, in-process, `wait_agent`, and `message_agent` renders — plus any future caller.
 
 ### The cell gate (in place)
 
@@ -187,19 +210,25 @@ One helper, prefix + tail — no option slots:
 captureMarker(dropped, tail)  →  "[... ${dropped} truncated${tail}]"
 ```
 
-The five canonical forms, all through the helper:
+The six canonical forms, all through the helper:
 
 ```
 [... N chars truncated — full content: ⟦name⟧]
 [... N chars truncated — full body: ⟦name⟧]                      (fetch)
 [... N chars truncated — full content: ⟦name⟧, stderr: ⟦name2⟧]  (exec companion)
+[... N chars truncated — full output: see published values below] (recovered clamp)
 [... <dropped> truncated; store full — content not captured]
 [... <dropped> truncated; capture failed — content not captured]
 ```
 
-Captured markers always report chars. "full content:" is canonical; the ~6 test pins on
-old wordings (`test/kernel/capture.test.ts`, `test/bus/agent-process.test.ts`) move —
-churn recorded per test. The machine contract is the `⟦…⟧` glyph pair.
+Captured markers always report chars. The recovered-clamp form names no `⟦ref⟧` (the
+parent cannot recompute the child-side suffixed name); it is emitted only when
+`deliveredResultValue` holds, so "published values below" is always true. The preserved
+subprocess >30 K fallback banner (`[... output truncated at 30000 chars]`) is unchanged
+legacy outside the helper — enumerated here for honesty, not converged. "full content:"
+is canonical; the ~6 test pins on old wordings (`test/kernel/capture.test.ts`,
+`test/bus/agent-process.test.ts`) move — churn recorded per test. The machine contract is
+the `⟦…⟧` glyph pair.
 
 ### Budgets — svelte by default, configurable (Jesse, 2026-07-21)
 
@@ -233,7 +262,9 @@ exceptions, each with a work item and test:
   `REF_SPLICE_MAX_BYTES` (channel captures cap at 6 MiB; root captures can exceed both —
   reachable via cell/`value_slice`).
 - Above budget, only the redacted preview + marker crosses on the live path; recovered
-  results with a reachable store clamp to the delegate budget at the render helper.
+  results **whose manifest delta delivered the published result value** clamp to the
+  delegate budget at the render helper (all other recovered cases — delta consumed,
+  died-before-publish, store unavailable — take the 30 K backstop, redacted).
 - No double-store; no marker ever names a value the reader cannot see (hence: private-only
   featherweight capture; the render helper synthesizes no marker).
 - Subprocess bind-and-publish semantics unchanged; featherweight capture only adds values
@@ -246,17 +277,21 @@ exceptions, each with a work item and test:
 `boundValues`); the `value_*` bypass above truncation (+ `value_get` error-path `fail()`
 fix; delete the dead post-truncation clause); chars-only trigger; capture-failed →
 today's-limits rendering; redaction of registry outputs and errors; stderr predicate to
-redacted space; `glob` captureSource + `CAPTURE_PRIMITIVE_NAMES` entry; fetch `body` noun.
-TDD; churn recorded per test. Fable review.
+redacted space; `glob` captureSource + `CAPTURE_PRIMITIVE_NAMES` entry + `summarizeArgs`
+pattern arm; fetch `body` noun. TDD; churn recorded per test. Fable review.
 
 **P2 — Delegation + cell + prove.** Subprocess: redaction + budget-from-record +
 marker-helper adoption + budget-inclusive preview (churn recorded). Featherweight:
 `prepareResultOutput` reuse with `publish: false`, parent-scoped store, private handles
 only (tests: over-budget result → preview + ref; shared → raw path; capture-failure → raw
 path; publish-failure at subprocess → fallback, never a marker). The delegation-render
-helper (redaction + recovery clamp at one seam; tests: recovered over-budget result →
-clamped + manifest; store unavailable → 30 K; live results untouched; all five sites
-migrated). Cell: threshold from its row + marker helper (zero churn, asserted).
+helper (redaction + recovery clamp at one seam; the `recovered` flag at the two
+reconstruction sites; the `fetchManifestLines` typed-status + `deliveredResultValue`
+contract change; tests: recovered over-budget result with delivered result value →
+clamped + manifest; store unavailable / delta consumed / died-before-publish → 30 K; live
+capture-FAILED result → today's limits, never clamped; rewrites applied in both branches;
+all five sites migrated). Cell: threshold from its row + marker helper (zero churn,
+asserted).
 Measurement: payload byte counts with capture on/off; an N-way fan-out e2e proving the
 orchestrator payload stays flat; tune budgets. Fable review.
 
@@ -268,15 +303,20 @@ orchestrator payload stays flat; tune budgets. Fable review.
    inline, redacted, with the stated changes. Documented exceptions render at today's
    sizing, redacted — each tested, including BOTH >6 MiB behaviors (channel: deterministic
    failure → today's-limits rendering; root: capture succeeds).
-2. **Absent capture failure**, subprocess and featherweight sub-results over budget never
-   ride the live parent payload in full; recovered results with a reachable store clamp to
-   the delegate budget; refs splice to the exact result. Capture failure degrades per
-   principle 1 (tested); store-unavailable recovery and in-process keep the 30 K backstop
-   (documented, redacted).
+2. **Absent capture failure**, private-handle subprocess and featherweight sub-results
+   over budget never ride the live parent payload in full; recovered results whose delta
+   delivered the result value clamp to the delegate budget; refs splice to the exact
+   result. The documented raw-path cases — capture failure (per principle 1), SHARED
+   featherweight results (a design choice, not a failure), store-unavailable or
+   delta-consumed recovery, and in-process — keep the 30 K backstop, redacted; each
+   tested, including the parent-side test that a live capture-failed subprocess result
+   renders at today's limits and is never clamped.
 3. Splice fidelity up to the 4 MiB bound (documented).
 4. Every render this spec touches is redacted — registry outputs, errors, fallbacks, and
    ALL parent-side child-result renders via the one helper (structural, tested).
-5. All markers flow through `captureMarker`; preserved behaviors hold under test.
+5. All new and changed markers flow through `captureMarker` (six forms); the preserved
+   legacy subprocess >30 K banner is the one enumerated exception; preserved behaviors
+   hold under test.
 6. Full suite green; assertion churn recorded.
 
 ## Risks (honest)
@@ -290,7 +330,13 @@ orchestrator payload stays flat; tune budgets. Fable review.
   deliberately don't). Accepted: the cap is generous, degradation honest; revisit if real
   orchestrators hit it.
 - **The render helper touches every delegation render** — mitigated: it is the existing
-  expression factored once, redaction added; live results can't reach the clamp branch.
+  expression (including the manifest-name rewrite) factored once, redaction added; live
+  results can't reach the clamp branch (the `recovered` flag is structural).
+- **The value-read bypass raises the ceiling in the other direction**: a single
+  `value_slice`/`value_grep` can now put up to ~256 KB in the payload where today's
+  generic fallback cut at 30 K. Accepted deliberately — the model explicitly asked for
+  that range and the tools' own budgets are the policy (predecessor §2) — but it is a
+  payload-size regression direction worth watching in the P2 measurements.
 
 ## Open questions (for the P1 review, not blockers)
 
