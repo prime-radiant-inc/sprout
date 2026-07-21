@@ -97,8 +97,8 @@ describe("capture (bind/publish on read_file, exec, grep, fetch)", () => {
 		return withCapture(prim, store);
 	}
 
-	it("names the four capture-capable primitives", () => {
-		expect([...CAPTURE_PRIMITIVE_NAMES]).toEqual(["read_file", "exec", "grep", "fetch"]);
+	it("names the five capture-capable primitives", () => {
+		expect([...CAPTURE_PRIMITIVE_NAMES]).toEqual(["read_file", "exec", "grep", "fetch", "glob"]);
 	});
 
 	it("adds bind and publish to the parameter schema", () => {
@@ -107,6 +107,22 @@ describe("capture (bind/publish on read_file, exec, grep, fetch)", () => {
 		expect(props.bind).toBeDefined();
 		expect(props.publish).toBeDefined();
 		expect(props.path).toBeDefined();
+	});
+
+	describe("glob", () => {
+		it("binds the file listing with pattern provenance", async () => {
+			await writeFile(join(dir, "g1.txt"), "");
+			await writeFile(join(dir, "g2.txt"), "");
+			const result = await wrapped("glob").execute({ pattern: "*.txt", bind: "files" }, env);
+			expect(result.success).toBe(true);
+			expect(store.bound).toHaveLength(1);
+			expect(store.bound[0]?.content).toContain("g1.txt");
+			expect(store.bound[0]?.provenance.origin).toEqual({
+				kind: "primitive",
+				name: "glob",
+				argsSummary: "*.txt",
+			});
+		});
 	});
 
 	describe("read_file", () => {

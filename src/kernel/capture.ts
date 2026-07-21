@@ -15,7 +15,7 @@ import type { Primitive } from "./primitives.ts";
 import type { PrimitiveResult } from "./types.ts";
 
 /** The primitives whose calls can capture their source content. */
-export const CAPTURE_PRIMITIVE_NAMES = ["read_file", "exec", "grep", "fetch"] as const;
+export const CAPTURE_PRIMITIVE_NAMES = ["read_file", "exec", "grep", "fetch", "glob"] as const;
 
 const NO_RESERVED_NAMES: ReadonlySet<string> = new Set();
 const ARGS_SUMMARY_MAX = 100;
@@ -210,7 +210,7 @@ function summarizeArgs(primitiveName: string, args: Record<string, unknown>): st
 			? "path"
 			: primitiveName === "exec"
 				? "command"
-				: primitiveName === "grep"
+				: primitiveName === "grep" || primitiveName === "glob"
 					? "pattern"
 					: "url";
 	return String(args[key] ?? "").slice(0, ARGS_SUMMARY_MAX);

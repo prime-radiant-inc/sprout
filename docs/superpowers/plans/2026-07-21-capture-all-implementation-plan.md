@@ -23,13 +23,12 @@ prefix commits with `PATH="/home/jesse/.bun/bin:$PATH"` so the hook finds bun/bu
       added to truncation.ts. TDD: test/kernel/registry-gate.test.ts (12 tests). Churn
       recorded: 4 capture.test.ts pins moved (wording full output→full content;
       lines→chars gauge; value_get bypass replaces generic mid-cut).
-- [ ] `value_get` over-budget error routed through `fail()` (`value-primitives.ts:159–167`).
-- [ ] `glob`: `captureSource` (the listing) + `CAPTURE_PRIMITIVE_NAMES` entry +
-      `summarizeArgs` pattern arm (`capture.ts:18, 207–217`).
-- [ ] Fetch marker noun `body`.
-- [ ] Test churn: recorded per test (pins at `test/kernel/capture.test.ts:345,360,399,432`
-      move; truncation tests asserting old inline behavior move).
-- [ ] Commit per item or coherent group; Fable review pass at P1 end.
+- [x] `value_get` over-budget error routed through `fail()` (redacted like every path).
+- [x] `glob`: `captureSource` (the listing) + `CAPTURE_PRIMITIVE_NAMES` entry +
+      `summarizeArgs` pattern arm; withCapture provenance test.
+- [x] Fetch marker noun `body` (in the gate).
+- [x] Test churn recorded (4 capture.test.ts pins + allow-list pin 4→5).
+- [ ] Fable review pass at P1 end.
 
 ## P2 — delegation + cell + prove
 

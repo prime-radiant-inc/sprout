@@ -187,9 +187,7 @@ export function createPrimitiveRegistry(
 				}
 				const reason = err instanceof Error ? err.message : String(err);
 				const legacyDropped =
-					legacy.droppedLines > 0
-						? `${legacy.droppedLines} lines`
-						: `${legacy.droppedChars} chars`;
+					legacy.droppedLines > 0 ? `${legacy.droppedLines} lines` : `${legacy.droppedChars} chars`;
 				const marker = captureMarker(
 					legacyDropped,
 					reason.includes("store full")
@@ -734,7 +732,12 @@ function globPrimitive(): Primitive {
 		async execute(args, env) {
 			try {
 				const files = await env.glob(args.pattern as string, args.path as string | undefined);
-				return { output: files.join("\n"), success: true };
+				const listing = files.join("\n");
+				return {
+					output: listing,
+					success: true,
+					captureSource: { content: listing, type: "text" as const },
+				};
 			} catch (err) {
 				return { output: "", success: false, error: String(err) };
 			}

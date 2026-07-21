@@ -157,13 +157,14 @@ function valueGetPrimitive(store: StoreAccess): Primitive {
 			} catch (err) {
 				const message = err instanceof Error ? err.message : String(err);
 				if (message.includes("exceeds read budget")) {
-					return {
-						output: "",
-						success: false,
-						error:
+					// Through fail() like every error path: the store's message can
+					// embed value content, so it must be redacted.
+					return fail(
+						new Error(
 							`Value is over the ${VALUE_GET_CHAR_BUDGET}-char value_get budget (${message}). ` +
-							"Use value_slice to read a line range or value_grep to search it instead.",
-					};
+								"Use value_slice to read a line range or value_grep to search it instead.",
+						),
+					);
 				}
 				return fail(err);
 			}

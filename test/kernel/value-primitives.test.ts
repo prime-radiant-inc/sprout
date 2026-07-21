@@ -127,6 +127,19 @@ describe("value primitives", () => {
 		expect(result.error).toContain("value_grep");
 	});
 
+	it("value_get over-budget errors are redacted like every other error path", async () => {
+		const store = fakeStore({});
+		store.get = async () => {
+			throw new Error("value 'token: hunter2secretvalue' exceeds read budget: 60000 > 50000");
+		};
+		const prim = buildValuePrimitives(store).find((p) => p.name === "value_get")!;
+		const result = await prim.execute({ ref: "big" }, env);
+		expect(result.success).toBe(false);
+		expect(result.error).toContain("value_slice");
+		expect(result.error).toContain("[REDACTED_SECRET]");
+		expect(result.error).not.toContain("hunter2secretvalue");
+	});
+
 	it("redacts secrets in every output path", async () => {
 		const body = `token line\napi_key=${FAKE_SECRET}\ntail`;
 		const { byName } = prims({ leaky: body });
