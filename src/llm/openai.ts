@@ -101,6 +101,10 @@ export class OpenAIAdapter implements ProviderAdapter {
 		const stream = (await this.client.chat.completions.create({
 			...params,
 			stream: true,
+			// Spec-conforming servers (vLLM et al.) send no usage on streamed
+			// responses unless asked — without this, cost accounting and the
+			// compaction threshold read zero on streamed runs.
+			stream_options: { include_usage: true },
 		} as any)) as unknown as AsyncIterable<any>;
 
 		yield { type: "stream_start" };

@@ -236,6 +236,38 @@ describe("OpenAIAdapter", () => {
 		expect(finish?.usage?.output_tokens).toBe(1);
 	});
 
+	test("streaming requests ask for usage via stream_options", async () => {
+		// Spec-conforming servers (e.g. vLLM) send NO usage on streamed
+		// responses unless stream_options.include_usage is set — leaving cost
+		// accounting and threshold compaction reading zero on streamed runs.
+		const adapter = new OpenAIAdapter("unused", {
+			providerId: "ollama",
+			kind: "openai-compatible",
+			baseUrl: "http://127.0.0.1:11434/v1",
+		});
+		let captured: any;
+		(adapter as any).client = {
+			chat: {
+				completions: {
+					create: async function* (params: any) {
+						captured = params;
+						yield { choices: [{ delta: {}, finish_reason: "stop" }] };
+					},
+				},
+			},
+		};
+
+		for await (const _event of adapter.stream({
+			model: "qwen",
+			messages: [{ role: "user", content: [{ kind: ContentKind.TEXT, text: "hi" }] }],
+		})) {
+			// drain
+		}
+
+		expect(captured.stream).toBe(true);
+		expect(captured.stream_options).toEqual({ include_usage: true });
+	});
+
 	test("chat-completions complete keeps length when a tool call is truncated", async () => {
 		const adapter = new OpenAIAdapter("unused", {
 			providerId: "lmstudio",
