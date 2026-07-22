@@ -19,6 +19,7 @@
  *   worker → parent: { id, op: "result", ok, output, returnValue?, error? }
  */
 
+import { LineBuffer } from "../util/line-buffer.ts";
 import type { WorkerProgram } from "./cell-bootstrap.ts";
 import { type CellEngine, type CellLimits, createCellEngine } from "./cell-engine.ts";
 
@@ -265,18 +266,12 @@ export async function runCellWorker(input: RunCellWorkerInput): Promise<void> {
 		}
 	}
 
-	const decoder = new TextDecoder();
-	let buffered = "";
+	const buffer = new LineBuffer();
 	for await (const chunk of input.lines) {
-		buffered += typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true });
-		let newline = buffered.indexOf("\n");
-		while (newline !== -1) {
-			handleLine(buffered.slice(0, newline));
-			buffered = buffered.slice(newline + 1);
-			newline = buffered.indexOf("\n");
-		}
+		for (const line of buffer.push(chunk)) handleLine(line);
 	}
-	if (buffered.length > 0) handleLine(buffered);
+	const tail = buffer.takePending();
+	if (tail.length > 0) handleLine(tail);
 }
 
 /** Subprocess entry: serve real stdio until the parent's pipe closes. */

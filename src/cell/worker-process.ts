@@ -4,6 +4,7 @@
  * owns lifecycle and policy.
  */
 import { readFile } from "node:fs/promises";
+import { LineBuffer } from "../util/line-buffer.ts";
 import { buildInternalSproutCommand } from "../util/self-command.ts";
 
 /** Minimal worker process surface — real Bun.spawn or an in-process test fake. */
@@ -51,16 +52,9 @@ export function spawnCellWorkerProcess(cmd?: string[]): CellWorkerProcessHandle 
 	let lineHandler: (line: string) => void = () => {};
 	let exitHandler: () => void = () => {};
 	void (async () => {
-		const decoder = new TextDecoder();
-		let buffered = "";
+		const buffer = new LineBuffer();
 		for await (const chunk of proc.stdout) {
-			buffered += decoder.decode(chunk, { stream: true });
-			let newline = buffered.indexOf("\n");
-			while (newline !== -1) {
-				lineHandler(buffered.slice(0, newline));
-				buffered = buffered.slice(newline + 1);
-				newline = buffered.indexOf("\n");
-			}
+			for (const line of buffer.push(chunk)) lineHandler(line);
 		}
 	})();
 	void proc.exited.then(() => exitHandler());

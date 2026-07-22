@@ -10,13 +10,15 @@
  * crosses as base64, marked by an `encoding` field on the wire.
  */
 
+import { LineBuffer } from "../util/line-buffer.ts";
 import { ContentStore } from "./cas.ts";
 import { SessionJournal } from "./journal.ts";
 import { type BindArgs, SapStore, type SapStoreOptions } from "./store.ts";
+import { decodeContent, encodeContent, encodingFor, type WireEncoding } from "./store-codec.ts";
 import type { ValueMetadata, ValueProvenance, ValueType } from "./value.ts";
 
 /** How value content crosses the wire: utf8 passthrough or base64 for bytes. */
-export type WireEncoding = "utf8" | "base64";
+export type { WireEncoding } from "./store-codec.ts";
 
 export type StoreWorkerRequest =
 	| { id: string; op: "createScope"; scopeId: string; ownerHandleId: string; parentScopeId: string }
@@ -81,15 +83,12 @@ export interface WireBody {
 }
 
 export function encodeWireContent(bytes: Uint8Array, type: ValueType): WireBody {
-	return type === "bytes"
-		? { content: Buffer.from(bytes).toString("base64"), encoding: "base64" }
-		: { content: new TextDecoder().decode(bytes), encoding: "utf8" };
+	const encoding = encodingFor(type);
+	return { content: encodeContent(bytes, encoding), encoding };
 }
 
 export function decodeWireContent(content: string, encoding: WireEncoding): Uint8Array {
-	return encoding === "base64"
-		? new Uint8Array(Buffer.from(content, "base64"))
-		: new TextEncoder().encode(content);
+	return decodeContent(content, encoding);
 }
 
 export interface RunStoreWorkerInput {
@@ -114,21 +113,16 @@ export interface RunStoreWorkerInput {
 const MAX_REQUEST_LINE_BYTES = 64 * 1024 * 1024;
 
 export async function runStoreWorker(input: RunStoreWorkerInput): Promise<void> {
-	const decoder = new TextDecoder();
-	let buffered = "";
+	const buffer = new LineBuffer();
 	for await (const chunk of input.lines) {
-		buffered += typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true });
-		if (buffered.indexOf("\n") === -1 && buffered.length > MAX_REQUEST_LINE_BYTES) {
-			buffered = "";
+		const lines = buffer.push(chunk);
+		if (lines.length === 0 && buffer.pendingLength > MAX_REQUEST_LINE_BYTES) {
+			buffer.discardPending();
 			continue;
 		}
-		let newline = buffered.indexOf("\n");
-		while (newline !== -1) {
-			const line = buffered.slice(0, newline);
-			buffered = buffered.slice(newline + 1);
+		for (const line of lines) {
 			const response = await handleRequestLine(input.store, line);
 			if (response !== undefined) input.write(JSON.stringify(response));
-			newline = buffered.indexOf("\n");
 		}
 	}
 }

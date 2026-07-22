@@ -9,6 +9,7 @@
  * a stumble.
  */
 
+import { LineBuffer } from "../util/line-buffer.ts";
 import { buildInternalSproutCommand } from "../util/self-command.ts";
 import { ulid } from "../util/ulid.ts";
 import type { BindArgs, GrepResult, ManifestDelta, SapStoreOptions } from "./store.ts";
@@ -396,16 +397,9 @@ function spawnStoreWorkerProcess(init: StoreWorkerClientInit): StoreWorkerHandle
 	let exitHandler: () => void = () => {};
 	// Reassemble stdout into lines for the response handler.
 	void (async () => {
-		const decoder = new TextDecoder();
-		let buffered = "";
+		const buffer = new LineBuffer();
 		for await (const chunk of proc.stdout) {
-			buffered += decoder.decode(chunk, { stream: true });
-			let newline = buffered.indexOf("\n");
-			while (newline !== -1) {
-				lineHandler(buffered.slice(0, newline));
-				buffered = buffered.slice(newline + 1);
-				newline = buffered.indexOf("\n");
-			}
+			for (const line of buffer.push(chunk)) lineHandler(line);
 		}
 	})();
 	void proc.exited.then(() => exitHandler());

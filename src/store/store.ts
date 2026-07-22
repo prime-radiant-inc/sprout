@@ -13,8 +13,10 @@ import {
 	type GrantRecord,
 	INLINE_BODY_LIMIT,
 	type JournalBody,
+	type JournalRecord,
 	type SessionJournal,
 } from "./journal.ts";
+import { decodeContent, encodeContent, encodingFor } from "./store-codec.ts";
 import {
 	computePreview,
 	NAME_MAX_LENGTH,
@@ -291,8 +293,7 @@ export class SapStore {
 			ownerHandleId: args.ownerHandleId,
 			parentScopeId: args.parentScopeId,
 		};
-		await this.journal.append(record);
-		await this.chargeJournalBytes([record]);
+		await this.appendAndCharge(record);
 		this.scopes.set(args.scopeId, { names: new Map(), valueCount: 0 });
 	}
 
@@ -412,8 +413,7 @@ export class SapStore {
 				ulids: [entry.metadata.ulid],
 				seq,
 			};
-			await this.journal.append(record);
-			await this.chargeJournalBytes([record]);
+			await this.appendAndCharge(record);
 			this.recordPublish(scopeId, seq, [entry.metadata.ulid]);
 		});
 	}
@@ -444,8 +444,7 @@ export class SapStore {
 					? { error: redactSensitiveTranscriptContent(args.error) }
 					: {}),
 			};
-			await this.journal.append(record);
-			await this.chargeJournalBytes([record]);
+			await this.appendAndCharge(record);
 		});
 	}
 
@@ -546,8 +545,7 @@ export class SapStore {
 					throughPublishSeq: throughSeq,
 				},
 			];
-			await this.journal.append(records);
-			await this.chargeJournalBytes(records);
+			await this.appendAndCharge(records);
 			for (const d of delivered) {
 				scope.names.set(d.name, {
 					explicit: false,
@@ -609,8 +607,7 @@ export class SapStore {
 				alias: args.alias,
 				ulid: entry.metadata.ulid,
 			};
-			await this.journal.append(record);
-			await this.chargeJournalBytes([record]);
+			await this.appendAndCharge(record);
 			this.pendingEnvGrants.set(envGrantKey(args.recipientHandle, args.alias), {
 				ulid: entry.metadata.ulid,
 				sender: args.senderScopeId,
@@ -657,8 +654,7 @@ export class SapStore {
 				ulid: args.ulid,
 				via: "env",
 			};
-			await this.journal.append(record);
-			await this.chargeJournalBytes([record]);
+			await this.appendAndCharge(record);
 			scope.names.set(args.alias, {
 				explicit: true,
 				agentHandleId: pending.sender,
@@ -873,6 +869,12 @@ export class SapStore {
 		}
 	}
 
+	/** Journal record(s) durably, then charge them to the disk quota. */
+	private async appendAndCharge(records: JournalRecord | JournalRecord[]): Promise<void> {
+		await this.journal.append(records);
+		await this.chargeJournalBytes(Array.isArray(records) ? records : [records]);
+	}
+
 	/**
 	 * Count journaled records toward the session disk quota — publishes,
 	 * grants, scopes, and delivery cursors grow the journal exactly like binds.
@@ -949,7 +951,7 @@ function deliveryCursorKey(publisherHandle: string, recipientScopeId: string): s
 
 /** Inline journal encoding: utf8 passthrough for text/json, base64 for bytes. */
 function encodeInline(bytes: Uint8Array, type: ValueType): string {
-	return type === "bytes" ? Buffer.from(bytes).toString("base64") : new TextDecoder().decode(bytes);
+	return encodeContent(bytes, encodingFor(type));
 }
 
 /**
@@ -968,9 +970,7 @@ function inlineEncodable(bytes: Uint8Array, type: ValueType): boolean {
 }
 
 function decodeInline(inline: string, type: ValueType): Uint8Array {
-	return type === "bytes"
-		? new Uint8Array(Buffer.from(inline, "base64"))
-		: new TextEncoder().encode(inline);
+	return decodeContent(inline, encodingFor(type));
 }
 
 /**
