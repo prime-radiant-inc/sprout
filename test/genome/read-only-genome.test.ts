@@ -7,6 +7,7 @@ import type { Genome } from "../../src/genome/genome.ts";
 import { memoryIndexPath } from "../../src/genome/index-builder.ts";
 import { createReadOnlyGenome } from "../../src/genome/read-only-genome.ts";
 import type { MemorySegment } from "../../src/genome/segments.ts";
+import { seedMemories } from "../helpers/genome-seed.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
 
 describe("createReadOnlyGenome", () => {
@@ -94,11 +95,8 @@ describe("createReadOnlyGenome", () => {
 			source: "session-collapse",
 		};
 
-		expect(() => readOnlyGenome.addMemory(memory)).toThrow("read-only genome");
-		expect(() => readOnlyGenome.addMemories([memory], "blocked")).toThrow("read-only genome");
 		expect(() => readOnlyGenome.stageMemoryForMutation(memory)).toThrow("read-only genome");
 		expect(() => readOnlyGenome.saveMemoryMutation("blocked")).toThrow("read-only genome");
-		expect(() => readOnlyGenome.addSegment(segment)).toThrow("read-only genome");
 		expect(() => readOnlyGenome.addSegmentWithMemories(segment, [memory])).toThrow(
 			"read-only genome",
 		);
@@ -111,7 +109,6 @@ describe("createReadOnlyGenome", () => {
 		).toThrow("read-only genome");
 		expect(() => readOnlyGenome.memories.stage(memory)).toThrow("read-only genome");
 		expect(() => readOnlyGenome.memories.mergeLatestFromDisk()).toThrow("read-only genome");
-		expect(() => readOnlyGenome.segments.add(segment)).toThrow("read-only genome");
 		expect(() => readOnlyGenome.segments.stage(segment)).toThrow("read-only genome");
 	});
 
@@ -180,7 +177,7 @@ describe("createReadOnlyGenome", () => {
 
 	test("searchMemories does not rebuild a missing derived index", async () => {
 		const now = Date.now();
-		await genome.addMemory({
+		await seedMemories(genome, {
 			id: "memory-readonly-search",
 			content: "Read-only search should not rebuild the memory index.",
 			tags: ["memory"],

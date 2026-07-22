@@ -1,10 +1,6 @@
-import { type ResolverSettings, resolveMemoryModel } from "../agents/model-resolver.ts";
 import type { EntityAliasEntry, EntityLinkEntry, Memory } from "../kernel/types.ts";
-import type { Client } from "../llm/client.ts";
-import { Msg, messageText, type ProviderModel } from "../llm/types.ts";
 import { trigramDiceSimilarity } from "./dedup.ts";
 import type { Genome } from "./genome.ts";
-import { repairJson, stripCodeFence } from "./llm-json.ts";
 import { isActiveMemoryForRecall } from "./memory-lifecycle.ts";
 import type { ProjectActivityRecord } from "./projects.ts";
 
@@ -40,20 +36,6 @@ export interface EntityGcDecision {
 		name: string;
 	}>;
 	reasoning: string;
-}
-
-export interface EntityGcReviewRequest {
-	group: EntityGcGroup;
-	prompt: string;
-	client: Client;
-	model: string;
-	provider: string;
-	maxTokens?: number;
-}
-
-export interface EntityGcSettingsRequest extends Omit<EntityGcReviewRequest, "model" | "provider"> {
-	resolverSettings: ResolverSettings;
-	modelsByProvider: Map<string, ProviderModel[]>;
 }
 
 export interface EntityGcApplyResult {
@@ -127,104 +109,6 @@ export function discoverEntityGcGroups(
 				b.score - a.score || b.candidates.length - a.candidates.length || a.id.localeCompare(b.id),
 		)
 		.slice(0, options.limit ?? groups.length);
-}
-
-export async function requestEntityGcDecision(
-	request: EntityGcReviewRequest,
-): Promise<EntityGcDecision> {
-	const response = await request.client.complete({
-		model: request.model,
-		provider: request.provider,
-		messages: [Msg.system(request.prompt), Msg.user(renderEntityGcReviewUserPrompt(request.group))],
-		temperature: 0,
-		max_tokens: request.maxTokens ?? 700,
-		metadata: { purpose: "memory.entityGc" },
-	});
-	return normalizeEntityGcDecisionPayload(request.group, messageText(response.message));
-}
-
-export async function requestEntityGcDecisionWithSettings(
-	request: EntityGcSettingsRequest,
-): Promise<EntityGcDecision> {
-	const model = resolveMemoryModel("entityGc", request.resolverSettings, request.modelsByProvider);
-	return requestEntityGcDecision({ ...request, model: model.model, provider: model.provider });
-}
-
-export function renderEntityGcReviewUserPrompt(group: EntityGcGroup): string {
-	const candidates = group.candidates
-		.map((entity) =>
-			[
-				`- uuid: ${entity.uuid}`,
-				`  name: ${JSON.stringify(entity.name)}`,
-				`  count: ${entity.count}`,
-				`  memories: ${entity.memory_ids.join(", ")}`,
-			].join("\n"),
-		)
-		.join("\n");
-	return `Review these same-type entity names for alias consolidation. Merge only if the names refer to the same real project/library/file/command/error/technology/person.
-
-Entity type: ${group.type}
-Suggested canonical: ${group.canonical.uuid} (${JSON.stringify(group.canonical.name)})
-Similarity score: ${group.score.toFixed(3)}
-
-Candidates:
-${candidates}
-
-Return only JSON:
-{"action":"merge","canonical":{"uuid":"${group.canonical.uuid}","name":${JSON.stringify(group.canonical.name)}},"aliases":[{"uuid":"alias_uuid","name":"Alias Name"}],"reasoning":"why these are aliases"}
-
-or
-
-{"action":"reject","reasoning":"why these should remain separate"}`;
-}
-
-export function normalizeEntityGcDecisionPayload(
-	group: EntityGcGroup,
-	text: string,
-): EntityGcDecision {
-	const parsed = parseJsonObject(text);
-	const action = parsed.action;
-	if (action !== "merge" && action !== "reject") {
-		throw new Error("Entity GC decision must have action 'merge' or 'reject'");
-	}
-	const reasoning = typeof parsed.reasoning === "string" ? parsed.reasoning.trim() : "";
-	if (!reasoning) throw new Error("Entity GC decision missing reasoning");
-	if (action === "reject") return { action, reasoning };
-
-	const canonicalRecord = isRecord(parsed.canonical) ? parsed.canonical : {};
-	const canonical = {
-		uuid:
-			typeof canonicalRecord.uuid === "string" && canonicalRecord.uuid.trim()
-				? canonicalRecord.uuid.trim()
-				: group.canonical.uuid,
-		name:
-			typeof canonicalRecord.name === "string" && canonicalRecord.name.trim()
-				? canonicalRecord.name.trim()
-				: group.canonical.name,
-	};
-	const candidateKeys = new Set(group.candidates.map((candidate) => candidate.uuid));
-	if (!candidateKeys.has(canonical.uuid)) {
-		throw new Error("Entity GC merge decision canonical is not in the candidate group");
-	}
-	const aliases = Array.isArray(parsed.aliases)
-		? parsed.aliases
-				.filter(isRecord)
-				.map((alias) => ({
-					uuid: typeof alias.uuid === "string" ? alias.uuid.trim() : "",
-					name: typeof alias.name === "string" ? alias.name.trim() : "",
-				}))
-				.filter(
-					(alias) =>
-						alias.uuid &&
-						alias.name &&
-						alias.uuid !== canonical.uuid &&
-						candidateKeys.has(alias.uuid),
-				)
-		: group.candidates
-				.filter((candidate) => candidate.uuid !== canonical.uuid)
-				.map((candidate) => ({ uuid: candidate.uuid, name: candidate.name }));
-	if (aliases.length === 0) throw new Error("Entity GC merge decision has no aliases");
-	return { action, canonical, aliases, reasoning };
 }
 
 export async function applyEntityGcDecision(
@@ -475,17 +359,6 @@ function find(parent: Map<string, string>, id: string): string {
 	const root = find(parent, current);
 	parent.set(id, root);
 	return root;
-}
-
-function parseJsonObject(text: string): Record<string, unknown> {
-	const stripped = stripCodeFence(text.trim());
-	const parsed = JSON.parse(repairJson(stripped));
-	if (!isRecord(parsed)) throw new Error("Expected JSON object");
-	return parsed;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function slug(value: string): string {

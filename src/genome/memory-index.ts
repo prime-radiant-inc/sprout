@@ -7,7 +7,8 @@ import { MEMORY_SCHEMA_VERSION, normalizeMemory } from "./memory-schema.ts";
 import type { MemorySegment } from "./segments.ts";
 import { normalizeSegment } from "./segments.ts";
 
-const INDEX_SCHEMA_VERSION = 3;
+// v4: dropped the write-only annotations/projects tables (never read).
+const INDEX_SCHEMA_VERSION = 4;
 const VECTOR_DIMENSIONS = 768;
 const DEFAULT_MIN_VECTOR_SIMILARITY = 0.42;
 const RRF_K = 60;
@@ -267,22 +268,6 @@ export class MemoryIndex {
 				PRIMARY KEY (source_id, target_id, type)
 			)
 		`);
-		this.db.run(`
-			CREATE TABLE IF NOT EXISTS annotations (
-				memory_id TEXT NOT NULL,
-				text TEXT NOT NULL,
-				source TEXT NOT NULL,
-				created_at INTEGER NOT NULL
-			)
-		`);
-		this.db.run(`
-			CREATE TABLE IF NOT EXISTS projects (
-				id TEXT PRIMARY KEY,
-				name TEXT NOT NULL,
-				cumulative_active_days INTEGER NOT NULL DEFAULT 0,
-				last_active_date TEXT
-			)
-		`);
 		this.db.run(
 			"INSERT OR REPLACE INTO memory_index_meta (key, value) VALUES ('schema_version', ?)",
 			[String(INDEX_SCHEMA_VERSION)],
@@ -386,9 +371,6 @@ export class MemoryIndex {
 				created_at
 			) VALUES (?, ?, ?, ?, ?)`,
 		);
-		const insertAnnotation = this.db.prepare(
-			"INSERT INTO annotations (memory_id, text, source, created_at) VALUES (?, ?, ?, ?)",
-		);
 
 		const run = this.db.transaction(
 			(input: { memories: readonly Memory[]; segments: readonly MemorySegment[] }) => {
@@ -430,14 +412,6 @@ export class MemoryIndex {
 					}
 					for (const link of memory.inbound_links ?? []) {
 						insertLink.run(link.uuid, memory.id, link.type, link.reasoning, link.created_at);
-					}
-					for (const annotation of memory.annotations ?? []) {
-						insertAnnotation.run(
-							memory.id,
-							annotation.text,
-							annotation.source,
-							annotation.created_at,
-						);
 					}
 				}
 				for (const entity of entityRows) {
@@ -679,7 +653,6 @@ export class MemoryIndex {
 		this.db.run("DELETE FROM entities_fts");
 		this.db.run("DELETE FROM memory_entities");
 		this.db.run("DELETE FROM memory_links");
-		this.db.run("DELETE FROM annotations");
 	}
 
 	private count(table: string): number {

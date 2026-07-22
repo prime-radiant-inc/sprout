@@ -2,19 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createResolverSettings } from "../../src/agents/model-resolver.ts";
 import { type Genome, git } from "../../src/genome/genome.ts";
 import {
 	applyMemoryMaintenanceDecisions,
 	discoverMemoryMaintenancePlan,
 	parseMemoryMaintenanceDecisionFile,
 	renderMemoryMaintenancePlan,
-	reviewMemoryMaintenancePlanWithSettings,
 } from "../../src/genome/maintenance.ts";
 import type { Memory } from "../../src/kernel/types.ts";
-import type { Client } from "../../src/llm/client.ts";
-import type { Request, Response } from "../../src/llm/types.ts";
-import { Msg } from "../../src/llm/types.ts";
+import { seedMemories } from "../helpers/genome-seed.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
 
 function memory(overrides: Partial<Memory> = {}): Memory {
@@ -69,15 +65,14 @@ describe("memory maintenance operator flow", () => {
 			const genome = createTestGenome(root);
 			await genome.init();
 			recordActiveDays(genome);
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({
 					id: "memory-a",
 					content: "Sprout memory uses SQLite.",
 					project_ids: ["sprout"],
 					entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
 				}),
-			);
-			await genome.addMemory(
 				memory({
 					id: "memory-b",
 					content: "Sprout memory uses SQLite.",
@@ -98,109 +93,20 @@ describe("memory maintenance operator flow", () => {
 		}
 	});
 
-	test("configured maintenance models review discovered consolidation and entity GC candidates", async () => {
-		const root = await mkdtemp(join(tmpdir(), "sprout-maintenance-review-"));
-		try {
-			const genome = createTestGenome(root);
-			await genome.init();
-			recordActiveDays(genome);
-			await genome.addMemory(
-				memory({
-					id: "memory-a",
-					content: "Sprout memory uses SQLite.",
-					project_ids: ["sprout"],
-					entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
-				}),
-			);
-			await genome.addMemory(
-				memory({
-					id: "memory-b",
-					content: "Sprout memory uses SQLite.",
-					project_ids: ["sprout"],
-					entity_links: [{ uuid: "entity_sprout_alias", type: "PROJECT", name: "sprout" }],
-				}),
-			);
-			const captured: Request[] = [];
-			const client = {
-				providers: () => ["openrouter"],
-				complete: async (request: Request): Promise<Response> => {
-					captured.push(request);
-					return {
-						id: "maintenance-review",
-						model: request.model,
-						provider: request.provider ?? "openrouter",
-						message: Msg.assistant(
-							JSON.stringify({
-								action: "reject",
-								reasoning: "The candidates should remain separate.",
-							}),
-						),
-						finish_reason: { reason: "stop" },
-						usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
-					};
-				},
-			} as unknown as Client;
-
-			const decisions = await reviewMemoryMaintenancePlanWithSettings({
-				plan: discoverMemoryMaintenancePlan(genome),
-				client,
-				resolverSettings: createResolverSettings(
-					[{ id: "openrouter", enabled: true }],
-					{},
-					{
-						consolidation: {
-							providerId: "openrouter",
-							modelId: "consolidation-model",
-						},
-						entityGc: {
-							providerId: "openrouter",
-							modelId: "entity-gc-model",
-						},
-					},
-				),
-				modelsByProvider: new Map([
-					[
-						"openrouter",
-						[
-							{ id: "consolidation-model", label: "Consolidation", source: "remote" },
-							{ id: "entity-gc-model", label: "Entity GC", source: "remote" },
-						],
-					],
-				]),
-				consolidationPrompt: "consolidate",
-				entityGcPrompt: "entity gc",
-			});
-
-			expect(decisions.consolidations).toHaveLength(1);
-			expect(decisions.entity_gc).toHaveLength(1);
-			expect(captured.map((request) => request.metadata?.purpose)).toEqual([
-				"memory.consolidation",
-				"memory.entityGc",
-			]);
-			expect(captured.map((request) => request.model)).toEqual([
-				"consolidation-model",
-				"entity-gc-model",
-			]);
-		} finally {
-			await rm(root, { recursive: true, force: true });
-		}
-	});
-
 	test("dry run skips projects before their active-day cadence", async () => {
 		const root = await mkdtemp(join(tmpdir(), "sprout-maintenance-not-due-"));
 		try {
 			const genome = createTestGenome(root);
 			await genome.init();
 			recordActiveDays(genome, "sprout", 13);
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({
 					id: "memory-a",
 					content: "Sprout memory uses SQLite.",
 					project_ids: ["sprout"],
 					entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
 				}),
-			);
-			await genome.addMemory(
 				memory({
 					id: "memory-b",
 					content: "Sprout memory uses SQLite.",
@@ -224,8 +130,11 @@ describe("memory maintenance operator flow", () => {
 			const genome = createTestGenome(root);
 			await genome.init();
 			recordActiveDays(genome);
-			await genome.addMemory(memory({ id: "global-a", content: "Global memory uses SQLite." }));
-			await genome.addMemory(memory({ id: "global-b", content: "Global memory uses SQLite." }));
+			await seedMemories(
+				genome,
+				memory({ id: "global-a", content: "Global memory uses SQLite." }),
+				memory({ id: "global-b", content: "Global memory uses SQLite." }),
+			);
 
 			const plan = discoverMemoryMaintenancePlan(genome, { includeEntityGc: false });
 
@@ -242,14 +151,13 @@ describe("memory maintenance operator flow", () => {
 			const genome = createTestGenome(root);
 			await genome.init();
 			recordActiveDays(genome, "sprout", 14);
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({
 					id: "old-a",
 					content: "Sprout memory uses SQLite.",
 					project_ids: ["sprout"],
 				}),
-			);
-			await genome.addMemory(
 				memory({
 					id: "old-b",
 					content: "Sprout memory uses SQLite.",
@@ -293,15 +201,14 @@ describe("memory maintenance operator flow", () => {
 			const genome = createTestGenome(root);
 			await genome.init();
 			recordActiveDays(genome);
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({
 					id: "old-a",
 					content: "Sprout memory uses SQLite.",
 					project_ids: ["sprout"],
 					entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
 				}),
-			);
-			await genome.addMemory(
 				memory({
 					id: "old-b",
 					content: "Sprout memory uses SQLite.",
@@ -353,14 +260,13 @@ describe("memory maintenance operator flow", () => {
 			const genome = createTestGenome(root);
 			await genome.init();
 			recordActiveDays(genome);
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({
 					id: "old-a",
 					content: "Sprout memory uses SQLite.",
 					project_ids: ["sprout"],
 				}),
-			);
-			await genome.addMemory(
 				memory({
 					id: "old-b",
 					content: "Sprout memory uses SQLite.",
@@ -408,14 +314,13 @@ describe("memory maintenance operator flow", () => {
 			const genome = createTestGenome(root);
 			await genome.init();
 			recordActiveDays(genome, "sprout", 14);
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({
 					id: "old-a",
 					content: "Sprout memory uses SQLite.",
 					project_ids: ["sprout"],
 				}),
-			);
-			await genome.addMemory(
 				memory({
 					id: "old-b",
 					content: "Sprout memory uses SQLite.",
@@ -474,14 +379,13 @@ describe("memory maintenance operator flow", () => {
 			const genome = createTestGenome(root);
 			await genome.init();
 			recordActiveDays(genome);
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({
 					id: "old-a",
 					content: "Sprout memory uses SQLite.",
 					project_ids: ["sprout"],
 				}),
-			);
-			await genome.addMemory(
 				memory({
 					id: "old-b",
 					content: "Sprout memory uses SQLite.",
@@ -523,15 +427,14 @@ describe("memory maintenance operator flow", () => {
 			const genome = createTestGenome(root);
 			await genome.init();
 			recordActiveDays(genome);
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({
 					id: "manual-a",
 					content: "Sprout memory uses SQLite.",
 					source: "manual",
 					project_ids: ["sprout"],
 				}),
-			);
-			await genome.addMemory(
 				memory({
 					id: "manual-b",
 					content: "Sprout memory uses SQLite.",
@@ -575,14 +478,13 @@ describe("memory maintenance operator flow", () => {
 			const genome = createTestGenome(root);
 			await genome.init();
 			recordActiveDays(genome);
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({
 					id: "entity-a",
 					project_ids: ["sprout"],
 					entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
 				}),
-			);
-			await genome.addMemory(
 				memory({
 					id: "entity-b",
 					project_ids: ["sprout"],
@@ -616,14 +518,13 @@ describe("memory maintenance operator flow", () => {
 			const genome = createTestGenome(root);
 			await genome.init();
 			recordActiveDays(genome);
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({
 					id: "entity-a",
 					project_ids: ["sprout"],
 					entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
 				}),
-			);
-			await genome.addMemory(
 				memory({
 					id: "entity-b",
 					project_ids: ["sprout"],
@@ -658,14 +559,64 @@ describe("memory maintenance operator flow", () => {
 		}
 	});
 
+	test("apply rejects entity-GC merges whose aliases repeat the canonical entity", async () => {
+		const root = await mkdtemp(join(tmpdir(), "sprout-maintenance-entity-gc-alias-canonical-"));
+		try {
+			const genome = createTestGenome(root);
+			await genome.init();
+			recordActiveDays(genome);
+			await seedMemories(
+				genome,
+				memory({
+					id: "entity-a",
+					project_ids: ["sprout"],
+					entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
+				}),
+				memory({
+					id: "entity-b",
+					project_ids: ["sprout"],
+					entity_links: [{ uuid: "entity_sprout_alias", type: "PROJECT", name: "sprout" }],
+				}),
+			);
+			const plan = discoverMemoryMaintenancePlan(genome, { includeConsolidation: false });
+			const group = plan.entityGcGroups[0]!;
+			const head = await git(root, "rev-parse", "HEAD");
+
+			await expect(
+				applyMemoryMaintenanceDecisions(genome, plan, {
+					entity_gc: [
+						{
+							group_id: group.id,
+							action: "merge",
+							canonical: { uuid: "entity_sprout", name: "Sprout" },
+							aliases: [{ uuid: "entity_sprout", name: "Sprout" }],
+							reasoning: "Only capitalization differs.",
+						},
+					],
+				}),
+			).rejects.toThrow("matches canonical");
+
+			expect(genome.memories.getById("entity-b")?.entity_links?.[0]?.uuid).toBe(
+				"entity_sprout_alias",
+			);
+			expect(await git(root, "rev-parse", "HEAD")).toBe(head);
+			expect(await git(root, "status", "--porcelain")).toBe("");
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
 	test("apply marks and commits global maintenance cadence for unscoped memories", async () => {
 		const root = await mkdtemp(join(tmpdir(), "sprout-maintenance-global-apply-"));
 		try {
 			const genome = createTestGenome(root);
 			await genome.init();
 			recordActiveDays(genome);
-			await genome.addMemory(memory({ id: "global-a", content: "Global memory uses SQLite." }));
-			await genome.addMemory(memory({ id: "global-b", content: "Global memory uses SQLite." }));
+			await seedMemories(
+				genome,
+				memory({ id: "global-a", content: "Global memory uses SQLite." }),
+				memory({ id: "global-b", content: "Global memory uses SQLite." }),
+			);
 			const plan = discoverMemoryMaintenancePlan(genome, { includeEntityGc: false });
 			const cluster = plan.consolidationClusters[0]!;
 

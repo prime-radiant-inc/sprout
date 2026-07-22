@@ -12,6 +12,7 @@ import { memoryIndexPath } from "../../src/genome/index-builder.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { ProviderModel } from "../../src/llm/types.ts";
 import "../helpers/test-env.ts";
+import { seedMemories } from "../helpers/genome-seed.ts";
 import { buildTestResolverContext } from "../helpers/resolver-context.ts";
 
 function createFactoryTestClient(): Client {
@@ -279,7 +280,7 @@ describe("createAgent", () => {
 		await genome.init();
 		await genome.initFromRoot();
 		const now = Date.now();
-		await genome.addMemory({
+		await seedMemories(genome, {
 			id: "eval-readonly-index",
 			content: "Eval read-only recall should prebuild a missing memory index cache.",
 			tags: ["memory"],

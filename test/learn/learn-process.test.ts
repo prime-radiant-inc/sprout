@@ -14,6 +14,7 @@ import { MetricsStore } from "../../src/learn/metrics-store.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { ProviderModel, Request, Response } from "../../src/llm/types.ts";
 import { Msg, messageText } from "../../src/llm/types.ts";
+import { seedMemories } from "../helpers/genome-seed.ts";
 import { buildTestResolverContext } from "../helpers/resolver-context.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
 
@@ -435,7 +436,7 @@ describe("LearnProcess", () => {
 		});
 
 		// Add a memory
-		await genome.addMemory({
+		await seedMemories(genome, {
 			id: "mem-ctx-1",
 			content: "Always use --verbose flag",
 			tags: ["testing"],
@@ -781,7 +782,7 @@ OPENAI_API_KEY=sk-${"a".repeat(32)}`,
 			"extract-relationship",
 			client,
 		);
-		await genome.addMemory({
+		await seedMemories(genome, {
 			id: "stale-learn-auth",
 			content: "streamlinear uses Authorization: token header format.",
 			tags: ["streamlinear"],
@@ -833,7 +834,7 @@ OPENAI_API_KEY=sk-${"a".repeat(32)}`,
 			"extract-relationship-fails",
 			client,
 		);
-		await genome.addMemory({
+		await seedMemories(genome, {
 			id: "stale-learn-fail",
 			content: "streamlinear uses Authorization: token header format.",
 			tags: ["streamlinear"],

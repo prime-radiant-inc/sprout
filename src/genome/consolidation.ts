@@ -1,13 +1,8 @@
-import { type ResolverSettings, resolveMemoryModel } from "../agents/model-resolver.ts";
 import type { EntityLinkEntry, Memory, RelationshipType } from "../kernel/types.ts";
-import type { Client } from "../llm/client.ts";
-import { Msg, messageText, type ProviderModel } from "../llm/types.ts";
 import { ulid } from "../util/ulid.ts";
 import { trigramDiceSimilarity } from "./dedup.ts";
 import type { Genome } from "./genome.ts";
-import { repairJson, stripCodeFence } from "./llm-json.ts";
 import { isActiveMemoryForRecall } from "./memory-lifecycle.ts";
-import { isEntityType } from "./memory-schema.ts";
 import type { ProjectActivityRecord } from "./projects.ts";
 
 export type ConsolidationClusterReason = "exact" | "fuzzy" | "vector" | "link";
@@ -46,21 +41,6 @@ export interface ConsolidationDecision {
 	action: "merge" | "reject";
 	memory?: ConsolidationMemoryDraft;
 	reasoning: string;
-}
-
-export interface MemoryConsolidationRequest {
-	cluster: ConsolidationCluster;
-	prompt: string;
-	client: Client;
-	model: string;
-	provider: string;
-	maxTokens?: number;
-}
-
-export interface MemoryConsolidationSettingsRequest
-	extends Omit<MemoryConsolidationRequest, "model" | "provider"> {
-	resolverSettings: ResolverSettings;
-	modelsByProvider: Map<string, ProviderModel[]>;
 }
 
 export interface ConsolidationMergeResult {
@@ -195,112 +175,6 @@ export function estimateDuplicateRateAfterConsolidation(
 	}
 	const survivors = memories.filter((memory) => !removedIds.has(memory.id));
 	return estimateDuplicateRate(survivors, fuzzyThreshold);
-}
-
-export async function requestConsolidationDecision(
-	request: MemoryConsolidationRequest,
-): Promise<ConsolidationDecision> {
-	const response = await request.client.complete({
-		model: request.model,
-		provider: request.provider,
-		messages: [
-			Msg.system(request.prompt),
-			Msg.user(renderMemoryConsolidationUserPrompt(request.cluster)),
-		],
-		temperature: 0,
-		max_tokens: request.maxTokens ?? 900,
-		metadata: { purpose: "memory.consolidation" },
-	});
-	return normalizeConsolidationDecisionPayload(messageText(response.message));
-}
-
-export async function requestConsolidationDecisionWithSettings(
-	request: MemoryConsolidationSettingsRequest,
-): Promise<ConsolidationDecision> {
-	const model = resolveMemoryModel(
-		"consolidation",
-		request.resolverSettings,
-		request.modelsByProvider,
-	);
-	return requestConsolidationDecision({
-		...request,
-		model: model.model,
-		provider: model.provider,
-	});
-}
-
-export function renderMemoryConsolidationUserPrompt(cluster: ConsolidationCluster): string {
-	const memories = cluster.memories
-		.map((memory, index) =>
-			[
-				`MEMORY ${index + 1}`,
-				`id: ${memory.id}`,
-				`created: ${new Date(memory.created).toISOString()}`,
-				`confidence: ${memory.confidence}`,
-				`tags: ${memory.tags.join(", ")}`,
-				`projects: ${(memory.project_ids ?? []).join(", ")}`,
-				`text: ${JSON.stringify(memory.content)}`,
-			].join("\n"),
-		)
-		.join("\n\n");
-	return `Review this duplicate/supersession memory cluster. Merge only if one consolidated memory would preserve all durable facts without losing nuance. Reject if the memories should remain separate.
-
-Cluster reasons: ${cluster.reasons.join(", ")}
-Average score: ${cluster.score.toFixed(3)}
-Prior rejection count: ${cluster.rejection_count}
-
-${memories}
-
-Return only JSON:
-{"action":"merge","memory":{"text":"single consolidated durable memory","tags":["tag"],"entities":[{"name":"Sprout","type":"PROJECT"}],"confidence":0.9},"reasoning":"why this merge is safe"}
-
-or
-
-{"action":"reject","reasoning":"why these memories should remain separate"}`;
-}
-
-export function normalizeConsolidationDecisionPayload(text: string): ConsolidationDecision {
-	const parsed = parseJsonObject(text);
-	const action = parsed.action;
-	if (action !== "merge" && action !== "reject") {
-		throw new Error("Consolidation decision must have action 'merge' or 'reject'");
-	}
-	const reasoning = typeof parsed.reasoning === "string" ? parsed.reasoning.trim() : "";
-	if (!reasoning) throw new Error("Consolidation decision missing reasoning");
-	if (action === "reject") return { action, reasoning };
-
-	if (!isRecord(parsed.memory)) {
-		throw new Error("Merge consolidation decision missing memory object");
-	}
-	const textValue = typeof parsed.memory.text === "string" ? parsed.memory.text.trim() : "";
-	if (!textValue) throw new Error("Merge consolidation decision missing memory.text");
-	const tags = Array.isArray(parsed.memory.tags)
-		? parsed.memory.tags.filter((tag): tag is string => typeof tag === "string")
-		: [];
-	const entities = Array.isArray(parsed.memory.entities)
-		? parsed.memory.entities
-				.filter(isRecord)
-				.map((entity) => ({
-					name: String(entity.name ?? "").trim(),
-					type: entity.type as EntityLinkEntry["type"],
-					...(typeof entity.uuid === "string" ? { uuid: entity.uuid } : {}),
-				}))
-				.filter((entity) => entity.name && isEntityType(entity.type))
-		: [];
-	const confidence =
-		typeof parsed.memory.confidence === "number" && Number.isFinite(parsed.memory.confidence)
-			? Math.max(0, Math.min(1, parsed.memory.confidence))
-			: undefined;
-	return {
-		action,
-		reasoning,
-		memory: {
-			text: textValue,
-			tags,
-			...(entities.length > 0 ? { entities } : {}),
-			...(confidence !== undefined ? { confidence } : {}),
-		},
-	};
 }
 
 export async function applyConsolidationMerge(
@@ -510,17 +384,6 @@ function pairKey(leftId: string, rightId: string): string {
 
 function normalizeContent(value: string): string {
 	return value.toLowerCase().replace(/\s+/g, " ").trim();
-}
-
-function parseJsonObject(text: string): Record<string, unknown> {
-	const stripped = stripCodeFence(text.trim());
-	const parsed = JSON.parse(repairJson(stripped));
-	if (!isRecord(parsed)) throw new Error("Expected JSON object");
-	return parsed;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function entityUuid(type: EntityLinkEntry["type"], name: string): string {

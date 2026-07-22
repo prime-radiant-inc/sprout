@@ -22,6 +22,7 @@ import { loadManifest } from "../../src/genome/root-manifest.ts";
 import type { MemorySegment } from "../../src/genome/segments.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../../src/kernel/types.ts";
 import type { EmbeddingProvider } from "../../src/llm/embeddings.ts";
+import { seedMemories, seedSegment } from "../helpers/genome-seed.ts";
 import { makeSpec } from "../helpers/make-spec.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
 
@@ -388,7 +389,7 @@ describe("Genome", () => {
 			// Add some data
 			await genome.addAgent(makeSpec({ name: "loader-agent" }));
 			await genome.addRoutingRule(makeRule({ id: "loader-rule" }));
-			await genome.addMemory(makeMemory({ id: "loader-mem", content: "loaded memory" }));
+			await seedMemories(genome, makeMemory({ id: "loader-mem", content: "loaded memory" }));
 
 			// Create a fresh Genome pointing at the same dir and load
 			const genome2 = new Genome(root);
@@ -484,12 +485,12 @@ describe("Genome", () => {
 	// --- Memory CRUD via Genome tests ---
 
 	describe("memory CRUD", () => {
-		test("addMemory writes JSONL and commits", async () => {
+		test("staged memory mutation writes embedded JSONL and commits", async () => {
 			const root = join(tempDir, "mem-add");
 			const genome = await createInitializedGenome(root);
 
 			const mem = makeMemory({ id: "genome-mem-1", content: "important fact" });
-			await genome.addMemory(mem);
+			await seedMemories(genome, mem);
 
 			// Verify file exists
 			const content = await readFile(join(root, "memories", "memories.jsonl"), "utf-8");
@@ -500,8 +501,7 @@ describe("Genome", () => {
 			expect(parsed.embedding?.vector).toHaveLength(768);
 
 			// Git log
-			const log = await git(root, "log", "--oneline");
-			expect(log).toContain("genome: add memory 'genome-mem-1'");
+			expect(await git(root, "status", "--porcelain")).toBe("");
 
 			const index = MemoryIndex.open(memoryIndexPath(root));
 			try {
@@ -514,7 +514,7 @@ describe("Genome", () => {
 		test("retireMemory archives the memory with a reason and commits", async () => {
 			const root = join(tempDir, "mem-retire");
 			const genome = await createInitializedGenome(root);
-			await genome.addMemory(makeMemory({ id: "retire-me", content: "obsolete fact" }));
+			await seedMemories(genome, makeMemory({ id: "retire-me", content: "obsolete fact" }));
 
 			await genome.retireMemory("retire-me", "curator-retired");
 
@@ -533,111 +533,13 @@ describe("Genome", () => {
 			await expect(genome.retireMemory("no-such", "curator-retired")).rejects.toThrow("not found");
 		});
 
-		test("addMemories rolls back in-memory state when batch validation fails", async () => {
-			const root = join(tempDir, "mem-add-batch-rollback");
-			const genome = await createInitializedGenome(root);
-			const head = await git(root, "rev-parse", "HEAD");
-			const first = {
-				...makeMemory({ id: "batch-memory-a", content: "batch fact a" }),
-				short_id: "mem_batch",
-			};
-			const second = {
-				...makeMemory({ id: "batch-memory-b", content: "batch fact b" }),
-				short_id: "mem_batch",
-			};
-
-			await expect(
-				genome.addMemories([first, second], "genome: add invalid memory batch"),
-			).rejects.toThrow("short id collision");
-
-			expect(genome.memories.getById("batch-memory-a")).toBeUndefined();
-			expect(genome.memories.getById("batch-memory-b")).toBeUndefined();
-			expect(await readOptionalFile(join(root, "memories", "memories.jsonl"))).not.toContain(
-				"batch-memory",
-			);
-			expect(await git(root, "rev-parse", "HEAD")).toBe(head);
-			expect(await git(root, "status", "--porcelain")).toBe("");
-		});
-
-		test("addMemory restores JSONL when save fails after writing", async () => {
-			const root = join(tempDir, "mem-add-save-fails");
-			const genome = await createInitializedGenome(root);
-			const originalSave = genome.memories.save.bind(genome.memories);
-			genome.memories.save = async () => {
-				await originalSave();
-				throw new Error("memory save failed after write");
-			};
-
-			try {
-				await expect(
-					genome.addMemory(makeMemory({ id: "write-fail-memory", content: "will not persist" })),
-				).rejects.toThrow("memory save failed after write");
-			} finally {
-				genome.memories.save = originalSave;
-			}
-
-			expect(genome.memories.getById("write-fail-memory")).toBeUndefined();
-			expect(await readOptionalFile(join(root, "memories", "memories.jsonl"))).not.toContain(
-				"write-fail-memory",
-			);
-			expect(await git(root, "status", "--porcelain")).toBe("");
-		});
-
-		test("addMemory restores JSONL and index when commit fails after rebuild", async () => {
-			const root = join(tempDir, "mem-add-commit-fails");
-			const genome = await createInitializedGenome(root);
-			const hookPath = join(root, ".git", "hooks", "pre-commit");
-			await writeFile(hookPath, "#!/bin/sh\nexit 1\n");
-			await chmod(hookPath, 0o755);
-
-			await expect(
-				genome.addMemory(makeMemory({ id: "commit-fail-memory", content: "will not persist" })),
-			).rejects.toThrow("git commit");
-
-			expect(genome.memories.getById("commit-fail-memory")).toBeUndefined();
-			expect(await readOptionalFile(join(root, "memories", "memories.jsonl"))).not.toContain(
-				"commit-fail-memory",
-			);
-			expect(await git(root, "status", "--porcelain")).toBe("");
-			const index = MemoryIndex.open(memoryIndexPath(root));
-			try {
-				expect(index.stats().memoryCount).toBe(0);
-			} finally {
-				index.close();
-			}
-		});
-
-		test("addMemories restores JSONL when save fails after writing", async () => {
-			const root = join(tempDir, "mem-add-many-save-fails");
-			const genome = await createInitializedGenome(root);
-			const originalSave = genome.memories.save.bind(genome.memories);
-			genome.memories.save = async () => {
-				await originalSave();
-				throw new Error("memory batch save failed after write");
-			};
-
-			try {
-				await expect(
-					genome.addMemories(
-						[makeMemory({ id: "batch-write-fail", content: "will not persist" })],
-						"genome: add failing batch",
-					),
-				).rejects.toThrow("memory batch save failed after write");
-			} finally {
-				genome.memories.save = originalSave;
-			}
-
-			expect(genome.memories.getById("batch-write-fail")).toBeUndefined();
-			expect(await readOptionalFile(join(root, "memories", "memories.jsonl"))).not.toContain(
-				"batch-write-fail",
-			);
-			expect(await git(root, "status", "--porcelain")).toBe("");
-		});
-
 		test("searchMemories reuses a fresh derived index", async () => {
 			const root = join(tempDir, "mem-search-index-fresh");
 			const genome = await createInitializedGenome(root);
-			await genome.addMemory(makeMemory({ id: "indexed-memory", content: "SQLite recall fact" }));
+			await seedMemories(
+				genome,
+				makeMemory({ id: "indexed-memory", content: "SQLite recall fact" }),
+			);
 			const indexPath = memoryIndexPath(root);
 			const before = (await stat(indexPath)).mtimeMs;
 
@@ -655,7 +557,8 @@ describe("Genome", () => {
 			const writer = await createInitializedGenome(root);
 			const staleGenome = createTestGenome(root);
 			await staleGenome.loadFromDisk();
-			await writer.addMemory(
+			await seedMemories(
+				writer,
 				makeMemory({ id: "fresh-recall-memory", content: "Fresh SQLite recall fact" }),
 			);
 
@@ -667,10 +570,9 @@ describe("Genome", () => {
 		test("searchMemories excludes superseded recall candidates", async () => {
 			const root = join(tempDir, "mem-search-superseded");
 			const genome = await createInitializedGenome(root);
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				makeMemory({ id: "old-memory", content: "Obsolete SQLite recall decision" }),
-			);
-			await genome.addMemory(
 				makeMemory({ id: "new-memory", content: "Current memory decision uses SQLite recall" }),
 			);
 			const oldMemory = genome.memories.getById("old-memory")!;
@@ -694,7 +596,7 @@ describe("Genome", () => {
 			const root = join(tempDir, "mem-mutation");
 			const genome = await createInitializedGenome(root);
 
-			await genome.addMemory(makeMemory({ id: "genome-mem-mutate", content: "mutable fact" }));
+			await seedMemories(genome, makeMemory({ id: "genome-mem-mutate", content: "mutable fact" }));
 			const memory = genome.memories.getById("genome-mem-mutate");
 			expect(memory).toBeDefined();
 			memory!.archived_at = 12345;
@@ -719,7 +621,10 @@ describe("Genome", () => {
 		test("saveMemoryMutation restores JSONL when save fails after writing", async () => {
 			const root = join(tempDir, "mem-mutation-save-fails");
 			const genome = await createInitializedGenome(root);
-			await genome.addMemory(makeMemory({ id: "mutation-write-fail", content: "mutable fact" }));
+			await seedMemories(
+				genome,
+				makeMemory({ id: "mutation-write-fail", content: "mutable fact" }),
+			);
 			const before = await readFile(join(root, "memories", "memories.jsonl"), "utf-8");
 			const memory = genome.memories.getById("mutation-write-fail")!;
 			memory.archived_at = 12345;
@@ -746,10 +651,10 @@ describe("Genome", () => {
 		test("saveMemoryMutation preserves memories added by another loaded genome", async () => {
 			const root = join(tempDir, "mem-mutation-merge");
 			const writer = await createInitializedGenome(root);
-			await writer.addMemory(makeMemory({ id: "shared-memory", content: "shared fact" }));
+			await seedMemories(writer, makeMemory({ id: "shared-memory", content: "shared fact" }));
 			const staleGenome = new Genome(root);
 			await staleGenome.loadFromDisk();
-			await writer.addMemory(makeMemory({ id: "newer-memory", content: "newer fact" }));
+			await seedMemories(writer, makeMemory({ id: "newer-memory", content: "newer fact" }));
 
 			const memory = staleGenome.memories.getById("shared-memory")!;
 			memory.archived_at = 12345;
@@ -765,10 +670,10 @@ describe("Genome", () => {
 		test("markMemoriesUsed preserves memories added by another loaded genome", async () => {
 			const root = join(tempDir, "mem-used-merge");
 			const writer = await createInitializedGenome(root);
-			await writer.addMemory(makeMemory({ id: "used-shared", content: "shared fact" }));
+			await seedMemories(writer, makeMemory({ id: "used-shared", content: "shared fact" }));
 			const staleGenome = new Genome(root);
 			await staleGenome.loadFromDisk();
-			await writer.addMemory(makeMemory({ id: "used-newer", content: "newer fact" }));
+			await seedMemories(writer, makeMemory({ id: "used-newer", content: "newer fact" }));
 
 			await staleGenome.markMemoriesUsed(["used-shared"]);
 
@@ -781,7 +686,8 @@ describe("Genome", () => {
 		test("recomputeMemoryScores commits score-based archival mutations", async () => {
 			const root = join(tempDir, "mem-score-archive");
 			const genome = await createInitializedGenome(root);
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				makeMemory({ id: "low-importance-memory", content: "old minor fact" }),
 			);
 
@@ -797,7 +703,8 @@ describe("Genome", () => {
 		test("recomputeMemoryScores commits score-only metadata updates", async () => {
 			const root = join(tempDir, "mem-score-update");
 			const genome = await createInitializedGenome(root);
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				makeMemory({
 					id: "score-only-memory",
 					content: "recent useful fact",
@@ -939,11 +846,11 @@ describe("Genome", () => {
 			});
 		});
 
-		test("addSegment commits and rebuilds the derived index", async () => {
+		test("seeded segment commits and rebuilds the derived index", async () => {
 			const root = join(tempDir, "segment-add-index");
 			const genome = await createInitializedGenome(root);
 
-			await genome.addSegment(makeSegment({ id: "segment-indexed" }));
+			await seedSegment(genome, makeSegment({ id: "segment-indexed" }));
 
 			const status = await git(root, "status", "--porcelain");
 			expect(status).toBe("");
@@ -955,30 +862,6 @@ describe("Genome", () => {
 					segmentCount: 1,
 					segmentEmbeddingCount: 1,
 				});
-			} finally {
-				index.close();
-			}
-		});
-
-		test("addSegment restores JSONL and index when commit fails after rebuild", async () => {
-			const root = join(tempDir, "segment-add-commit-fails");
-			const genome = await createInitializedGenome(root);
-			const hookPath = join(root, ".git", "hooks", "pre-commit");
-			await writeFile(hookPath, "#!/bin/sh\nexit 1\n");
-			await chmod(hookPath, 0o755);
-
-			await expect(genome.addSegment(makeSegment({ id: "segment-commit-fail" }))).rejects.toThrow(
-				"git commit",
-			);
-
-			expect(genome.segments.getById("segment-commit-fail")).toBeUndefined();
-			expect(await readOptionalFile(join(root, "memories", "segments.jsonl"))).not.toContain(
-				"segment-commit-fail",
-			);
-			expect(await git(root, "status", "--porcelain")).toBe("");
-			const index = MemoryIndex.open(memoryIndexPath(root));
-			try {
-				expect(index.stats().segmentCount).toBe(0);
 			} finally {
 				index.close();
 			}
@@ -1015,7 +898,10 @@ describe("Genome", () => {
 			const writer = await createInitializedGenome(root);
 			const staleGenome = createTestGenome(root);
 			await staleGenome.loadFromDisk();
-			await writer.addMemory(makeMemory({ id: "fresh-disk-memory", content: "already present" }));
+			await seedMemories(
+				writer,
+				makeMemory({ id: "fresh-disk-memory", content: "already present" }),
+			);
 
 			await expect(
 				staleGenome.addSegmentWithMemories(makeSegment({ id: "stale-segment" }), [
@@ -1035,7 +921,7 @@ describe("Genome", () => {
 			const writer = await createInitializedGenome(root);
 			const staleGenome = createTestGenome(root);
 			await staleGenome.loadFromDisk();
-			await writer.addMemory(makeMemory({ id: "fresh-duplicate", content: "already present" }));
+			await seedMemories(writer, makeMemory({ id: "fresh-duplicate", content: "already present" }));
 
 			const persisted = await staleGenome.addSegmentWithMemories(
 				makeSegment({ id: "dedup-segment" }),
@@ -1081,7 +967,7 @@ describe("Genome", () => {
 			}
 		});
 
-		test("addMemory fails before writing when embedding generation fails", async () => {
+		test("stageMemoryForMutation fails before staging when embedding generation fails", async () => {
 			const root = join(tempDir, "mem-add-embedding-fails");
 			await cp(initTemplateDir, root, { recursive: true });
 			const brokenProvider: EmbeddingProvider = {
@@ -1095,7 +981,9 @@ describe("Genome", () => {
 			const genome = new Genome(root, undefined, { embeddingProvider: brokenProvider });
 
 			await expect(
-				genome.addMemory(makeMemory({ id: "bad-memory", content: "will not persist" })),
+				genome.stageMemoryForMutation(
+					makeMemory({ id: "bad-memory", content: "will not persist" }),
+				),
 			).rejects.toThrow("embedding model unavailable");
 
 			expect(genome.memories.all()).toEqual([]);
@@ -1108,8 +996,7 @@ describe("Genome", () => {
 
 			const mem1 = makeMemory({ id: "used-1", use_count: 0 });
 			const mem2 = makeMemory({ id: "used-2", use_count: 0 });
-			await genome.addMemory(mem1);
-			await genome.addMemory(mem2);
+			await seedMemories(genome, mem1, mem2);
 
 			await genome.markMemoriesUsed(["used-1", "used-2"]);
 
@@ -1131,7 +1018,7 @@ describe("Genome", () => {
 		test("recordMemoryMentions commits mention-count metadata", async () => {
 			const root = join(tempDir, "mem-mentions-commit");
 			const genome = await createInitializedGenome(root);
-			await genome.addMemory(makeMemory({ id: "mention-memory", content: "cited fact" }));
+			await seedMemories(genome, makeMemory({ id: "mention-memory", content: "cited fact" }));
 			const shortId = genome.memories.getById("mention-memory")?.short_id;
 			expect(shortId).toBeTruthy();
 
@@ -1146,7 +1033,7 @@ describe("Genome", () => {
 		test("recordMemoryMentions restores JSONL and index when commit fails after rebuild", async () => {
 			const root = join(tempDir, "mem-mentions-commit-fails");
 			const genome = await createInitializedGenome(root);
-			await genome.addMemory(makeMemory({ id: "mention-fail-memory", content: "cited fact" }));
+			await seedMemories(genome, makeMemory({ id: "mention-fail-memory", content: "cited fact" }));
 			const shortId = genome.memories.getById("mention-fail-memory")?.short_id;
 			const before = await readFile(join(root, "memories", "memories.jsonl"), "utf-8");
 			const hookPath = join(root, ".git", "hooks", "pre-commit");

@@ -1,7 +1,4 @@
-import type { ResolverSettings } from "../agents/model-resolver.ts";
 import type { EntityLinkEntry, Memory } from "../kernel/types.ts";
-import type { Client } from "../llm/client.ts";
-import type { ProviderModel } from "../llm/types.ts";
 import {
 	applyConsolidationMerge,
 	type ConsolidationCluster,
@@ -10,7 +7,6 @@ import {
 	discoverConsolidationClusters,
 	projectDueForConsolidation,
 	rejectConsolidationCluster,
-	requestConsolidationDecisionWithSettings,
 } from "./consolidation.ts";
 import {
 	applyEntityGcDecision,
@@ -18,7 +14,6 @@ import {
 	type EntityGcDecision,
 	type EntityGcGroup,
 	projectDueForEntityGc,
-	requestEntityGcDecisionWithSettings,
 } from "./entity-gc.ts";
 import type { Genome } from "./genome.ts";
 import { isEntityType } from "./memory-schema.ts";
@@ -48,17 +43,6 @@ export type MaintenanceEntityGcDecision = { group_id: string } & EntityGcDecisio
 export interface MemoryMaintenanceDecisionFile {
 	consolidations?: MaintenanceConsolidationDecision[];
 	entity_gc?: MaintenanceEntityGcDecision[];
-}
-
-export interface MemoryMaintenanceReviewSettingsRequest {
-	plan: MemoryMaintenancePlan;
-	client: Client;
-	resolverSettings: ResolverSettings;
-	modelsByProvider: Map<string, ProviderModel[]>;
-	consolidationPrompt: string;
-	entityGcPrompt: string;
-	consolidationMaxTokens?: number;
-	entityGcMaxTokens?: number;
 }
 
 export interface MemoryMaintenanceApplyResult {
@@ -119,47 +103,6 @@ export function discoverMemoryMaintenancePlan(
 		entityGcGroups: includeEntityGc
 			? discoverEntityGcGroups(entityGcMemories, { limit: options.limit })
 			: [],
-	};
-}
-
-export async function reviewMemoryMaintenancePlanWithSettings(
-	request: MemoryMaintenanceReviewSettingsRequest,
-): Promise<MemoryMaintenanceDecisionFile> {
-	const consolidations: MaintenanceConsolidationDecision[] = [];
-	for (const cluster of request.plan.consolidationClusters) {
-		const decision = await requestConsolidationDecisionWithSettings({
-			cluster,
-			prompt: request.consolidationPrompt,
-			client: request.client,
-			resolverSettings: request.resolverSettings,
-			modelsByProvider: request.modelsByProvider,
-			maxTokens: request.consolidationMaxTokens,
-		});
-		consolidations.push({
-			cluster_id: cluster.id,
-			...decision,
-		});
-	}
-
-	const entityGc: MaintenanceEntityGcDecision[] = [];
-	for (const group of request.plan.entityGcGroups) {
-		const decision = await requestEntityGcDecisionWithSettings({
-			group,
-			prompt: request.entityGcPrompt,
-			client: request.client,
-			resolverSettings: request.resolverSettings,
-			modelsByProvider: request.modelsByProvider,
-			maxTokens: request.entityGcMaxTokens,
-		});
-		entityGc.push({
-			group_id: group.id,
-			...decision,
-		});
-	}
-
-	return {
-		consolidations,
-		entity_gc: entityGc,
 	};
 }
 

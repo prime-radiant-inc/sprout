@@ -13,6 +13,7 @@ import { MetricsStore } from "../../src/learn/metrics-store.ts";
 import { evaluateMutationForAdoption } from "../../src/learn/mutation-gate.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { ProviderModel, Response } from "../../src/llm/types.ts";
+import { seedMemories } from "../helpers/genome-seed.ts";
 import { buildTestResolverContext } from "../helpers/resolver-context.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
 
@@ -365,7 +366,7 @@ describe("LearnProcess adoption chokepoint wiring", () => {
 			realGate((m) => m.type === "retire_memory"),
 		);
 		const staleCreated = Date.now() - 60 * 24 * 60 * 60 * 1000;
-		await genome.addMemory({
+		await seedMemories(genome, {
 			id: "stale-memory-1",
 			content: "A stale, never-used, low-confidence memory.",
 			tags: [],
@@ -390,7 +391,7 @@ describe("LearnProcess adoption chokepoint wiring", () => {
 	test("a retire_memory proposal the gate rejects leaves the memory active", async () => {
 		const { genome, learn } = await setup("memory-retire-reject", realGate(false));
 		const staleCreated = Date.now() - 60 * 24 * 60 * 60 * 1000;
-		await genome.addMemory({
+		await seedMemories(genome, {
 			id: "stale-memory-2",
 			content: "Stale but the gate says keep.",
 			tags: [],

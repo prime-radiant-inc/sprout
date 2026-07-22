@@ -429,61 +429,6 @@ export class Genome {
 
 	// --- Memory CRUD (delegates to MemoryStore) ---
 
-	/** Add a memory, committing the JSONL file. */
-	async addMemory(memory: Memory): Promise<void> {
-		stampMemoryActivitySnapshots(memory, this.projects.all());
-		const embeddedMemory = await attachReadyMemoryEmbedding(
-			memory,
-			await this.getEmbeddingProvider(),
-		);
-		const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
-		await this.withMemoryWriteLock(() =>
-			this.runCommittedFileMutation({
-				paths: [memoriesPath],
-				mutate: async () => {
-					await this.memories.load();
-					assertCanStageMemoryBatch(this.memories.all(), [embeddedMemory]);
-					this.memories.stage(embeddedMemory);
-					await this.memories.save();
-				},
-				commitMessage: () => `genome: add memory '${embeddedMemory.id}'`,
-				onNoChanges: "commit",
-				rebuildIndex: true,
-				reloadAfterRestore: () => this.memories.load(),
-			}),
-		);
-	}
-
-	/** Add multiple memories in a single commit. */
-	async addMemories(memories: Memory[], commitMessage: string): Promise<void> {
-		if (memories.length === 0) return;
-		const provider = await this.getEmbeddingProvider();
-		const embeddedMemories: Memory[] = [];
-		for (const memory of memories) {
-			stampMemoryActivitySnapshots(memory, this.projects.all());
-			embeddedMemories.push(await attachReadyMemoryEmbedding(memory, provider));
-		}
-		await this.withMemoryWriteLock(async () => {
-			await this.memories.load();
-			const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
-			await this.runCommittedFileMutation({
-				paths: [memoriesPath],
-				mutate: async () => {
-					assertCanStageMemoryBatch(this.memories.all(), embeddedMemories);
-					for (const memory of embeddedMemories) {
-						this.memories.stage(memory);
-					}
-					await this.memories.mergeLatestFromDisk();
-					await this.memories.save();
-				},
-				commitMessage: () => commitMessage,
-				onNoChanges: "throw",
-				rebuildIndex: true,
-				reloadAfterRestore: () => this.memories.load(),
-			});
-		});
-	}
-
 	/** Stage a new memory for callers that commit it together with other memory mutations. */
 	async stageMemoryForMutation(memory: Memory): Promise<Memory> {
 		stampMemoryActivitySnapshots(memory, this.projects.all());
@@ -508,29 +453,6 @@ export class Genome {
 				onNoChanges: "throw",
 				rebuildIndex: true,
 				reloadAfterRestore: () => this.memories.load(),
-			}),
-		);
-	}
-
-	/** Add a collapsed session segment, committing the JSONL file. */
-	async addSegment(segment: MemorySegment): Promise<void> {
-		const embeddedSegment = await attachReadySegmentEmbedding(
-			segment,
-			await this.getEmbeddingProvider(),
-		);
-		const segmentsPath = join(this.rootPath, "memories", "segments.jsonl");
-		await this.withMemoryWriteLock(() =>
-			this.runCommittedFileMutation({
-				paths: [segmentsPath],
-				mutate: async () => {
-					await this.segments.load();
-					this.segments.stage(embeddedSegment);
-					await this.segments.save();
-				},
-				commitMessage: () => `genome: add memory segment '${embeddedSegment.id}'`,
-				onNoChanges: "commit",
-				rebuildIndex: true,
-				reloadAfterRestore: () => this.segments.load(),
 			}),
 		);
 	}
@@ -1046,27 +968,6 @@ export class Genome {
 	}
 
 	// --- Pruning ---
-
-	/** Remove memories whose effective confidence is below the threshold. */
-	async pruneMemories(minConfidence = 0.2): Promise<string[]> {
-		const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
-		return this.withMemoryWriteLock(async () => {
-			await this.memories.load();
-			const pruned = this.memories.pruneByConfidence(minConfidence);
-			if (pruned.length > 0) {
-				removeLinksReferencingMemoryIds(this.memories.all(), new Set(pruned), Date.now());
-				await this.runCommittedFileMutation({
-					paths: [memoriesPath],
-					mutate: () => this.memories.save(),
-					commitMessage: () => `genome: prune ${pruned.length} low-confidence memories`,
-					onNoChanges: "skip",
-					rebuildIndex: true,
-					reloadAfterRestore: () => this.memories.load(),
-				});
-			}
-			return pruned;
-		});
-	}
 
 	/** Physically remove archived/superseded memories from JSONL after their audit trail is in git. */
 	async compactMemoryLog(): Promise<MemoryLogCompactionResult> {

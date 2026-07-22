@@ -16,6 +16,7 @@ import type { Client } from "../../src/llm/client.ts";
 import type { EmbeddingProvider, EmbeddingVector } from "../../src/llm/embeddings.ts";
 import type { Request, Response } from "../../src/llm/types.ts";
 import { Msg } from "../../src/llm/types.ts";
+import { seedMemories } from "../helpers/genome-seed.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
 
 function memory(overrides: Partial<Memory> = {}): Memory {
@@ -113,7 +114,8 @@ describe("extracted memory incorporation", () => {
 		await withGenome("memory-incorporate-supersedes", async (root) => {
 			const genome = createTestGenome(root);
 			await genome.init();
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({
 					id: "stale-auth",
 					content: "streamlinear uses Authorization: token header format.",
@@ -170,7 +172,7 @@ describe("extracted memory incorporation", () => {
 		await withGenome("memory-incorporate-lock-liveness", async (root) => {
 			const genome = createTestGenome(root);
 			await genome.init();
-			await genome.addMemory(memory({ id: "existing-fact", content: "Sprout stores JSONL." }));
+			await seedMemories(genome, memory({ id: "existing-fact", content: "Sprout stores JSONL." }));
 
 			const lockDir = join(root, ".cache", "memory-write.lock");
 			const release = await acquireDirectoryLock(lockDir);
@@ -214,7 +216,7 @@ describe("extracted memory incorporation", () => {
 		await withGenome("memory-mark-used-contention", async (root) => {
 			const genome = createTestGenome(root);
 			await genome.init();
-			await genome.addMemory(memory({ id: "used-fact" }));
+			await seedMemories(genome, memory({ id: "used-fact" }));
 
 			const lockDir = join(root, ".cache", "memory-write.lock");
 			const release = await acquireDirectoryLock(lockDir);
@@ -232,7 +234,8 @@ describe("extracted memory incorporation", () => {
 		await withGenome("memory-incorporate-conflicts", async (root) => {
 			const genome = createTestGenome(root);
 			await genome.init();
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({
 					id: "old-claim",
 					content: "The project uses Postgres for memory.",
@@ -288,7 +291,8 @@ describe("extracted memory incorporation", () => {
 		await withGenome("memory-incorporate-classifier-fails", async (root) => {
 			const genome = createTestGenome(root);
 			await genome.init();
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({
 					id: "stale-memory",
 					content: "The old memory is stale.",
@@ -367,7 +371,8 @@ describe("extracted memory incorporation", () => {
 		await withGenome("memory-incorporate-dedup", async (root) => {
 			const genome = createTestGenome(root);
 			await genome.init();
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({ id: "existing", content: "Already known memory.", created: 100 }),
 			);
 			let called = false;
@@ -391,14 +396,16 @@ describe("extracted memory incorporation", () => {
 		await withGenome("memory-incorporate-source-evidence", async (root) => {
 			const genome = createTestGenome(root);
 			await genome.init();
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({
 					id: "stale-token-prefix",
 					content: "streamlinear uses Authorization: token.",
 					created: 100,
 				}),
 			);
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({
 					id: "stale-token-header",
 					content: "streamlinear sends Authorization: token headers.",
@@ -439,7 +446,8 @@ describe("extracted memory incorporation", () => {
 		await withGenome("memory-incorporate-wrapper-model", async (root) => {
 			const genome = createTestGenome(root);
 			await genome.init();
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({ id: "old-storage", content: "Sprout memory uses Postgres.", created: 100 }),
 			);
 			let captured: Request | undefined;
@@ -501,7 +509,8 @@ describe("extracted memory incorporation", () => {
 		await withGenome("memory-incorporate-wrapper-missing-model", async (root) => {
 			const genome = createTestGenome(root);
 			await genome.init();
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({ id: "old-model", content: "Old memory has a claim.", created: 100 }),
 			);
 
@@ -528,7 +537,10 @@ describe("extracted memory incorporation", () => {
 		await withGenome("memory-incorporate-wrapper-invalid-json", async (root) => {
 			const genome = createTestGenome(root);
 			await genome.init();
-			await genome.addMemory(memory({ id: "old-json", content: "Old JSON memory.", created: 100 }));
+			await seedMemories(
+				genome,
+				memory({ id: "old-json", content: "Old JSON memory.", created: 100 }),
+			);
 
 			await expect(
 				incorporateExtractedMemories({

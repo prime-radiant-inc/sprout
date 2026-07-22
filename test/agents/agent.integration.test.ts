@@ -12,6 +12,7 @@ import type { AgentSpec } from "../../src/kernel/types.ts";
 import { Client } from "../../src/llm/client.ts";
 import { ContentKind, type Message, Msg, type Response } from "../../src/llm/types.ts";
 import "../helpers/test-env.ts";
+import { seedMemories } from "../helpers/genome-seed.ts";
 import { buildTestResolverContext } from "../helpers/resolver-context.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
 import { createVcr } from "../helpers/vcr.ts";
@@ -301,7 +302,7 @@ describe("Agent with Genome Integration", () => {
 		const resolverContext = await buildTestResolverContext(vcr.client);
 
 		// Add a memory to the genome
-		await genome.addMemory({
+		await seedMemories(genome, {
 			id: "int-test-mem",
 			content: "This project uses Python 3.12 with type hints",
 			tags: ["python", "style"],

@@ -19,6 +19,7 @@ import type { LearnMutation } from "../../src/learn/learn-process.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { ProviderModel, Request, Response } from "../../src/llm/types.ts";
 import { Msg, messageText } from "../../src/llm/types.ts";
+import { seedMemories } from "../helpers/genome-seed.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
 
 function makeMockResponse(text: string): Response {
@@ -498,7 +499,7 @@ describe("GenomeMutationService", () => {
 	}, 10_000);
 
 	test("signal extraction incorporates relationships from evidence ids", async () => {
-		await genome.addMemory({
+		await seedMemories(genome, {
 			id: "stale-bus-auth",
 			content: "streamlinear uses Authorization: token header format.",
 			tags: ["streamlinear"],

@@ -7,6 +7,7 @@ import type { Memory } from "../../src/kernel/types.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { EmbeddingProvider } from "../../src/llm/embeddings.ts";
 import { ContentKind, messageText, type Request, type Response } from "../../src/llm/types.ts";
+import { seedMemories } from "../helpers/genome-seed.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
 
 const CASE_COUNT = 30;
@@ -86,7 +87,7 @@ describe("subcortical recall eval", () => {
 			});
 			await genome.init();
 			for (let index = 0; index < CASE_COUNT; index++) {
-				await genome.addMemory(memory(index));
+				await seedMemories(genome, memory(index));
 			}
 
 			let baselineHits = 0;

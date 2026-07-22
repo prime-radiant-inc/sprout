@@ -9,6 +9,7 @@ import { type AgentSpec, DEFAULT_CONSTRAINTS, type Memory } from "../../src/kern
 import type { Client } from "../../src/llm/client.ts";
 import type { EmbeddingProvider } from "../../src/llm/embeddings.ts";
 import { ContentKind, type Request, type Response } from "../../src/llm/types.ts";
+import { seedMemories } from "../helpers/genome-seed.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
 
 function makeSpec(name: string): AgentSpec {
@@ -161,8 +162,8 @@ describe("recall", () => {
 			embeddingProvider: createRecallEmbeddingProvider(),
 		});
 		await genome.init();
-		await genome.addMemory(makeMemory("m1", "this project uses pytest for testing"));
-		await genome.addMemory(makeMemory("m2", "the auth module is at src/auth"));
+		await seedMemories(genome, makeMemory("m1", "this project uses pytest for testing"));
+		await seedMemories(genome, makeMemory("m2", "the auth module is at src/auth"));
 
 		const result = await recall(genome, "testing pytest");
 
@@ -176,12 +177,13 @@ describe("recall", () => {
 			embeddingProvider: createRecallEmbeddingProvider(),
 		});
 		await genome.init();
-		await genome.addMemory(makeMemory("active", "this project uses pytest for testing"));
-		await genome.memories.add({
+		await seedMemories(genome, makeMemory("active", "this project uses pytest for testing"));
+		genome.memories.stage({
 			...makeMemory("archived", "this project uses pytest for testing"),
 			archived_at: 1234,
 			embedding: undefined,
 		});
+		await genome.memories.save();
 
 		const result = await recall(genome, "testing pytest");
 
@@ -194,7 +196,7 @@ describe("recall", () => {
 			embeddingProvider: createRecallEmbeddingProvider(),
 		});
 		await genome.init();
-		await genome.addMemory(makeMemory("m1", "constructor accepts provider override"));
+		await seedMemories(genome, makeMemory("m1", "constructor accepts provider override"));
 
 		const result = await recall(genome, "dependency injection");
 
@@ -207,7 +209,7 @@ describe("recall", () => {
 			embeddingProvider: createSqliteExpansionProvider(),
 		});
 		await genome.init();
-		await genome.addMemory(makeMemory("m-sqlite", "The MIRA port persists facts in SQLite."));
+		await seedMemories(genome, makeMemory("m-sqlite", "The MIRA port persists facts in SQLite."));
 
 		const query = "what backing store should codemira style have?";
 		const withoutExpansion = await recall(genome, query);
@@ -232,10 +234,12 @@ describe("recall", () => {
 			embeddingProvider: createRecallEmbeddingProvider(),
 		});
 		await genome.init();
-		await genome.addMemory(
+		await seedMemories(
+			genome,
 			makeMemory("stale-auth", "Streamlinear auth uses an Authorization token prefix."),
 		);
-		await genome.addMemory(
+		await seedMemories(
+			genome,
 			makeMemory(
 				"corrected-auth",
 				"Streamlinear auth sends a bare Authorization header without a token prefix.",
@@ -284,7 +288,7 @@ describe("recall", () => {
 			embeddingProvider: createRecallEmbeddingProvider(),
 		});
 		await genome.init();
-		await genome.addMemory(makeMemory("m1", "testing fact", []));
+		await seedMemories(genome, makeMemory("m1", "testing fact", []));
 
 		const before = genome.memories.getById("m1")!.use_count;
 		await recall(genome, "testing");
@@ -299,7 +303,7 @@ describe("recall", () => {
 			embeddingProvider: createRecallEmbeddingProvider(),
 		});
 		await genome.init();
-		await genome.addMemory(makeMemory("m1", "testing fact", []));
+		await seedMemories(genome, makeMemory("m1", "testing fact", []));
 
 		const before = genome.memories.getById("m1")!.use_count;
 		await recall(genome, "testing", { markUsed: false });
@@ -314,7 +318,7 @@ describe("recall", () => {
 			embeddingProvider: createRecallEmbeddingProvider(),
 		});
 		await genome.init();
-		await genome.addMemory(makeMemory("m1", "unrelated topic"));
+		await seedMemories(genome, makeMemory("m1", "unrelated topic"));
 
 		const result = await recall(genome, "testing framework");
 

@@ -55,8 +55,9 @@ describe("SegmentStore", () => {
 		const path = join(tempDir, "segments.jsonl");
 		const store = new SegmentStore(path);
 		await store.load();
-		await store.add(makeSegment({ id: "seg-a" }));
-		await store.add(makeSegment({ id: "seg-b", summary: "Added transcript collapse." }));
+		store.stage(makeSegment({ id: "seg-a" }));
+		store.stage(makeSegment({ id: "seg-b", summary: "Added transcript collapse." }));
+		await store.save();
 
 		const reloaded = new SegmentStore(path);
 		await reloaded.load();
