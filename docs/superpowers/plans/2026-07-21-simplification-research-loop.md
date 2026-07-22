@@ -653,8 +653,20 @@ recorded: no destructive git commands while the tree holds uncommitted work.
   program fields of syncRoot() (silently).
 - Read-only genome proxy: allowlist done (bb19c4d); the fail-closed
   default immediately caught an unlisted read path in the factory tests.
-- Test-only mutation lanes: KILL WITH JUDGMENT — delete test-only surface,
-  migrate tests to real paths, record each deliberate keep. NOT STARTED.
+- Test-only mutation lanes: KILL WITH JUDGMENT — DONE (d02d02e, -1696
+  lines): Genome.addMemory/addMemories/addSegment/pruneMemories + store
+  add/pruneByConfidence lanes (tests seed via helpers/genome-seed.ts on the
+  production stage+save lane); persistMemoryLinks/healMemoryLinks/plain
+  discoverLinkCandidates; the classify WithSettings wrappers; the ENTIRE
+  automated maintenance-decision lane (review plan + consolidation/
+  entity-gc LLM requesters/renderers/normalizers — production is the human
+  decision-file flow; its prompt loader was already dead); the write-only
+  index annotations/projects tables (schema v4). Deliberate keep:
+  renderRelationshipClassificationUserPrompt (production-internal, eval
+  test reads it). Four uncovered behaviors PORTED, not deleted. Known
+  untestable branch recorded (dangling superseded_by clear). Note: the
+  consolidation/entityGc memory-model settings fields now have no
+  consumer — settings-schema cleanup is a separate call.
 - Learn C8: best-available fallback done (731103c).
 - AgentEventEmitter: 5k-event ring done (731103c).
 - Perf branch: DONE — llm-retry pacing was already ported; the
