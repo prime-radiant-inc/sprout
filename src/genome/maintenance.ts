@@ -21,6 +21,7 @@ import {
 	requestEntityGcDecisionWithSettings,
 } from "./entity-gc.ts";
 import type { Genome } from "./genome.ts";
+import { isEntityType } from "./memory-schema.ts";
 import { isProtectedManualMemory } from "./memory-write-policy.ts";
 import type { ProjectActivityRecord } from "./projects.ts";
 
@@ -557,16 +558,4 @@ function sortedUnique(values: string[]): string[] {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isEntityType(value: unknown): value is EntityLinkEntry["type"] {
-	return (
-		value === "PROJECT" ||
-		value === "LIBRARY" ||
-		value === "FILE_PATH" ||
-		value === "COMMAND" ||
-		value === "ERROR_TYPE" ||
-		value === "TECHNOLOGY" ||
-		value === "PERSON"
-	);
 }

@@ -9,6 +9,7 @@ import {
 	type LinkDiscoveryOptions,
 	persistMemoryLinks,
 } from "./linking.ts";
+import { repairJson, stripCodeFence } from "./llm-json.ts";
 
 export interface RelationshipClassificationRequest {
 	source: Memory;
@@ -206,18 +207,6 @@ function parseClassifierJson(text: string): unknown {
 	} catch {
 		return JSON.parse(repairJson(stripped));
 	}
-}
-
-function stripCodeFence(text: string): string {
-	const match = text.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/);
-	return match?.[1]?.trim() ?? text;
-}
-
-function repairJson(text: string): string {
-	return text
-		.replace(/[“”]/g, '"')
-		.replace(/[‘’]/g, "'")
-		.replace(/,\s*([}\]])/g, "$1");
 }
 
 function temporalLabel(memory: Memory): string {

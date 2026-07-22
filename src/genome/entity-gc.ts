@@ -4,6 +4,7 @@ import type { Client } from "../llm/client.ts";
 import { Msg, messageText, type ProviderModel } from "../llm/types.ts";
 import { trigramDiceSimilarity } from "./dedup.ts";
 import type { Genome } from "./genome.ts";
+import { repairJson, stripCodeFence } from "./llm-json.ts";
 import { isActiveMemoryForRecall } from "./memory-lifecycle.ts";
 import type { ProjectActivityRecord } from "./projects.ts";
 
@@ -481,18 +482,6 @@ function parseJsonObject(text: string): Record<string, unknown> {
 	const parsed = JSON.parse(repairJson(stripped));
 	if (!isRecord(parsed)) throw new Error("Expected JSON object");
 	return parsed;
-}
-
-function stripCodeFence(text: string): string {
-	const match = text.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/);
-	return match?.[1]?.trim() ?? text;
-}
-
-function repairJson(text: string): string {
-	return text
-		.replace(/[“”]/g, '"')
-		.replace(/[‘’]/g, "'")
-		.replace(/,\s*([}\]])/g, "$1");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

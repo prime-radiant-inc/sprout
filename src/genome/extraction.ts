@@ -1,6 +1,8 @@
 import type { EntityLinkEntry, Memory } from "../kernel/types.ts";
 import type { Client } from "../llm/client.ts";
 import { Msg, messageText } from "../llm/types.ts";
+import { repairJson } from "./llm-json.ts";
+import { isEntityType } from "./memory-schema.ts";
 import type { PromptSet } from "./prompts.ts";
 
 export type ExtractionRole = "user" | "assistant";
@@ -57,16 +59,6 @@ type RawExtractionMemory = {
 	happens_at?: unknown;
 	expires_at?: unknown;
 };
-
-const ENTITY_TYPES = new Set<EntityLinkEntry["type"]>([
-	"PROJECT",
-	"LIBRARY",
-	"FILE_PATH",
-	"COMMAND",
-	"ERROR_TYPE",
-	"TECHNOLOGY",
-	"PERSON",
-]);
 
 type CodeFenceBlock = {
 	language: string;
@@ -275,9 +267,7 @@ function normalizeEntities(value: unknown): EntityLinkEntry[] {
 function normalizeEntityType(value: unknown): EntityLinkEntry["type"] | undefined {
 	if (typeof value !== "string") return undefined;
 	const upper = value.toUpperCase();
-	return ENTITY_TYPES.has(upper as EntityLinkEntry["type"])
-		? (upper as EntityLinkEntry["type"])
-		: undefined;
+	return isEntityType(upper) ? upper : undefined;
 }
 
 function timestampValue(value: unknown): number | undefined {
@@ -447,13 +437,6 @@ function containsRange(
 		outer.end >= inner.end &&
 		outer.end - outer.start > inner.end - inner.start
 	);
-}
-
-function repairJson(text: string): string {
-	return text
-		.replace(/[“”]/g, '"')
-		.replace(/[‘’]/g, "'")
-		.replace(/,\s*([}\]])/g, "$1");
 }
 
 function stringArray(value: unknown): string[] {

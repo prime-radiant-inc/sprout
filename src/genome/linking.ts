@@ -1,5 +1,6 @@
 import type { Memory, MemoryLinkEntry, RelationshipType } from "../kernel/types.ts";
 import type { Genome } from "./genome.ts";
+import { cosineSimilarity } from "./memory-embedding.ts";
 import { isActiveMemoryForRecall } from "./memory-lifecycle.ts";
 import { memoryShortId } from "./memory-schema.ts";
 
@@ -498,21 +499,6 @@ function memoryVector(memory: Memory): number[] | undefined {
 		throw new Error(`Memory '${memory.id}' has ready embedding metadata without a vector`);
 	}
 	return memory.embedding.vector;
-}
-
-function cosineSimilarity(left: readonly number[], right: readonly number[]): number {
-	let dot = 0;
-	let leftMagnitude = 0;
-	let rightMagnitude = 0;
-	for (let index = 0; index < left.length; index++) {
-		const a = left[index] ?? 0;
-		const b = right[index] ?? 0;
-		dot += a * b;
-		leftMagnitude += a * a;
-		rightMagnitude += b * b;
-	}
-	if (leftMagnitude === 0 || rightMagnitude === 0) return 0;
-	return dot / (Math.sqrt(leftMagnitude) * Math.sqrt(rightMagnitude));
 }
 
 function entityOverlapScore(left: Memory, right: Memory): number {

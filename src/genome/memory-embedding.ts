@@ -33,6 +33,26 @@ export async function attachReadyMemoryEmbedding(
 	};
 }
 
+/**
+ * Cosine similarity over embedding vectors. Zero-magnitude vectors score 0
+ * (no similarity signal). Iterates `a`'s length: callers that need a
+ * dimension-mismatch guard check lengths themselves.
+ */
+export function cosineSimilarity(a: ArrayLike<number>, b: ArrayLike<number>): number {
+	let dot = 0;
+	let magnitudeA = 0;
+	let magnitudeB = 0;
+	for (let index = 0; index < a.length; index++) {
+		const valueA = a[index] ?? 0;
+		const valueB = b[index] ?? 0;
+		dot += valueA * valueB;
+		magnitudeA += valueA * valueA;
+		magnitudeB += valueB * valueB;
+	}
+	if (magnitudeA === 0 || magnitudeB === 0) return 0;
+	return dot / (Math.sqrt(magnitudeA) * Math.sqrt(magnitudeB));
+}
+
 function validateEmbeddingVector(vector: Float32Array, dimensions: number): void {
 	if (vector.length !== dimensions) {
 		throw new Error(`Embedding vector dimensions ${vector.length} do not match ${dimensions}`);
