@@ -7,6 +7,7 @@ import {
 	type AgentModelOverridesConfig,
 	createEmptySettings,
 	MEMORY_MODEL_PURPOSES,
+	type MemoryMaintenanceMode,
 	type MemoryModelsConfig,
 	type ModelRef,
 	SETTINGS_SCHEMA_VERSION,
@@ -137,6 +138,7 @@ export class SettingsStore {
 			defaults,
 			memoryModels: normalizeMemoryModels(settings.memoryModels),
 			agentModelOverrides: normalizeAgentModelOverrides(settings.agentModelOverrides),
+			memoryMaintenance: normalizeMemoryMaintenance(settings.memoryMaintenance),
 		};
 	}
 
@@ -149,6 +151,14 @@ export class SettingsStore {
 		}
 		validateSproutSettings(settings);
 	}
+}
+
+/** Only "manual" opts out; anything else (missing, malformed, unrecognized)
+ *  defaults to "auto" rather than rejecting the whole settings file — a
+ *  looser posture than the other fields here since this setting is a kill
+ *  switch, not a source of correctness bugs if misread. */
+function normalizeMemoryMaintenance(value: unknown): MemoryMaintenanceMode {
+	return value === "manual" ? "manual" : "auto";
 }
 
 function normalizeMemoryModels(memoryModels: MemoryModelsConfig | undefined): MemoryModelsConfig {

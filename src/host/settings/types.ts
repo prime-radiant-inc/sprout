@@ -19,6 +19,7 @@ export function createEmptySettings(): SproutSettings {
 		defaults: {},
 		memoryModels: {},
 		agentModelOverrides: {},
+		memoryMaintenance: "auto",
 	};
 }
 

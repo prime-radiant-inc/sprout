@@ -18,6 +18,15 @@ describe("isGenomeCommand", () => {
 				scope: "all",
 			}),
 		).toBe(true);
+		expect(
+			isGenomeCommand({
+				kind: "genome-maintain",
+				genomePath: "/tmp/g",
+				apply: false,
+				scope: "all",
+				auto: true,
+			}),
+		).toBe(true);
 	});
 
 	test("returns false for non-genome commands", () => {

@@ -614,6 +614,39 @@ describe("parseArgs", () => {
 		});
 	});
 
+	test("--genome maintain accepts --auto", () => {
+		const cmd = parseArgs(["--genome", "maintain", "--auto"]);
+		expect(cmd).toEqual({
+			kind: "genome-maintain",
+			genomePath: defaultGenomePath,
+			apply: false,
+			scope: "all",
+			auto: true,
+		});
+	});
+
+	test("--genome maintain --auto rejects mixed maintenance modes", () => {
+		expect(parseArgs(["--genome", "maintain", "--auto", "--apply"])).toEqual({
+			kind: "help",
+		});
+		expect(
+			parseArgs(["--genome", "maintain", "--auto", "--decision-file", "/tmp/decisions.json"]),
+		).toEqual({ kind: "help" });
+		expect(
+			parseArgs([
+				"--genome",
+				"maintain",
+				"--apply",
+				"--decision-file",
+				"/tmp/decisions.json",
+				"--auto",
+			]),
+		).toEqual({ kind: "help" });
+		expect(parseArgs(["--genome", "maintain", "--compact", "--auto"])).toEqual({
+			kind: "help",
+		});
+	});
+
 	test("uses SPROUT_GENOME_PATH as default genome path", () => {
 		const prevSproutGenome = process.env.SPROUT_GENOME_PATH;
 		const prevXdgDataHome = process.env.XDG_DATA_HOME;

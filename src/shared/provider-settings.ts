@@ -126,6 +126,11 @@ export interface DefaultsConfig {
 export type MemoryModelsConfig = Partial<Record<MemoryModelPurpose, ModelRef>>;
 export type AgentModelOverridesConfig = Record<string, AgentModelOverride>;
 
+/** "auto" runs memory consolidation/entity-GC unattended after collapse
+ *  (Jesse's ruling default); "manual" is the opt-out, leaving the CLI
+ *  `--genome maintain` flow as the only way to apply decisions. */
+export type MemoryMaintenanceMode = "manual" | "auto";
+
 export interface AgentModelDescriptor {
 	key: string;
 	name: string;
@@ -155,4 +160,7 @@ export interface SproutSettings {
 	defaults: DefaultsConfig;
 	memoryModels: MemoryModelsConfig;
 	agentModelOverrides: AgentModelOverridesConfig;
+	/** Optional so pre-existing settings literals stay valid; treat a missing
+	 *  value as "auto" (see MemoryMaintenanceMode). */
+	memoryMaintenance?: MemoryMaintenanceMode;
 }

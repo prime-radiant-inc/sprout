@@ -101,6 +101,7 @@ function parseGenomeMaintainCommand(
 	let limit: number | undefined;
 	let compact = false;
 	let dryRun = false;
+	let auto = false;
 
 	while (index < argv.length) {
 		const token = argv[index];
@@ -121,6 +122,12 @@ function parseGenomeMaintainCommand(
 
 		if (token === "--compact") {
 			compact = true;
+			index++;
+			continue;
+		}
+
+		if (token === "--auto") {
+			auto = true;
 			index++;
 			continue;
 		}
@@ -153,9 +160,15 @@ function parseGenomeMaintainCommand(
 	}
 
 	if (apply && decisionFile === undefined) return { nextIndex: startIndex };
+	if (auto && (apply || decisionFile !== undefined)) return { nextIndex: startIndex };
 	if (
 		compact &&
-		(dryRun || apply || decisionFile !== undefined || scope !== "all" || limit !== undefined)
+		(dryRun ||
+			apply ||
+			decisionFile !== undefined ||
+			scope !== "all" ||
+			limit !== undefined ||
+			auto)
 	) {
 		return { nextIndex: startIndex };
 	}
@@ -169,6 +182,7 @@ function parseGenomeMaintainCommand(
 			...(compact ? { compact } : {}),
 			...(decisionFile !== undefined ? { decisionFile } : {}),
 			...(limit !== undefined ? { limit } : {}),
+			...(auto ? { auto } : {}),
 		},
 		nextIndex: index,
 	};
@@ -461,6 +475,7 @@ Options:
   --genome-path <path>   Path to genome directory (default: $SPROUT_GENOME_PATH or $XDG_DATA_HOME/sprout-genome or ~/.local/share/sprout-genome)
   --dry-run              For --genome maintain, print candidates without mutating (default)
   --apply                For --genome maintain, apply reviewed decisions
+  --auto                 For --genome maintain, apply unattended LLM decisions, ignoring the 24h throttle
   --compact              For --genome maintain, compact inactive memory rows
   --decision-file <path> JSON decisions for --genome maintain --apply
   --only <scope>         For --genome maintain, scope is consolidation or entity-gc

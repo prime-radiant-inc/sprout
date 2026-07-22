@@ -518,4 +518,40 @@ describe("SettingsStore", () => {
 		expect(result.skipEnvImport).toBe(false);
 		expect(result.recoveredInvalidFilePath).toBeUndefined();
 	});
+
+	test("load defaults a missing memoryMaintenance to auto", async () => {
+		const { store, settingsPath } = await makeStore();
+		const { memoryMaintenance: _omitted, ...withoutMemoryMaintenance } = createEmptySettings();
+		await writeFile(settingsPath, JSON.stringify(withoutMemoryMaintenance), "utf-8");
+
+		const result = await store.load();
+
+		expect(result.source).toBe("loaded");
+		expect(result.settings.memoryMaintenance).toBe("auto");
+	});
+
+	test("load defaults an invalid memoryMaintenance value to auto", async () => {
+		const { store, settingsPath } = await makeStore();
+		await writeFile(
+			settingsPath,
+			JSON.stringify({ ...createEmptySettings(), memoryMaintenance: "sometimes" }),
+			"utf-8",
+		);
+
+		const result = await store.load();
+
+		expect(result.source).toBe("loaded");
+		expect(result.settings.memoryMaintenance).toBe("auto");
+	});
+
+	test("save preserves an explicit manual memoryMaintenance setting", async () => {
+		const { store, settingsPath } = await makeStore();
+		const settings = { ...createEmptySettings(), memoryMaintenance: "manual" as const };
+
+		await store.save(settings);
+		const loaded = await store.load();
+
+		expect(JSON.parse(await readFile(settingsPath, "utf-8")).memoryMaintenance).toBe("manual");
+		expect(loaded.settings.memoryMaintenance).toBe("manual");
+	});
 });

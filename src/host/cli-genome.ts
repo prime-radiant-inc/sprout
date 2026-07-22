@@ -19,6 +19,10 @@ export type GenomeCommand =
 			scope: GenomeMaintainScope;
 			limit?: number;
 			compact?: boolean;
+			/** Run unattended: LLM decisions replace --decision-file, and the
+			 *  24h throttle is ignored (mutually exclusive with --apply /
+			 *  --decision-file). */
+			auto?: boolean;
 	  };
 
 export function isGenomeCommand<T extends { kind: string }>(
@@ -135,6 +139,39 @@ export async function runGenomeCommand(command: GenomeCommand): Promise<void> {
 			await genome.loadFromDisk();
 			if (command.compact) {
 				const result = await genome.compactMemoryLog();
+				console.log(JSON.stringify(result, null, 2));
+				return;
+			}
+			if (command.auto) {
+				const { runMemoryMaintenanceIfDue } = await import("../genome/memory-maintenance-auto.ts");
+				const { createAgentProcessClient } = await import("../bus/agent-process-client.ts");
+				const { createResolverSettings } = await import("../agents/model-resolver.ts");
+				const { SessionLogger } = await import("./logger.ts");
+				const { SettingsStore } = await import("./settings/store.ts");
+
+				const logger = new SessionLogger({
+					logPath: join(command.genomePath, ".cache", "genome-maintain-auto.log.jsonl"),
+					component: "cli",
+				});
+				const client = await createAgentProcessClient(logger);
+				const { settings } = await new SettingsStore().load();
+				const resolverSettings = createResolverSettings(
+					settings.providers,
+					settings.defaults,
+					settings.memoryModels,
+					settings.agentModelOverrides,
+				);
+				const modelsByProvider = await client.listModelsByProvider();
+				const result = await runMemoryMaintenanceIfDue(genome, {
+					client,
+					resolverSettings,
+					modelsByProvider,
+					...(command.limit !== undefined ? { limit: command.limit } : {}),
+					// CLI --auto is a deliberate one-off invocation, not the
+					// background post-session trigger, so it ignores the 24h throttle.
+					ignoreThrottle: true,
+					logger: { warn: (message) => logger.warn("learn", message) },
+				});
 				console.log(JSON.stringify(result, null, 2));
 				return;
 			}

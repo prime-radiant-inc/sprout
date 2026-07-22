@@ -3055,4 +3055,30 @@ describe("SettingsControlPlane", () => {
 			]),
 		);
 	});
+
+	test("defaults memory maintenance to auto and exposes it via getMemoryMaintenanceSetting", async () => {
+		const plane = await makePlane();
+
+		expect(plane.getMemoryMaintenanceSetting()).toBe("auto");
+		const snapshot = await plane.execute({ kind: "get_settings", data: {} });
+		expect(snapshot).toMatchObject({
+			ok: true,
+			snapshot: { settings: { memoryMaintenance: "auto" } },
+		});
+	});
+
+	test("sets memory maintenance to manual and persists it", async () => {
+		const plane = await makePlane();
+
+		const result = await plane.execute({
+			kind: "set_memory_maintenance",
+			data: { mode: "manual" },
+		});
+
+		expect(result).toMatchObject({
+			ok: true,
+			snapshot: { settings: { memoryMaintenance: "manual" } },
+		});
+		expect(plane.getMemoryMaintenanceSetting()).toBe("manual");
+	});
 });

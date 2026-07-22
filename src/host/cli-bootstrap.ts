@@ -159,6 +159,7 @@ interface InteractiveBootstrapDeps {
 		initialSelection?: SessionSelectionSnapshot;
 		resolveSelection?: (selection: SessionSelectionRequest) => SessionSelectionSnapshot;
 		getResolverSettings?: () => ReturnType<typeof createResolverSettings>;
+		getMemoryMaintenanceSetting?: () => "manual" | "auto";
 		spawner: AgentSpawner;
 		genome: Genome;
 		completedHandles?: Array<{
@@ -267,6 +268,7 @@ export async function bootstrapSessionRuntime(
 					initialSelection: controllerOpts.initialSelection,
 					resolveSelection: controllerOpts.resolveSelection,
 					getResolverSettings: controllerOpts.getResolverSettings,
+					getMemoryMaintenanceSetting: controllerOpts.getMemoryMaintenanceSetting,
 					spawner: controllerOpts.spawner,
 					genome: controllerOpts.genome,
 					completedHandles: controllerOpts.completedHandles,
@@ -355,7 +357,12 @@ export async function bootstrapSessionRuntime(
 	const startupState = await loadStartupProvidersAndCatalog(registry);
 	const llmClient = await d.createClient({ logger, providers: startupState.providers });
 	const availableModels = await d.loadAvailableModels(startupState.catalog);
-	let settingsControlPlaneRef: { getSelectionContext?: () => SessionSelectionContext } | undefined;
+	let settingsControlPlaneRef:
+		| {
+				getSelectionContext?: () => SessionSelectionContext;
+				getMemoryMaintenanceSetting?: () => "manual" | "auto";
+		  }
+		| undefined;
 	const getCurrentResolverSettings = () => {
 		const context = settingsControlPlaneRef?.getSelectionContext?.();
 		if (!context) return createResolverSettings([]);
@@ -366,6 +373,8 @@ export async function bootstrapSessionRuntime(
 			context.settings.agentModelOverrides,
 		);
 	};
+	const getCurrentMemoryMaintenanceSetting = () =>
+		settingsControlPlaneRef?.getMemoryMaintenanceSetting?.() ?? "auto";
 	const updateGenomeServiceRuntime = () => {
 		opts.infra.genomeService?.updateRuntimeClient(
 			llmClient as Client,
@@ -412,6 +421,7 @@ export async function bootstrapSessionRuntime(
 	});
 	settingsControlPlaneRef = settingsControlPlane as {
 		getSelectionContext?: () => SessionSelectionContext;
+		getMemoryMaintenanceSetting?: () => "manual" | "auto";
 	};
 	updateGenomeServiceRuntime();
 	const resolveSelection = createSelectionResolver(
@@ -436,6 +446,7 @@ export async function bootstrapSessionRuntime(
 		initialSelection,
 		resolveSelection,
 		getResolverSettings: getCurrentResolverSettings,
+		getMemoryMaintenanceSetting: getCurrentMemoryMaintenanceSetting,
 		spawner: opts.infra.spawner,
 		genome: opts.infra.genome,
 		completedHandles: opts.completedHandles,

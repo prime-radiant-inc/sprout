@@ -122,7 +122,11 @@ describe("SessionController", () => {
 		await rm(tempDir, { recursive: true, force: true });
 	});
 
-	function makeController(overrides?: { factory?: AgentFactory; workDir?: string }) {
+	function makeController(overrides?: {
+		factory?: AgentFactory;
+		workDir?: string;
+		getMemoryMaintenanceSetting?: () => "manual" | "auto" | undefined;
+	}) {
 		const bus = new EventBus();
 		const sessionsDir = join(tempDir, "sessions");
 		const controller = new SessionController({
@@ -131,6 +135,7 @@ describe("SessionController", () => {
 			projectDataDir: tempDir,
 			...(overrides?.workDir ? { workDir: overrides.workDir } : {}),
 			factory: overrides?.factory,
+			getMemoryMaintenanceSetting: overrides?.getMemoryMaintenanceSetting,
 		});
 		return { bus, controller, sessionsDir };
 	}
@@ -430,6 +435,94 @@ describe("SessionController", () => {
 						event.data.removed_memory_count === 2,
 				),
 		).toBe(true);
+	});
+
+	test("invokes memory maintenance after memory-log compaction finishes", async () => {
+		const order: string[] = [];
+		const fake = makeFakeAgent();
+		const factory: AgentFactory = async () => ({
+			agent: fake.agent as any,
+			learnProcess: null,
+			collapseMemory: async () => {
+				order.push("collapse");
+				return { ok: true };
+			},
+			compactMemoryLogIfDue: async () => {
+				order.push("compact");
+				return { due: false };
+			},
+			runMemoryMaintenance: async () => {
+				order.push("maintenance");
+				return {
+					merged: 0,
+					rejected: 0,
+					skipped: 0,
+					entityGcMerged: 0,
+					entityGcRejected: 0,
+					entityGcSkipped: 0,
+				};
+			},
+		});
+		const { bus, controller } = makeController({ factory });
+		bus.onEvent((event) => {
+			if (event.kind === "context_update" && event.data.memory_collapse) {
+				order.push(`memory:${event.data.memory_collapse as string}`);
+			}
+		});
+
+		await controller.runGoal("Remember this session");
+
+		expect(order).toEqual([
+			"memory:started",
+			"collapse",
+			"compact",
+			"maintenance",
+			"memory:completed",
+		]);
+	});
+
+	test("does not invoke memory maintenance when the factory does not provide it", async () => {
+		const fake = makeFakeAgent();
+		const factory: AgentFactory = async () => ({
+			agent: fake.agent as any,
+			learnProcess: null,
+			collapseMemory: async () => ({ ok: true }),
+			compactMemoryLogIfDue: async () => ({ due: false }),
+		});
+		const { controller } = makeController({ factory });
+
+		await expect(controller.runGoal("Remember this session")).resolves.toBeDefined();
+	});
+
+	test("passes memoryMaintenance from getMemoryMaintenanceSetting into factory options", async () => {
+		const fake = makeFakeAgent();
+		let capturedMemoryMaintenance: unknown;
+		const factory: AgentFactory = async (options) => {
+			capturedMemoryMaintenance = options.memoryMaintenance;
+			return { agent: fake.agent as any, learnProcess: null };
+		};
+		const { controller } = makeController({
+			factory,
+			getMemoryMaintenanceSetting: () => "manual",
+		});
+
+		await controller.runGoal("say hello");
+
+		expect(capturedMemoryMaintenance).toBe("manual");
+	});
+
+	test("defaults memoryMaintenance to auto in factory options when no getter is provided", async () => {
+		const fake = makeFakeAgent();
+		let capturedMemoryMaintenance: unknown;
+		const factory: AgentFactory = async (options) => {
+			capturedMemoryMaintenance = options.memoryMaintenance;
+			return { agent: fake.agent as any, learnProcess: null };
+		};
+		const { controller } = makeController({ factory });
+
+		await controller.runGoal("say hello");
+
+		expect(capturedMemoryMaintenance).toBe("auto");
 	});
 
 	test("emits skipped memory collapse lifecycle for skipped collapse", async () => {

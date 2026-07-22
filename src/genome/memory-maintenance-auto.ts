@@ -49,6 +49,9 @@ export interface RunMemoryMaintenanceOptions {
 	limit?: number;
 	statePath?: string;
 	logger?: MemoryMaintenanceLogger;
+	/** Skip the 24h throttle window. Used by `sprout --genome maintain --auto`,
+	 *  which is a deliberate one-off invocation, not a background trigger. */
+	ignoreThrottle?: boolean;
 }
 
 interface MemoryMaintenanceState {
@@ -83,6 +86,7 @@ export async function runMemoryMaintenanceIfDue(
 			options.statePath ?? join(genome.path, ".cache", "memory-maintenance-state.json");
 		const state = await readMaintenanceState(statePath);
 		if (
+			!options.ignoreThrottle &&
 			state.lastCheckedAt !== undefined &&
 			now - state.lastCheckedAt < MEMORY_MAINTENANCE_INTERVAL_MS
 		) {

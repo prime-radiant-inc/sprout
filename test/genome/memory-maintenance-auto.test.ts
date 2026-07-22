@@ -139,6 +139,34 @@ describe("automatic memory maintenance driver", () => {
 		}
 	});
 
+	test("ignoreThrottle skips the 24h window but still stamps state (CLI --auto)", async () => {
+		const root = await mkdtemp(join(tmpdir(), "sprout-auto-maintenance-ignore-throttle-"));
+		try {
+			const genome = createTestGenome(root);
+			await genome.init();
+			const { client, calls } = stubClient(rejectReply);
+
+			const first = await runMemoryMaintenanceIfDue(
+				genome,
+				maintenanceOptions(client, { ignoreThrottle: true }),
+			);
+			const second = await runMemoryMaintenanceIfDue(
+				genome,
+				maintenanceOptions(client, { ignoreThrottle: true, now: START_NOW + HOUR_MS }),
+			);
+
+			expect(first).toEqual(ZERO_COUNTS);
+			expect(second).toEqual(ZERO_COUNTS);
+			expect(calls).toHaveLength(0);
+			const state = JSON.parse(
+				await readFile(join(root, ".cache", "memory-maintenance-state.json"), "utf-8"),
+			);
+			expect(state.lastCheckedAt).toBe(START_NOW + HOUR_MS);
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
 	test("no resolvable models fails before discovery and stays stamped for the window", async () => {
 		const root = await mkdtemp(join(tmpdir(), "sprout-auto-maintenance-no-models-"));
 		try {

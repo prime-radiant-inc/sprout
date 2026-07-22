@@ -11,6 +11,10 @@ import type { AgentSpawner } from "../bus/spawner.ts";
 import type { AgentAddress } from "../bus/types.ts";
 import { collapseSessionToMemory } from "../core/session-collapse.ts";
 import type { Genome } from "../genome/genome.ts";
+import {
+	type MemoryMaintenanceRunResult,
+	runMemoryMaintenanceIfDue,
+} from "../genome/memory-maintenance-auto.ts";
 import { detectProjectFromCwd } from "../genome/projects.ts";
 import type { ModelRef } from "../kernel/types.ts";
 import { createLiveCanaryHarness } from "../learn/canary-live-harness.ts";
@@ -83,6 +87,8 @@ export interface AgentFactoryOptions {
 	logger?: import("./logger.ts").Logger;
 	/** Pre-configured LLM client (e.g. with middleware). */
 	client?: import("../llm/client.ts").Client;
+	/** "manual" | "auto" memory-maintenance setting (default "auto"). */
+	memoryMaintenance?: import("../shared/provider-settings.ts").MemoryMaintenanceMode;
 }
 
 /** Result returned by the agent factory. */
@@ -103,6 +109,10 @@ export interface AgentFactoryResult {
 		due: boolean;
 		result?: { removedIds: string[] };
 	}>;
+	/** Unattended memory consolidation/entity-GC, throttled to once per 24h.
+	 *  Wired only when memoryMaintenance is "auto", the session is not
+	 *  evalMode, and collapse models resolved (same gate as collapseMemory). */
+	runMemoryMaintenance?: () => Promise<MemoryMaintenanceRunResult>;
 }
 
 /** Factory function that creates an agent. Injectable for testing. */
@@ -230,6 +240,33 @@ export async function defaultFactory(options: AgentFactoryOptions): Promise<Agen
 				}
 			: undefined,
 		compactMemoryLogIfDue: () => result.genome.compactMemoryLogIfDue(),
+		runMemoryMaintenance:
+			collapseModels && (options.memoryMaintenance ?? "auto") === "auto"
+				? () =>
+						runMemoryMaintenanceIfDue(result.genome, {
+							client: result.client,
+							resolverSettings: collapseModels.resolverSettings,
+							modelsByProvider: collapseModels.modelsByProvider,
+							logger: memoryMaintenanceLogger(options.logger),
+						})
+				: undefined,
+	};
+}
+
+/** Adapts the session Logger's (category, message, data) shape to the
+ *  driver's simpler (message) shape; falls back to console.warn when no
+ *  session logger is available (e.g. a direct defaultFactory call). */
+function memoryMaintenanceLogger(logger: import("./logger.ts").Logger | undefined): {
+	warn(message: string): void;
+} {
+	return {
+		warn: (message) => {
+			if (logger) {
+				logger.warn("learn", message);
+			} else {
+				console.warn(message);
+			}
+		},
 	};
 }
 

@@ -143,6 +143,9 @@ export interface SessionControllerOptions {
 	initialSelection?: SessionSelectionSnapshot;
 	resolveSelection?: (selection: SessionSelectionRequest) => SessionSelectionSnapshot;
 	getResolverSettings?: () => ResolverSettings | undefined;
+	/** "manual" | "auto" memory-maintenance setting getter (default "auto"),
+	 *  read once per run start (spec: a mid-run flip does not abort). */
+	getMemoryMaintenanceSetting?: () => "manual" | "auto" | undefined;
 }
 
 export interface SessionRunResult {
@@ -189,6 +192,7 @@ export class SessionController {
 		selection: SessionSelectionRequest,
 	) => SessionSelectionSnapshot;
 	private readonly getResolverSettings?: () => ResolverSettings | undefined;
+	private readonly getMemoryMaintenanceSetting?: () => "manual" | "auto" | undefined;
 	private history: Message[] = [];
 	private memorySurface?: SessionMemorySurfaceSnapshot;
 	private running = false;
@@ -232,6 +236,7 @@ export class SessionController {
 		this.client = options.client;
 		this.resolveSelectionFn = options.resolveSelection ?? defaultResolveSessionSelectionRequest;
 		this.getResolverSettings = options.getResolverSettings;
+		this.getMemoryMaintenanceSetting = options.getMemoryMaintenanceSetting;
 		this.selectionSnapshot = options.initialSelection ?? createDefaultSessionSelectionSnapshot();
 		this.history = options.initialHistory ? [...options.initialHistory] : [];
 		this.memorySurface = options.initialMemorySurface;
@@ -554,6 +559,7 @@ export class SessionController {
 				model: selectionSnapshotToModelOverride(this.selectionSnapshot),
 				providerIdOverride: selectionSnapshotToProviderId(this.selectionSnapshot),
 				resolverSettings: this.getResolverSettings?.(),
+				memoryMaintenance: this.getMemoryMaintenanceSetting?.() ?? "auto",
 				spawner: this.spawner,
 				genome: this.genome,
 				evalMode: this.evalMode,
@@ -685,6 +691,11 @@ export class SessionController {
 					session_id: sessionId,
 				});
 			}
+			// After compaction (spec: ordering gives merge-sources a ~week review
+			// window before the next compaction can delete them). The driver never
+			// throws; this stays inside the surrounding try/catch anyway so a
+			// future change here can't take down shutdown.
+			await result.runMemoryMaintenance?.();
 			this.bus.emitEvent("context_update", "session", 0, {
 				memory_collapse: terminalState,
 				session_id: sessionId,
