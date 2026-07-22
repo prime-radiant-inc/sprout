@@ -2,14 +2,33 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createResolverSettings } from "../../src/agents/model-resolver.ts";
 import {
 	applyEntityGcDecision,
 	discoverEntityGcGroups,
+	normalizeEntityGcDecisionPayload,
 	projectDueForEntityGc,
+	requestEntityGcDecisionWithSettings,
 } from "../../src/genome/entity-gc.ts";
 import type { Memory } from "../../src/kernel/types.ts";
+import type { Client } from "../../src/llm/client.ts";
+import type { Request, Response } from "../../src/llm/types.ts";
+import { Msg } from "../../src/llm/types.ts";
 import { seedMemories } from "../helpers/genome-seed.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
+
+function sproutAliasGroup() {
+	return discoverEntityGcGroups([
+		memory({
+			id: "a",
+			entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
+		}),
+		memory({
+			id: "b",
+			entity_links: [{ uuid: "entity_sprout_alias", type: "PROJECT", name: "sprout" }],
+		}),
+	])[0]!;
+}
 
 function memory(overrides: Partial<Memory> = {}): Memory {
 	return {
@@ -48,6 +67,171 @@ describe("entity GC", () => {
 			"entity_sprout",
 			"entity_sprout_alias",
 		]);
+	});
+
+	test("settings wrapper resolves the entity GC memory model", async () => {
+		let captured: Request | undefined;
+		const client = {
+			providers: () => ["openrouter"],
+			complete: async (request: Request): Promise<Response> => {
+				captured = request;
+				return {
+					id: "entity-gc-test",
+					model: request.model,
+					provider: request.provider ?? "openrouter",
+					message: Msg.assistant(
+						JSON.stringify({
+							action: "reject",
+							reasoning: "The entities should remain separate.",
+						}),
+					),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+				};
+			},
+		} as unknown as Client;
+
+		await requestEntityGcDecisionWithSettings({
+			group: {
+				id: "entity-gc-project-sprout",
+				type: "PROJECT",
+				canonical: {
+					uuid: "entity_sprout",
+					type: "PROJECT",
+					name: "Sprout",
+					memory_ids: ["a"],
+					count: 1,
+				},
+				candidates: [
+					{
+						uuid: "entity_sprout",
+						type: "PROJECT",
+						name: "Sprout",
+						memory_ids: ["a"],
+						count: 1,
+					},
+					{
+						uuid: "entity_sprout_alias",
+						type: "PROJECT",
+						name: "sprout",
+						memory_ids: ["b"],
+						count: 1,
+					},
+				],
+				score: 0.95,
+			},
+			prompt: "entity gc",
+			client,
+			resolverSettings: createResolverSettings(
+				[{ id: "openrouter", enabled: true }],
+				{},
+				{ entityGc: { providerId: "openrouter", modelId: "entity-gc-model" } },
+			),
+			modelsByProvider: new Map([
+				["openrouter", [{ id: "entity-gc-model", label: "Entity GC", source: "remote" }]],
+			]),
+		});
+
+		expect(captured?.provider).toBe("openrouter");
+		expect(captured?.model).toBe("entity-gc-model");
+		expect(captured?.metadata?.purpose).toBe("memory.entityGc");
+	});
+
+	test("rejects merge decisions with absent or empty aliases", () => {
+		const group = sproutAliasGroup();
+
+		for (const aliases of [undefined, []]) {
+			expect(() =>
+				normalizeEntityGcDecisionPayload(
+					group,
+					JSON.stringify({
+						action: "merge",
+						canonical: { uuid: "entity_sprout", name: "Sprout" },
+						...(aliases !== undefined ? { aliases } : {}),
+						reasoning: "Only capitalization differs.",
+					}),
+				),
+			).toThrow("no aliases");
+		}
+	});
+
+	test("filters canonical entity and out-of-group uuids from explicit merge aliases", () => {
+		const group = sproutAliasGroup();
+
+		const decision = normalizeEntityGcDecisionPayload(
+			group,
+			JSON.stringify({
+				action: "merge",
+				canonical: { uuid: "entity_sprout", name: "Sprout" },
+				aliases: [
+					{ uuid: "entity_sprout", name: "Sprout" },
+					{ uuid: "entity_outside_group", name: "outsider" },
+					{ uuid: "entity_sprout_alias", name: "sprout" },
+				],
+				reasoning: "Only capitalization differs.",
+			}),
+		);
+
+		expect(decision.aliases).toEqual([{ uuid: "entity_sprout_alias", name: "sprout" }]);
+		expect(() =>
+			normalizeEntityGcDecisionPayload(
+				group,
+				JSON.stringify({
+					action: "merge",
+					canonical: { uuid: "entity_sprout", name: "Sprout" },
+					aliases: [{ uuid: "entity_sprout", name: "Sprout" }],
+					reasoning: "Only capitalization differs.",
+				}),
+			),
+		).toThrow("no aliases");
+	});
+
+	test("rejects merge decisions with invented canonical entities", () => {
+		const group = sproutAliasGroup();
+
+		expect(() =>
+			normalizeEntityGcDecisionPayload(
+				group,
+				JSON.stringify({
+					action: "merge",
+					canonical: { uuid: "entity_invented", name: "Invented" },
+					aliases: [{ uuid: "entity_sprout_alias", name: "sprout" }],
+					reasoning: "Only capitalization differs.",
+				}),
+			),
+		).toThrow("canonical is not in the candidate group");
+	});
+
+	test("rejects merge decisions that rename the canonical entity", () => {
+		const group = sproutAliasGroup();
+
+		expect(() =>
+			normalizeEntityGcDecisionPayload(
+				group,
+				JSON.stringify({
+					action: "merge",
+					canonical: { uuid: "entity_sprout", name: "Sprout Renamed" },
+					aliases: [{ uuid: "entity_sprout_alias", name: "sprout" }],
+					reasoning: "Only capitalization differs.",
+				}),
+			),
+		).toThrow("canonical name");
+	});
+
+	test("merge decisions default the canonical from the group suggestion", () => {
+		const group = sproutAliasGroup();
+		const alias = group.candidates.find((candidate) => candidate.uuid !== group.canonical.uuid)!;
+
+		const decision = normalizeEntityGcDecisionPayload(
+			group,
+			JSON.stringify({
+				action: "merge",
+				aliases: [{ uuid: alias.uuid, name: alias.name }],
+				reasoning: "Only capitalization differs.",
+			}),
+		);
+
+		expect(decision.canonical).toEqual({ uuid: group.canonical.uuid, name: group.canonical.name });
 	});
 
 	test("ignores superseded memories during discovery and apply", async () => {

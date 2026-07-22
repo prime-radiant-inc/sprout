@@ -27,6 +27,12 @@ export interface MemoryMaintenanceOptions {
 	includeConsolidation?: boolean;
 	includeEntityGc?: boolean;
 	limit?: number;
+	/**
+	 * Discovery input pool override; defaults to every memory in the genome.
+	 * The automatic lane passes a pool with protected manual/user memories and
+	 * consolidation-generated memories already removed.
+	 */
+	memoryPool?: readonly Memory[];
 }
 
 export interface MemoryMaintenancePlan {
@@ -78,7 +84,7 @@ export function discoverMemoryMaintenancePlan(
 ): MemoryMaintenancePlan {
 	const includeConsolidation = options.includeConsolidation ?? true;
 	const includeEntityGc = options.includeEntityGc ?? true;
-	const memories = genome.memories.all();
+	const memories = options.memoryPool ?? genome.memories.all();
 	const projects = genome.projects.all();
 	const globalProject = globalMaintenanceProject(projects);
 	const consolidationProjectIds = new Set(
@@ -106,10 +112,20 @@ export function discoverMemoryMaintenancePlan(
 	};
 }
 
+export interface MemoryMaintenanceApplyOptions {
+	/**
+	 * Consolidated memories built and embedded outside the write lock, keyed
+	 * by cluster id (A-F3): apply must not make network embedding calls while
+	 * holding the memory write lock.
+	 */
+	preEmbeddedConsolidations?: ReadonlyMap<string, Memory>;
+}
+
 export async function applyMemoryMaintenanceDecisions(
 	genome: Genome,
 	plan: MemoryMaintenancePlan,
 	decisions: MemoryMaintenanceDecisionFile,
+	options: MemoryMaintenanceApplyOptions = {},
 ): Promise<MemoryMaintenanceApplyResult> {
 	return genome.applyMemoryAndProjectActivityMutation(
 		"genome: apply memory maintenance decisions",
@@ -128,10 +144,12 @@ export async function applyMemoryMaintenanceDecisions(
 					consolidatedProjectIds.add(projectId);
 				}
 				if (decision.action === "merge") {
+					const preEmbedded = options.preEmbeddedConsolidations?.get(cluster.id);
 					const merge = await applyConsolidationMerge(genome, cluster, decision.memory, {
 						reasoning: decision.reasoning,
 						source: "memory-maintenance",
 						commit: false,
+						...(preEmbedded ? { preEmbedded } : {}),
 					});
 					result.consolidation.merged++;
 					result.consolidation.archived_memory_ids.push(...merge.archived_ids);

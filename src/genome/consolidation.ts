@@ -1,7 +1,11 @@
+import { type ResolverSettings, resolveMemoryModel } from "../agents/model-resolver.ts";
 import type { EntityLinkEntry, Memory, RelationshipType } from "../kernel/types.ts";
+import type { Client } from "../llm/client.ts";
+import { Msg, messageText, type ProviderModel } from "../llm/types.ts";
 import { ulid } from "../util/ulid.ts";
 import { trigramDiceSimilarity } from "./dedup.ts";
 import type { Genome } from "./genome.ts";
+import { repairJson, stripCodeFence } from "./llm-json.ts";
 import { isActiveMemoryForRecall } from "./memory-lifecycle.ts";
 import type { ProjectActivityRecord } from "./projects.ts";
 
@@ -43,6 +47,21 @@ export interface ConsolidationDecision {
 	reasoning: string;
 }
 
+export interface MemoryConsolidationRequest {
+	cluster: ConsolidationCluster;
+	prompt: string;
+	client: Client;
+	model: string;
+	provider: string;
+	maxTokens?: number;
+}
+
+export interface MemoryConsolidationSettingsRequest
+	extends Omit<MemoryConsolidationRequest, "model" | "provider"> {
+	resolverSettings: ResolverSettings;
+	modelsByProvider: Map<string, ProviderModel[]>;
+}
+
 export interface ConsolidationMergeResult {
 	consolidated: Memory;
 	archived_ids: string[];
@@ -51,6 +70,8 @@ export interface ConsolidationMergeResult {
 const DEFAULT_FUZZY_THRESHOLD = 0.82;
 const DEFAULT_VECTOR_THRESHOLD = 0.9;
 const DEFAULT_MAX_REJECTIONS = 2;
+/** Unattended-lane cap on merge draft text; an over-cap draft is unparseable. */
+const MAX_CONSOLIDATION_DRAFT_TEXT_CHARS = 2000;
 const CONSOLIDATION_LINK_TYPES = new Set<RelationshipType>([
 	"corroborates",
 	"supersedes",
@@ -177,30 +198,120 @@ export function estimateDuplicateRateAfterConsolidation(
 	return estimateDuplicateRate(survivors, fuzzyThreshold);
 }
 
-export async function applyConsolidationMerge(
-	genome: Genome,
-	cluster: Pick<ConsolidationCluster, "memory_ids">,
+export async function requestConsolidationDecision(
+	request: MemoryConsolidationRequest,
+): Promise<ConsolidationDecision> {
+	const response = await request.client.complete({
+		model: request.model,
+		provider: request.provider,
+		messages: [
+			Msg.system(request.prompt),
+			Msg.user(renderMemoryConsolidationUserPrompt(request.cluster)),
+		],
+		temperature: 0,
+		max_tokens: request.maxTokens ?? 900,
+		metadata: { purpose: "memory.consolidation" },
+	});
+	return normalizeConsolidationDecisionPayload(messageText(response.message));
+}
+
+export async function requestConsolidationDecisionWithSettings(
+	request: MemoryConsolidationSettingsRequest,
+): Promise<ConsolidationDecision> {
+	const model = resolveMemoryModel(
+		"consolidation",
+		request.resolverSettings,
+		request.modelsByProvider,
+	);
+	return requestConsolidationDecision({
+		...request,
+		model: model.model,
+		provider: model.provider,
+	});
+}
+
+export function renderMemoryConsolidationUserPrompt(cluster: ConsolidationCluster): string {
+	const memories = cluster.memories
+		.map((memory, index) =>
+			[
+				`MEMORY ${index + 1}`,
+				`id: ${memory.id}`,
+				`created: ${new Date(memory.created).toISOString()}`,
+				`confidence: ${memory.confidence}`,
+				`tags: ${memory.tags.join(", ")}`,
+				`projects: ${(memory.project_ids ?? []).join(", ")}`,
+				`text: ${JSON.stringify(memory.content)}`,
+			].join("\n"),
+		)
+		.join("\n\n");
+	return `Review this duplicate/supersession memory cluster. Merge only if one consolidated memory would preserve all durable facts without losing nuance. Reject if the memories should remain separate.
+
+Cluster reasons: ${cluster.reasons.join(", ")}
+Average score: ${cluster.score.toFixed(3)}
+Prior rejection count: ${cluster.rejection_count}
+
+${memories}
+
+Return only JSON:
+{"action":"merge","memory":{"text":"single consolidated durable memory","tags":["tag"]},"reasoning":"why this merge is safe"}
+
+or
+
+{"action":"reject","reasoning":"why these memories should remain separate"}`;
+}
+
+/**
+ * Parse an LLM consolidation reply into a decision. Hardened for unattended
+ * use: draft entities and confidence are IGNORED (the merged memory's
+ * entity_links are always the union of source links and confidence derives
+ * from source effective importance in applyConsolidationMerge), and draft
+ * text over the cap throws so the caller skips the cluster.
+ */
+export function normalizeConsolidationDecisionPayload(text: string): ConsolidationDecision {
+	const parsed = parseJsonObject(text);
+	const action = parsed.action;
+	if (action !== "merge" && action !== "reject") {
+		throw new Error("Consolidation decision must have action 'merge' or 'reject'");
+	}
+	const reasoning = typeof parsed.reasoning === "string" ? parsed.reasoning.trim() : "";
+	if (!reasoning) throw new Error("Consolidation decision missing reasoning");
+	if (action === "reject") return { action, reasoning };
+
+	if (!isRecord(parsed.memory)) {
+		throw new Error("Merge consolidation decision missing memory object");
+	}
+	const textValue = typeof parsed.memory.text === "string" ? parsed.memory.text.trim() : "";
+	if (!textValue) throw new Error("Merge consolidation decision missing memory.text");
+	if (textValue.length > MAX_CONSOLIDATION_DRAFT_TEXT_CHARS) {
+		throw new Error(
+			`Merge consolidation decision memory.text exceeds ${MAX_CONSOLIDATION_DRAFT_TEXT_CHARS} characters`,
+		);
+	}
+	const tags = Array.isArray(parsed.memory.tags)
+		? parsed.memory.tags.filter((tag): tag is string => typeof tag === "string")
+		: [];
+	return { action, reasoning, memory: { text: textValue, tags } };
+}
+
+/**
+ * Build the consolidated memory for a merge without touching the genome, so
+ * callers can embed it OUTSIDE the memory write lock (A-F3) and pass it back
+ * through applyConsolidationMerge's preEmbedded option.
+ */
+export function buildConsolidatedMemory(
+	sources: readonly Memory[],
 	draft: ConsolidationMemoryDraft,
 	options: {
 		now?: number;
 		source?: string;
 		id?: string;
 		reasoning?: string;
-		commit?: boolean;
 	} = {},
-): Promise<ConsolidationMergeResult> {
+): Memory {
 	const now = options.now ?? Date.now();
-	const sources = cluster.memory_ids.map((id) => {
-		const memory = genome.memories.getById(id);
-		if (!memory) throw new Error(`Cannot consolidate missing memory '${id}'`);
-		if (memory.archived_at) throw new Error(`Cannot consolidate archived memory '${id}'`);
-		return memory;
-	});
-	if (sources.length < 2) throw new Error("Consolidation merge requires at least two memories");
-
 	const consolidatedId = options.id ?? `memory-consolidated-${ulid().toLowerCase()}`;
 	const reasoning = options.reasoning ?? "memory consolidation";
-	const consolidated: Memory = {
+	return {
 		id: consolidatedId,
 		content: draft.text,
 		tags: unionStrings([...(draft.tags ?? []), ...sources.flatMap((memory) => memory.tags)]),
@@ -240,8 +351,38 @@ export async function applyConsolidationMerge(
 			},
 		],
 	};
+}
 
-	const saved = await genome.stageMemoryForMutation(consolidated);
+export async function applyConsolidationMerge(
+	genome: Genome,
+	cluster: Pick<ConsolidationCluster, "memory_ids">,
+	draft: ConsolidationMemoryDraft,
+	options: {
+		now?: number;
+		source?: string;
+		id?: string;
+		reasoning?: string;
+		commit?: boolean;
+		/** Consolidated memory built and embedded outside the write lock (A-F3). */
+		preEmbedded?: Memory;
+	} = {},
+): Promise<ConsolidationMergeResult> {
+	const now = options.now ?? Date.now();
+	const sources = cluster.memory_ids.map((id) => {
+		const memory = genome.memories.getById(id);
+		if (!memory) throw new Error(`Cannot consolidate missing memory '${id}'`);
+		if (memory.archived_at) throw new Error(`Cannot consolidate archived memory '${id}'`);
+		return memory;
+	});
+	if (sources.length < 2) throw new Error("Consolidation merge requires at least two memories");
+
+	const consolidated = options.preEmbedded ?? buildConsolidatedMemory(sources, draft, options);
+	const consolidatedId = consolidated.id;
+	const reasoning = options.reasoning ?? "memory consolidation";
+
+	const saved = await genome.stageMemoryForMutation(consolidated, {
+		reuseReadyEmbedding: options.preEmbedded !== undefined,
+	});
 
 	for (const memory of sources) {
 		memory.archived_at = now;
@@ -384,6 +525,17 @@ function pairKey(leftId: string, rightId: string): string {
 
 function normalizeContent(value: string): string {
 	return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function parseJsonObject(text: string): Record<string, unknown> {
+	const stripped = stripCodeFence(text.trim());
+	const parsed = JSON.parse(repairJson(stripped));
+	if (!isRecord(parsed)) throw new Error("Expected JSON object");
+	return parsed;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function entityUuid(type: EntityLinkEntry["type"], name: string): string {

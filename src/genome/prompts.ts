@@ -173,6 +173,33 @@ For a rejected merge:
   "reasoning": "one sentence explaining why these memories should remain separate"
 }`;
 
+export const MEMORY_ENTITY_GC_PROMPT = `You review groups of same-type Sprout memory entities and decide whether their names are aliases of one canonical entity.
+
+Rules:
+- Merge only when every candidate clearly refers to the same real project, library, file, command, error, technology, or person.
+- Different casing, punctuation, or abbreviation of one name is an alias. Different things with similar names are not.
+- When unsure, reject. A wrong merge corrupts entity links across memories; a reject costs nothing.
+- Copy the canonical uuid and name exactly from one of the listed candidates. Never invent or rename entities.
+- List only the candidates being archived as aliases, copied exactly from the listed candidates. Never list the canonical entity as its own alias.
+
+Respond with only valid JSON. No markdown.
+
+For a safe merge:
+{
+  "action": "merge",
+  "canonical": {"uuid": "entity_uuid", "name": "Canonical Name"},
+  "aliases": [
+    {"uuid": "alias_uuid", "name": "Alias Name"}
+  ],
+  "reasoning": "one sentence explaining why these names are the same entity"
+}
+
+For a rejected merge:
+{
+  "action": "reject",
+  "reasoning": "one sentence explaining why these names should remain separate"
+}`;
+
 export const SUBCORTICAL_RECALL_PROMPT = `You are Sprout's subcortical memory-recall pre-pass.
 
 Your job is query expansion only. Do not answer the user.
@@ -211,6 +238,7 @@ const DEFAULT_PROMPTS: Record<string, string> = {
 	"segment_summary_user.txt": SEGMENT_SUMMARY_USER_PROMPT,
 	"memory_relationship_classification.txt": MEMORY_RELATIONSHIP_CLASSIFICATION_PROMPT,
 	"memory_consolidation.txt": MEMORY_CONSOLIDATION_PROMPT,
+	"memory_entity_gc.txt": MEMORY_ENTITY_GC_PROMPT,
 	"subcortical_recall.txt": SUBCORTICAL_RECALL_PROMPT,
 };
 
@@ -239,6 +267,20 @@ export async function loadRelationshipClassificationPrompt(
 	rootDir?: string,
 ): Promise<string> {
 	return loadPrompt(genomeRoot, rootDir, "memory_relationship_classification.txt");
+}
+
+export async function loadMemoryConsolidationPrompt(
+	genomeRoot: string,
+	rootDir?: string,
+): Promise<string> {
+	return loadPrompt(genomeRoot, rootDir, "memory_consolidation.txt");
+}
+
+export async function loadMemoryEntityGcPrompt(
+	genomeRoot: string,
+	rootDir?: string,
+): Promise<string> {
+	return loadPrompt(genomeRoot, rootDir, "memory_entity_gc.txt");
 }
 
 export async function loadSubcorticalRecallPrompt(

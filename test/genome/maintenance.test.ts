@@ -93,6 +93,41 @@ describe("memory maintenance operator flow", () => {
 		}
 	});
 
+	test("dry run clusters only memories from an explicit memory pool", async () => {
+		const root = await mkdtemp(join(tmpdir(), "sprout-maintenance-memory-pool-"));
+		try {
+			const genome = createTestGenome(root);
+			await genome.init();
+			recordActiveDays(genome);
+			await seedMemories(
+				genome,
+				memory({
+					id: "memory-a",
+					content: "Sprout memory uses SQLite.",
+					project_ids: ["sprout"],
+					entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
+				}),
+				memory({
+					id: "memory-b",
+					content: "Sprout memory uses SQLite.",
+					project_ids: ["sprout"],
+					entity_links: [{ uuid: "entity_sprout_alias", type: "PROJECT", name: "sprout" }],
+				}),
+			);
+			const pool = genome.memories.all().filter((candidate) => candidate.id !== "memory-b");
+
+			const filteredPlan = discoverMemoryMaintenancePlan(genome, { memoryPool: pool });
+			const defaultPlan = discoverMemoryMaintenancePlan(genome);
+
+			expect(filteredPlan.consolidationClusters).toHaveLength(0);
+			expect(filteredPlan.entityGcGroups).toHaveLength(0);
+			expect(defaultPlan.consolidationClusters).toHaveLength(1);
+			expect(defaultPlan.entityGcGroups).toHaveLength(1);
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
 	test("dry run skips projects before their active-day cadence", async () => {
 		const root = await mkdtemp(join(tmpdir(), "sprout-maintenance-not-due-"));
 		try {

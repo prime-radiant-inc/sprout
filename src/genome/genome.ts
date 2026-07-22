@@ -44,6 +44,8 @@ import {
 } from "./program.ts";
 import { type DetectedProject, ProjectActivityStore } from "./projects.ts";
 import {
+	loadMemoryConsolidationPrompt,
+	loadMemoryEntityGcPrompt,
 	loadMemoryExtractionPrompts,
 	loadRelationshipClassificationPrompt,
 	loadSegmentSummaryPrompts,
@@ -178,6 +180,11 @@ export class Genome {
 
 	get generation(): number {
 		return this._generation;
+	}
+
+	/** Absolute genome root directory (memories, prompts, and .cache state live under it). */
+	get path(): string {
+		return this.rootPath;
 	}
 
 	/** Initialize the genome directory with subdirectories and a git repo. */
@@ -429,13 +436,21 @@ export class Genome {
 
 	// --- Memory CRUD (delegates to MemoryStore) ---
 
-	/** Stage a new memory for callers that commit it together with other memory mutations. */
-	async stageMemoryForMutation(memory: Memory): Promise<Memory> {
+	/**
+	 * Stage a new memory for callers that commit it together with other memory
+	 * mutations. reuseReadyEmbedding lets callers that embedded the memory
+	 * outside the write lock (A-F3) stage it without a network embedding call;
+	 * a memory without a ready embedding is embedded here regardless.
+	 */
+	async stageMemoryForMutation(
+		memory: Memory,
+		options: { reuseReadyEmbedding?: boolean } = {},
+	): Promise<Memory> {
 		stampMemoryActivitySnapshots(memory, this.projects.all());
-		const embeddedMemory = await attachReadyMemoryEmbedding(
-			memory,
-			await this.getEmbeddingProvider(),
-		);
+		const embeddedMemory =
+			options.reuseReadyEmbedding && memory.embedding?.status === "ready"
+				? memory
+				: await attachReadyMemoryEmbedding(memory, await this.getEmbeddingProvider());
 		return this.memories.stage(embeddedMemory);
 	}
 
@@ -745,7 +760,10 @@ export class Genome {
 			// Usage marking is best-effort telemetry: a busy write lock must not
 			// stall recall for the full lock timeout or kill the session's run
 			// (A-F3). The contended refresh is simply dropped this round.
-			if (error instanceof Error && error.message.includes("Timed out waiting for directory lock")) {
+			if (
+				error instanceof Error &&
+				error.message.includes("Timed out waiting for directory lock")
+			) {
 				return;
 			}
 			throw error;
@@ -1538,6 +1556,14 @@ export class Genome {
 
 	async loadRelationshipClassificationPrompt(): Promise<string> {
 		return loadRelationshipClassificationPrompt(this.rootPath, this.rootDir);
+	}
+
+	async loadMemoryConsolidationPrompt(): Promise<string> {
+		return loadMemoryConsolidationPrompt(this.rootPath, this.rootDir);
+	}
+
+	async loadMemoryEntityGcPrompt(): Promise<string> {
+		return loadMemoryEntityGcPrompt(this.rootPath, this.rootDir);
 	}
 
 	async loadSubcorticalRecallPrompt(): Promise<string> {
