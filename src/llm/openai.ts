@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import type { ProviderKind } from "../shared/provider-settings.ts";
+import { asRecord } from "../util/record.ts";
 import { parseResponsesResponse, safeParseJSON } from "./openai/responses-parse.ts";
 import { buildResponsesInput, buildResponsesParams } from "./openai/responses-request.ts";
 import { streamResponsesEvents } from "./openai/responses-stream.ts";
@@ -280,13 +281,6 @@ function textContent(content: import("./types.ts").ContentPart[]): string {
 		.filter((part) => part.kind === ContentKind.TEXT && part.text)
 		.map((part) => part.text)
 		.join("\n");
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-	if (value && typeof value === "object" && !Array.isArray(value)) {
-		return value as Record<string, unknown>;
-	}
-	return {};
 }
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { ProviderKind } from "../shared/provider-settings.ts";
+import { asRecord } from "../util/record.ts";
 import {
 	ContentKind,
 	type FinishReason,
@@ -265,13 +266,6 @@ function resolveAnthropicCacheSettings(request: Request): AnthropicCacheSettings
 		cacheControl: ttl ? { type: "ephemeral", ttl } : { type: "ephemeral" },
 		historyBreakpoints: 2,
 	};
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-	if (value && typeof value === "object" && !Array.isArray(value)) {
-		return value as Record<string, unknown>;
-	}
-	return {};
 }
 
 function convertMessages(

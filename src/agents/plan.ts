@@ -17,6 +17,7 @@ import type { Message, Request, ToolCall, ToolDefinition } from "../llm/types.ts
 import { Msg } from "../llm/types.ts";
 import type { ProviderKind } from "../shared/provider-settings.ts";
 import { getToolDisplayName } from "../shared/tool-display.ts";
+import { asRecord } from "../util/record.ts";
 import { normalizeTaskPayload } from "./delegation-payload.ts";
 import type { Preambles } from "./loader.ts";
 
@@ -406,13 +407,6 @@ function validateKnownModelOutputLimit(modelMaxOutputTokens: number | undefined)
 
 function isAnthropicProvider(providerKind: ProviderKind | undefined, provider: string): boolean {
 	return providerKind === "anthropic" || (providerKind === undefined && provider === "anthropic");
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-	if (value && typeof value === "object" && !Array.isArray(value)) {
-		return value as Record<string, unknown>;
-	}
-	return {};
 }
 
 /** Narrow an untrusted `env` tool argument to a string → string map. */

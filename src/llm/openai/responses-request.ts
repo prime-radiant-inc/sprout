@@ -1,4 +1,5 @@
 import type OpenAI from "openai";
+import { asRecord } from "../../util/record.ts";
 import { ContentKind, type Request } from "../types.ts";
 
 export type ResponsesInput = OpenAI.Responses.ResponseInputItem[];
@@ -161,11 +162,4 @@ export function buildResponsesParams(
 	}
 
 	return params;
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-	if (value && typeof value === "object" && !Array.isArray(value)) {
-		return value as Record<string, unknown>;
-	}
-	return {};
 }
