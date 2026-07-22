@@ -1,4 +1,5 @@
 import type { Memory } from "../kernel/types.ts";
+import { isProtectedManualMemory } from "./memory-write-policy.ts";
 import type { ProjectActivityRecord } from "./projects.ts";
 
 export interface MemoryScoreBreakdown {
@@ -128,7 +129,9 @@ export function applyMemoryScores(
 			memory.updated_at = now;
 			updated.push(memory.id);
 		}
-		if (next < minImportance) {
+		// Protected manual/user memories are never auto-archived — the archivist
+		// tool refuses the same operation, and decay must not out-rank the user.
+		if (next < minImportance && !isProtectedManualMemory(memory)) {
 			memory.archived_at = now;
 			memory.archived_reason = `low importance score ${next}`;
 			archived.push(memory.id);
