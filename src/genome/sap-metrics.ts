@@ -2,9 +2,9 @@ import type { SessionEvent } from "../kernel/types.ts";
 
 /**
  * sap data-plane metrics (spec §10). A pure derivation from the session event
- * stream — no runtime coupling. The eval harness and the multi-run A/B gate
- * consume these; they are computed after the fact from recorded events, so the
- * same function scores a live session, a replay, or a pinned eval snapshot.
+ * stream — no runtime coupling and no runtime consumer yet: computed after
+ * the fact from recorded events, so the same function can score a live
+ * session, a replay, or a pinned eval snapshot.
  *
  * Where the raw signal lives in the stream:
  * - usage tokens: `plan_end.usage` (input/output/cache), per LLM turn.
