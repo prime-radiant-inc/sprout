@@ -15,6 +15,7 @@ import "../helpers/test-env.ts";
 import { buildTestResolverContext } from "../helpers/resolver-context.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
 import { createVcr } from "../helpers/vcr.ts";
+import { createInProcessSpawner } from "./fixtures.ts";
 
 const VCR_FIXTURE_DIR = join(import.meta.dir, "../fixtures/vcr/agent-integration");
 
@@ -144,6 +145,13 @@ describe("Agent Integration", () => {
 			stream: async function* () {},
 		} as unknown as Client;
 		const resolverContext = await buildTestResolverContext(mockClient);
+		const { spawner } = createInProcessSpawner({
+			client: mockClient,
+			events,
+			availableAgents: rootAgents,
+			agentTree: rootTree,
+			modelsByProvider: resolverContext.modelsByProvider,
+		});
 
 		const agent = new Agent({
 			spec: rootSpec,
@@ -159,6 +167,7 @@ describe("Agent Integration", () => {
 			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 			modelsByProvider: resolverContext.modelsByProvider,
+			spawner,
 		});
 
 		const result = await agent.run(
@@ -241,6 +250,15 @@ describe("Agent with Genome Integration", () => {
 		// is denied (Phase 7 hardening).
 		const rootDir = join(import.meta.dir, "../../root");
 		const agentTree = await scanAgentTree(rootDir);
+		const { spawner } = createInProcessSpawner({
+			client: vcr.client,
+			events,
+			availableAgents: genome.allAgents(),
+			genome,
+			rootDir,
+			agentTree,
+			modelsByProvider: resolverContext.modelsByProvider,
+		});
 		const agent = new Agent({
 			spec: rootSpec,
 			env,
@@ -257,6 +275,7 @@ describe("Agent with Genome Integration", () => {
 			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 			modelsByProvider: resolverContext.modelsByProvider,
+			spawner,
 		});
 
 		const result = await agent.run(

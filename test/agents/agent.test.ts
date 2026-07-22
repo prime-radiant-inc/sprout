@@ -26,6 +26,7 @@ import { ContentKind, Msg, messageText } from "../../src/llm/types.ts";
 import { resolveReplayPath } from "../../src/replay/paths.ts";
 import {
 	createAgentFixture,
+	createInProcessSpawner,
 	leafSpec,
 	makeMockClient,
 	rootSpec,
@@ -693,6 +694,11 @@ describe("Agent", () => {
 		const events = new AgentEventEmitter();
 		const env = new LocalExecutionEnvironment(tmpdir());
 		const registry = createPrimitiveRegistry(env);
+		const { spawner } = createInProcessSpawner({
+			client: mockClient,
+			events,
+			availableAgents: [rootSpec, leafSpec],
+		});
 		const agent = new Agent({
 			spec: rootSpec,
 			env,
@@ -701,6 +707,7 @@ describe("Agent", () => {
 			availableAgents: [rootSpec, leafSpec],
 			depth: 0,
 			events,
+			spawner,
 		});
 
 		await agent.run("delegate something");
@@ -769,6 +776,11 @@ describe("Agent", () => {
 
 		const events = new AgentEventEmitter();
 		const env = new LocalExecutionEnvironment(tmpdir());
+		const { spawner } = createInProcessSpawner({
+			client: mockClient,
+			events,
+			availableAgents: [rootSpec, payloadLeaf],
+		});
 		const agent = new Agent({
 			spec: rootSpec,
 			env,
@@ -777,6 +789,7 @@ describe("Agent", () => {
 			availableAgents: [rootSpec, payloadLeaf],
 			depth: 0,
 			events,
+			spawner,
 		});
 
 		await agent.run("delegate exact edit");
@@ -838,6 +851,11 @@ describe("Agent", () => {
 
 		const events = new AgentEventEmitter();
 		const env = new LocalExecutionEnvironment(tmpdir());
+		const { spawner } = createInProcessSpawner({
+			client: mockClient,
+			events,
+			availableAgents: [rootSpec, leafSpec],
+		});
 		const agent = new Agent({
 			spec: rootSpec,
 			env,
@@ -846,6 +864,7 @@ describe("Agent", () => {
 			availableAgents: [rootSpec, leafSpec],
 			depth: 0,
 			events,
+			spawner,
 		});
 
 		await agent.run("delegate exact edit");
@@ -945,6 +964,12 @@ describe("Agent", () => {
 				agentName: "coordinator",
 				sessionId: "session-scoped-registry",
 			});
+			const { spawner } = createInProcessSpawner({
+				client: mockClient,
+				availableAgents: [coordinator, worker],
+				genome,
+				sessionId: "session-scoped-registry",
+			});
 			const agent = new Agent({
 				spec: coordinator,
 				env,
@@ -952,6 +977,7 @@ describe("Agent", () => {
 				primitiveRegistry: registry,
 				availableAgents: [coordinator, worker],
 				genome,
+				spawner,
 			});
 
 			const result = await agent.run("delegate a save_file call");
@@ -968,7 +994,7 @@ describe("Agent", () => {
 		}
 	});
 
-	test("in-process project-memory delegation receives project data directory", async () => {
+	test("project-memory delegation receives project data directory", async () => {
 		const tempGenomeDir = await mkdtemp(join(tmpdir(), "sprout-agent-project-memory-"));
 		const projectDataDir = await mkdtemp(join(tmpdir(), "sprout-project-data-"));
 		try {
@@ -1049,6 +1075,13 @@ describe("Agent", () => {
 				stream: async function* () {},
 			} as unknown as Client;
 			const env = new LocalExecutionEnvironment(tmpdir());
+			const { spawner, spawnCalls } = createInProcessSpawner({
+				client: mockClient,
+				availableAgents: [coordinator, projectMemory],
+				genome,
+				rootDir,
+				agentTree,
+			});
 			const agent = new Agent({
 				spec: coordinator,
 				env,
@@ -1059,11 +1092,14 @@ describe("Agent", () => {
 				rootDir,
 				agentTree,
 				projectDataDir,
+				spawner,
 			});
 
 			const result = await agent.run("delegate memory write");
 
 			expect(result.success).toBe(true);
+			expect(spawnCalls).toHaveLength(1);
+			expect(spawnCalls[0]!.projectDataDir).toBe(projectDataDir);
 			expect(await readFile(join(projectDataDir, "memory", "handoff.md"), "utf-8")).toBe(
 				"# Handoff\n\nRemember the in-process project-memory path.",
 			);
@@ -2008,6 +2044,14 @@ describe("Agent", () => {
 		const events = new AgentEventEmitter();
 		const env = new LocalExecutionEnvironment(tmpdir());
 		const registry = createPrimitiveRegistry(env);
+		// The fake resolves child specs from the live genome at spawn time, like
+		// the production child entry reads the genome from disk.
+		const { spawner } = createInProcessSpawner({
+			client: mockClient,
+			events,
+			availableAgents: [rootSpec, leafWithDynamic],
+			genome: mockGenome,
+		});
 		const agent = new Agent({
 			spec: rootSpec,
 			env,
@@ -2017,6 +2061,7 @@ describe("Agent", () => {
 			genome: mockGenome,
 			depth: 0,
 			events,
+			spawner,
 		});
 
 		// Simulate Learn adding a new agent to the genome mid-session
@@ -2172,6 +2217,11 @@ describe("Agent", () => {
 		const events = new AgentEventEmitter();
 		const env = new LocalExecutionEnvironment(tmpdir());
 		const registry = createPrimitiveRegistry(env);
+		const { spawner } = createInProcessSpawner({
+			client: mockClient,
+			events,
+			availableAgents: [rootWithTwoLeaves, leafA, leafB],
+		});
 		const agent = new Agent({
 			spec: rootWithTwoLeaves,
 			env,
@@ -2180,6 +2230,7 @@ describe("Agent", () => {
 			availableAgents: [rootWithTwoLeaves, leafA, leafB],
 			depth: 0,
 			events,
+			spawner,
 		});
 
 		const start = performance.now();
@@ -2310,6 +2361,11 @@ describe("Agent", () => {
 		const events = new AgentEventEmitter();
 		const env = new LocalExecutionEnvironment(tmpdir());
 		const registry = createPrimitiveRegistry(env);
+		const { spawner } = createInProcessSpawner({
+			client: mockClient,
+			events,
+			availableAgents: [rootWithTwoLeaves, leafA, leafB],
+		});
 		const agent = new Agent({
 			spec: rootWithTwoLeaves,
 			env,
@@ -2318,6 +2374,7 @@ describe("Agent", () => {
 			availableAgents: [rootWithTwoLeaves, leafA, leafB],
 			depth: 0,
 			events,
+			spawner,
 		});
 
 		const result = await agent.run("order test");
@@ -2333,110 +2390,6 @@ describe("Agent", () => {
 		expect(leafBEnd).toBeDefined();
 		expect(leafAEnd!.data.success).toBe(true);
 		expect(leafBEnd!.data.success).toBe(true);
-	});
-
-	test("subagent writes log under parent logBasePath/subagents/", async () => {
-		const tempDir = await mkdtemp(join(tmpdir(), "sprout-sublog-"));
-		try {
-			const logBasePath = join(tempDir, "parent-session");
-
-			// First response: delegate to leaf agent via delegate tool
-			const delegateMsg: Message = {
-				role: "assistant",
-				content: [
-					{
-						kind: ContentKind.TOOL_CALL,
-						tool_call: {
-							id: "call-sub-1",
-							name: "delegate",
-							arguments: JSON.stringify({ agent_name: "leaf", goal: "do the thing" }),
-						},
-					},
-				],
-			};
-			// Second response (after delegation): done
-			const doneMsg: Message = {
-				role: "assistant",
-				content: [{ kind: ContentKind.TEXT, text: "Delegation complete." }],
-			};
-			// Subagent response: immediate completion
-			const subDoneMsg: Message = {
-				role: "assistant",
-				content: [{ kind: ContentKind.TEXT, text: "Thing done." }],
-			};
-
-			let callCount = 0;
-			const mockClient = {
-				providers: () => ["anthropic"],
-				complete: async (): Promise<Response> => {
-					callCount++;
-					// Call 1: root delegates, Call 2: subagent completes, Call 3: root completes
-					const msg = callCount === 1 ? delegateMsg : callCount === 2 ? subDoneMsg : doneMsg;
-					return {
-						id: `mock-sub-${callCount}`,
-						model: "claude-haiku-4-5-20251001",
-						provider: "anthropic",
-						message: msg,
-						finish_reason: {
-							reason: callCount === 1 ? "tool_calls" : "stop",
-						},
-						usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
-					};
-				},
-				stream: async function* () {},
-			} as unknown as Client;
-
-			const env = new LocalExecutionEnvironment(tmpdir());
-			const registry = createPrimitiveRegistry(env);
-			const agent = new Agent({
-				spec: rootSpec,
-				env,
-				client: mockClient,
-				primitiveRegistry: registry,
-				availableAgents: [rootSpec, leafSpec],
-				depth: 0,
-				logBasePath,
-			});
-
-			await agent.run("delegate to leaf");
-
-			// Parent log should exist
-			const parentLog = `${logBasePath}.jsonl`;
-			expect(existsSync(parentLog)).toBe(true);
-
-			// Subagent log should exist under subagents/
-			const subagentsDir = join(logBasePath, "subagents");
-			expect(existsSync(subagentsDir)).toBe(true);
-
-			// Find the subagent log file (name is a generated ULID)
-			const { readdir } = await import("node:fs/promises");
-			const subFiles = await readdir(subagentsDir);
-			const eventLogFiles = subFiles.filter(
-				(f) => f.endsWith(".jsonl") && !f.endsWith(".replay.jsonl"),
-			);
-			const replayLogFiles = subFiles.filter((f) => f.endsWith(".replay.jsonl"));
-			expect(eventLogFiles.length).toBe(1);
-			expect(replayLogFiles.length).toBe(1);
-
-			// Verify subagent log content
-			const subLogPath = join(subagentsDir, eventLogFiles[0]!);
-			const subContent = await readFile(subLogPath, "utf-8");
-			const subLines = subContent.trim().split("\n");
-			const subFirstEvent = JSON.parse(subLines[0]!);
-			expect(subFirstEvent.kind).toBe("session_start");
-			// Child agent uses the parent-assigned child_id (a ULID) as its agent_id
-			expect(subFirstEvent.agent_id).toHaveLength(26);
-
-			const subReplayPath = resolveReplayPath(subLogPath);
-			expect(existsSync(subReplayPath)).toBe(true);
-			const subReplayContent = await readFile(subReplayPath, "utf-8");
-			const subReplayLines = subReplayContent.trim().split("\n");
-			expect(subReplayLines.length).toBeGreaterThanOrEqual(1);
-			const subReplayRecord = JSON.parse(subReplayLines[0]!);
-			expect(subReplayRecord.agent_id).toBe(subFirstEvent.agent_id);
-		} finally {
-			await rm(tempDir, { recursive: true, force: true });
-		}
 	});
 
 	test("modelOverride overrides spec model in resolvedModel", () => {
@@ -2540,6 +2493,11 @@ describe("Agent", () => {
 		const events = new AgentEventEmitter();
 		const env = new LocalExecutionEnvironment(tmpdir());
 		const registry = createPrimitiveRegistry(env);
+		const { spawner } = createInProcessSpawner({
+			client: mockClient,
+			events,
+			availableAgents: [rootSpec, leafSpec],
+		});
 		const agent = new Agent({
 			spec: rootSpec,
 			env,
@@ -2548,6 +2506,7 @@ describe("Agent", () => {
 			availableAgents: [rootSpec, leafSpec],
 			depth: 0,
 			events,
+			spawner,
 		});
 
 		await agent.run("delegate to unknown");
@@ -2612,6 +2571,11 @@ describe("Agent", () => {
 		const events = new AgentEventEmitter();
 		const env = new LocalExecutionEnvironment(tmpdir());
 		const registry = createPrimitiveRegistry(env);
+		const { spawner } = createInProcessSpawner({
+			client: mockClient,
+			events,
+			availableAgents: [rootSpec, leafSpec, rogueSpec],
+		});
 		const agent = new Agent({
 			spec: rootSpec,
 			env,
@@ -2620,6 +2584,7 @@ describe("Agent", () => {
 			availableAgents: [rootSpec, leafSpec, rogueSpec],
 			depth: 0,
 			events,
+			spawner,
 		});
 
 		await agent.run("delegate outside allowlist");
@@ -3074,6 +3039,12 @@ describe("Agent", () => {
 		} as unknown as Genome;
 		const events = new AgentEventEmitter();
 		const env = new LocalExecutionEnvironment(tmpdir());
+		const { spawner } = createInProcessSpawner({
+			client: mockClient,
+			events,
+			availableAgents: [rootSpec, leafSpec],
+			genome: fakeGenome,
+		});
 		const agent = new Agent({
 			spec: rootSpec,
 			env,
@@ -3082,6 +3053,7 @@ describe("Agent", () => {
 			availableAgents: [rootSpec, leafSpec],
 			genome: fakeGenome,
 			events,
+			spawner,
 		});
 
 		await agent.run("coordinate five delegates");
@@ -3141,7 +3113,8 @@ describe("Agent", () => {
 				const system = request.messages.find((message) => message.role === "system");
 				const systemText =
 					system?.content.map((part) => ("text" in part ? part.text : "")).join("") ?? "";
-				if (callCount === 2) {
+				// The archivist child carries leafSpec's base prompt.
+				if (systemText.includes("You do things.")) {
 					archivistSystemPrompt = systemText;
 				}
 				return {
@@ -3181,6 +3154,11 @@ describe("Agent", () => {
 			agentDir: () => tmpdir(),
 		} as unknown as Genome;
 		const env = new LocalExecutionEnvironment(tmpdir());
+		const { spawner } = createInProcessSpawner({
+			client: mockClient,
+			availableAgents: [rootWithArchivist, archivistSpec],
+			genome: fakeGenome,
+		});
 		const agent = new Agent({
 			spec: rootWithArchivist,
 			env,
@@ -3189,10 +3167,12 @@ describe("Agent", () => {
 			availableAgents: [rootWithArchivist, archivistSpec],
 			genome: fakeGenome,
 			events: new AgentEventEmitter(),
+			spawner,
 		});
 
 		await agent.run("coordinate archivist");
 
+		expect(archivistSystemPrompt).toContain("You do things.");
 		expect(archivistSystemPrompt).not.toContain("<memory_context>");
 		expect(archivistSystemPrompt).not.toContain("Do not inject this into archivist.");
 	});
@@ -3380,101 +3360,6 @@ describe("Agent", () => {
 		await agent.run("run with custom primitive");
 
 		expect(toolNames).toContain("custom_tool");
-	});
-
-	test("in-process delegated agents receive caller-supplied primitives", async () => {
-		const childSpec: AgentSpec = {
-			...leafSpec,
-			name: "custom-child",
-			system_prompt: "You are the custom child.",
-			tools: ["custom_tool"],
-			agents: [],
-			constraints: { ...leafSpec.constraints, can_spawn: false },
-		};
-		const customRootSpec: AgentSpec = {
-			...rootSpec,
-			name: "root",
-			agents: ["custom-child"],
-			constraints: { ...rootSpec.constraints, can_spawn: true },
-		};
-		const delegateMsg: Message = {
-			role: "assistant",
-			content: [
-				{
-					kind: ContentKind.TOOL_CALL,
-					tool_call: {
-						id: "call-custom-child",
-						name: "delegate",
-						arguments: JSON.stringify({
-							agent_name: "custom-child",
-							goal: "use custom tool",
-							blocking: true,
-						}),
-					},
-				},
-			],
-		};
-		const childDone = Msg.assistant("Child done.");
-		const rootDone = Msg.assistant("Root done.");
-		let callCount = 0;
-		let childToolNames: string[] = [];
-		let sawChildRequest = false;
-		const mockClient = {
-			providers: () => ["anthropic"],
-			complete: async (request: Request): Promise<Response> => {
-				callCount++;
-				const systemText = messageText(request.messages[0]!);
-				if (systemText.includes("custom child")) {
-					sawChildRequest = true;
-					childToolNames = request.tools?.map((tool) => tool.name) ?? [];
-				}
-				return {
-					id: `mock-custom-delegation-${callCount}`,
-					model: "claude-haiku-4-5-20251001",
-					provider: "anthropic",
-					message: callCount === 1 ? delegateMsg : sawChildRequest ? rootDone : childDone,
-					finish_reason: { reason: callCount === 1 ? "tool_calls" : "stop" },
-					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
-				};
-			},
-			stream: async function* () {},
-		} as unknown as Client;
-		const fakeGenome = {
-			generation: 0,
-			allAgents: () => [customRootSpec, childSpec],
-			searchMemories: async () => [],
-			matchRoutingRules: () => [],
-			markMemoriesUsed: async () => {},
-			refreshIfDiskChanged: async () => false,
-			loadAgentTools: async () => [],
-			agentDir: () => tmpdir(),
-			memories: { all: () => [] },
-		} as unknown as Genome;
-		const env = new LocalExecutionEnvironment(tmpdir());
-		const registry = createPrimitiveRegistry(env, {
-			genome: fakeGenome,
-			agentName: "root",
-			sessionId: "session-test",
-		});
-		registry.register({
-			name: "custom_tool",
-			description: "Injected custom primitive",
-			parameters: { type: "object", properties: {} },
-			execute: async () => ({ output: "custom", success: true }),
-		});
-		const agent = new Agent({
-			spec: customRootSpec,
-			env,
-			client: mockClient,
-			primitiveRegistry: registry,
-			availableAgents: [customRootSpec, childSpec],
-			genome: fakeGenome,
-			events: new AgentEventEmitter(),
-		});
-
-		await agent.run("delegate to custom child");
-
-		expect(childToolNames).toContain("custom_tool");
 	});
 
 	test("agent respects requestCompaction() flag", async () => {
@@ -4662,7 +4547,7 @@ describe("Agent", () => {
 
 	test("with spawner, blocking delegate routes through spawner.spawnAgent", async () => {
 		// Root calls delegate(agent_name="leaf", goal="...", blocking=true)
-		// With a spawner present, it should go through spawner.spawnAgent, not executeDelegation
+		// Delegation runs only via the spawner: it must go through spawner.spawnAgent
 		const delegateMsg: Message = {
 			role: "assistant",
 			content: [
@@ -4717,7 +4602,7 @@ describe("Agent", () => {
 		const result = await agent.run("spawn test");
 		expect(result.success).toBe(true);
 
-		// Verify spawner was called (not executeDelegation)
+		// Verify the delegation went through the spawner
 		expect(spawnCalls).toHaveLength(1);
 		expect(spawnCalls[0]!.agentName).toBe("leaf");
 		expect(spawnCalls[0]!.goal).toBe("do the thing");
@@ -4985,7 +4870,11 @@ describe("Agent", () => {
 			.collected()
 			.find((e) => e.kind === "act_end" && (e.data.agent_name as string) === "leaf");
 		expect(actEnd?.data.success).toBe(false);
-		expect(String(actEnd?.data.error)).toContain("env requires the spawner runtime");
+		// An env grant does not change the rejection shape: the delegation hits
+		// the general no-spawner rejection, not an env-specific path.
+		expect(String(actEnd?.data.error)).toContain(
+			"delegation requires the spawner runtime, but none is available",
+		);
 	});
 
 	test("root tech-lead initial handoff passes the human contract by reference", async () => {
@@ -6539,8 +6428,10 @@ describe("Agent", () => {
 		expect(toolResult.content[0]!.tool_result?.tool_call_id).toBe("call-no-spawner-msg");
 	});
 
-	test("without spawner, delegate falls back to executeDelegation", async () => {
-		// When no spawner is provided, delegate should use the existing in-process executeDelegation
+	test("without spawner, delegate fails loudly — no in-process fallback", async () => {
+		// Delegation runs only on the spawner runtime. Every production entry has
+		// a spawner; a spawnerless Agent rejects the delegation with a clear error
+		// instead of silently running a subagent in-process.
 		const delegateMsg: Message = {
 			role: "assistant",
 			content: [
@@ -6554,10 +6445,6 @@ describe("Agent", () => {
 				},
 			],
 		};
-		const subDoneMsg: Message = {
-			role: "assistant",
-			content: [{ kind: ContentKind.TEXT, text: "Leaf done." }],
-		};
 		const rootDoneMsg: Message = {
 			role: "assistant",
 			content: [{ kind: ContentKind.TEXT, text: "All done." }],
@@ -6568,7 +6455,7 @@ describe("Agent", () => {
 			providers: () => ["anthropic"],
 			complete: async (): Promise<Response> => {
 				callCount++;
-				const msg = callCount === 1 ? delegateMsg : callCount === 2 ? subDoneMsg : rootDoneMsg;
+				const msg = callCount === 1 ? delegateMsg : rootDoneMsg;
 				return {
 					id: `mock-fb-${callCount}`,
 					model: "claude-haiku-4-5-20251001",
@@ -6592,20 +6479,23 @@ describe("Agent", () => {
 			availableAgents: [rootSpec, leafSpec],
 			depth: 0,
 			events,
-			// No spawner — should use executeDelegation
+			// No spawner — delegation must be rejected, not run in-process
 		});
 
 		const result = await agent.run("fallback test");
 		expect(result.success).toBe(true);
+		// Only the delegating turn and the final turn — no subagent turn ran.
+		expect(callCount).toBe(2);
 
-		// Verify that in-process delegation actually happened (act_start/act_end events for leaf)
 		const collected = events.collected();
-		const actStart = collected.find((e) => e.kind === "act_start" && e.data.agent_name === "leaf");
-		expect(actStart).toBeDefined();
 		const actEnd = collected.find(
-			(e) => e.kind === "act_end" && e.data.agent_name === "leaf" && e.data.success === true,
+			(e) => e.kind === "act_end" && e.data.agent_name === "leaf" && e.data.success === false,
 		);
 		expect(actEnd).toBeDefined();
+		expect(String(actEnd!.data.error)).toContain("spawner runtime");
+		const toolResult = actEnd!.data.tool_result_message as Message;
+		expect(toolResult.content[0]!.tool_result?.tool_call_id).toBe("call-fallback-1");
+		expect(toolResult.content[0]!.tool_result?.is_error).toBe(true);
 	});
 
 	test("with spawner, delegate passes hints and shared fields", async () => {
@@ -7134,6 +7024,11 @@ describe("Agent", () => {
 		const events = new AgentEventEmitter();
 		const env = new LocalExecutionEnvironment(tmpdir());
 		const registry = createPrimitiveRegistry(env);
+		const { spawner } = createInProcessSpawner({
+			client: mockClient,
+			events,
+			availableAgents: [rootSpec, leafSpec],
+		});
 		const agent = new Agent({
 			spec: rootSpec,
 			env,
@@ -7142,6 +7037,7 @@ describe("Agent", () => {
 			availableAgents: [rootSpec, leafSpec],
 			depth: 0,
 			events,
+			spawner,
 		});
 
 		await agent.run("delegate something");
@@ -7506,7 +7402,7 @@ describe("Agent", () => {
 		expect(delegatable).toContain("reader");
 	});
 
-	test("executeDelegation resolves path-based agent names from tree", async () => {
+	test("delegation resolves path-based agent names from tree", async () => {
 		const tree = new Map<string, AgentTreeEntry>([
 			[
 				"utility/reader",
@@ -7575,6 +7471,11 @@ describe("Agent", () => {
 		const events = new AgentEventEmitter();
 		const env = new LocalExecutionEnvironment(tmpdir());
 		const registry = createPrimitiveRegistry(env);
+		const { spawner } = createInProcessSpawner({
+			client: mockClient,
+			events,
+			agentTree: tree,
+		});
 		const agent = new Agent({
 			spec: orchestratorSpec,
 			env,
@@ -7585,6 +7486,7 @@ describe("Agent", () => {
 			agentTreeChildren: [],
 			agentTreeSelfPath: "",
 			events,
+			spawner,
 		});
 
 		const result = await agent.run("test path delegation");
@@ -7696,6 +7598,12 @@ describe("Agent", () => {
 		const events = new AgentEventEmitter();
 		const env = new LocalExecutionEnvironment(tmpdir());
 		const registry = createPrimitiveRegistry(env);
+		const { spawner } = createInProcessSpawner({
+			client: mockClient,
+			events,
+			genome: mockGenome,
+			agentTree: tree,
+		});
 		const agent = new Agent({
 			spec: orchestratorSpec,
 			env,
@@ -7707,6 +7615,7 @@ describe("Agent", () => {
 			agentTreeChildren: [],
 			agentTreeSelfPath: "",
 			events,
+			spawner,
 		});
 
 		const result = await agent.run("overlay delegation test");
@@ -7789,6 +7698,11 @@ describe("Agent", () => {
 		const events = new AgentEventEmitter();
 		const env = new LocalExecutionEnvironment(tmpdir());
 		const registry = createPrimitiveRegistry(env);
+		const { spawner } = createInProcessSpawner({
+			client: mockClient,
+			events,
+			agentTree: tree,
+		});
 		const agent = new Agent({
 			spec: orchestratorSpec,
 			env,
@@ -7799,6 +7713,7 @@ describe("Agent", () => {
 			agentTreeChildren: ["worker"],
 			agentTreeSelfPath: "",
 			events,
+			spawner,
 		});
 
 		await agent.run("tree allowlist");
@@ -7922,6 +7837,11 @@ describe("Agent", () => {
 		const events = new AgentEventEmitter();
 		const env = new LocalExecutionEnvironment(tmpdir());
 		const registry = createPrimitiveRegistry(env);
+		const { spawner } = createInProcessSpawner({
+			client: mockClient,
+			events,
+			agentTree: tree,
+		});
 		const agent = new Agent({
 			spec: orchestratorSpec,
 			env,
@@ -7932,6 +7852,7 @@ describe("Agent", () => {
 			agentTreeChildren: ["worker"],
 			agentTreeSelfPath: "",
 			events,
+			spawner,
 		});
 
 		const result = await agent.run("chain delegation test");
@@ -7950,7 +7871,7 @@ describe("Agent", () => {
 		expect(helperActEnd).toBeDefined();
 	});
 
-	test("executeDelegation resolves bare name for nested tree agent", async () => {
+	test("delegation resolves bare name for nested tree agent", async () => {
 		const tree = new Map<string, AgentTreeEntry>([
 			[
 				"utility/reader",
@@ -8017,6 +7938,11 @@ describe("Agent", () => {
 		const events = new AgentEventEmitter();
 		const env = new LocalExecutionEnvironment(tmpdir());
 		const registry = createPrimitiveRegistry(env);
+		const { spawner } = createInProcessSpawner({
+			client: mockClient,
+			events,
+			agentTree: tree,
+		});
 		const agent = new Agent({
 			spec: orchestratorSpec,
 			env,
@@ -8027,6 +7953,7 @@ describe("Agent", () => {
 			agentTreeChildren: [],
 			agentTreeSelfPath: "",
 			events,
+			spawner,
 		});
 
 		const result = await agent.run("test bare name delegation");

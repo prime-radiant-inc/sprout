@@ -72,11 +72,7 @@ import { shouldTagAgentEventWithSessionId } from "../shared/session-event-scope.
 import { getToolDisplayName } from "../shared/tool-display.ts";
 import { ulid } from "../util/ulid.ts";
 import { getContextWindowSize } from "./context-window.ts";
-import {
-	formatDelegationGoal,
-	type NormalizedTaskPayload,
-	normalizeTaskPayload,
-} from "./delegation-payload.ts";
+import { type NormalizedTaskPayload, normalizeTaskPayload } from "./delegation-payload.ts";
 import { fetchManifestLines, renderDelegationResult } from "./delegation-render.ts";
 import { AgentEventEmitter } from "./events.ts";
 import { createInactivityTimer, type InactivityTimer } from "./inactivity-timer.ts";
@@ -1326,272 +1322,9 @@ export class Agent {
 		return `Agent '${delegation.agent_name}' does not accept task_payload. Delegate without payload or choose an agent that declares task_payload: true.`;
 	}
 
-	/** Execute a single delegation to a subagent. Returns the tool result message and stumble count. */
-	private async executeDelegation(
-		delegation: Delegation,
-		agentId: string,
-	): Promise<{ toolResultMsg: Message; stumbles: number; output?: string }> {
-		const childId = ulid();
-		const descData = delegation.description ? { description: delegation.description } : {};
-		const target = this.resolveDelegationTarget(delegation.agent_name);
-		const subagentSpec = target.spec;
-		const effectiveDelegation = this.effectiveDelegationForExecution(delegation, subagentSpec);
-		const normalizedPayload = this.normalizeDelegationPayload(effectiveDelegation);
-		const payloadData = normalizedPayload ? { task_payload: normalizedPayload.metadata } : {};
-
-		// Generate mnemonic name for this child agent
-		const mnemonicName = await generateMnemonicName(
-			this.client,
-			this.resolved.model,
-			this.resolved.provider,
-			{
-				agentName: delegation.agent_name,
-				goal: effectiveDelegation.goal,
-				description: delegation.description,
-				usedNames: [...this.usedMnemonicNames],
-			},
-			this.signal,
-		);
-		if (mnemonicName) this.usedMnemonicNames.add(mnemonicName);
-
-		this.emitAndLog("act_start", agentId, this.depth, {
-			agent_name: delegation.agent_name,
-			goal: effectiveDelegation.goal,
-			...(delegation.description ? { description: delegation.description } : {}),
-			...payloadData,
-			child_id: childId,
-			...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-		});
-
-		const treeEntry =
-			target.treePath && this.agentTree ? this.agentTree.get(target.treePath) : undefined;
-
-		if (!subagentSpec) {
-			const errorMsg = this.buildDelegationDeniedError(delegation.agent_name, target.allowedNames);
-			const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
-			this.emitAndLog("act_end", agentId, this.depth, {
-				agent_name: delegation.agent_name,
-				success: false,
-				error: errorMsg,
-				child_id: childId,
-				...descData,
-				...payloadData,
-				tool_result_message: toolResultMsg,
-				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-			});
-			return { toolResultMsg, stumbles: 1 };
-		}
-
-		if (normalizedPayload && subagentSpec.task_payload !== true) {
-			const errorMsg = this.buildTaskPayloadNotAcceptedError(delegation);
-			const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
-			this.emitAndLog("act_end", agentId, this.depth, {
-				agent_name: delegation.agent_name,
-				success: false,
-				error: errorMsg,
-				child_id: childId,
-				...descData,
-				...payloadData,
-				tool_result_message: toolResultMsg,
-				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-			});
-			return { toolResultMsg, stumbles: 1 };
-		}
-
-		if (this.depth + 1 > MAX_AGENT_DEPTH) {
-			const errorMsg = this.buildDepthLimitError(delegation.agent_name);
-			const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
-			this.emitAndLog("act_end", agentId, this.depth, {
-				agent_name: delegation.agent_name,
-				success: false,
-				error: errorMsg,
-				child_id: childId,
-				...descData,
-				...payloadData,
-				tool_result_message: toolResultMsg,
-				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-			});
-			return { toolResultMsg, stumbles: 1 };
-		}
-
-		// In-process children share this agent's process and have no scope of
-		// their own — env grants only exist on the spawner runtime.
-		if (effectiveDelegation.env !== undefined) {
-			const errorMsg = `Agent delegation to '${delegation.agent_name}': env requires the spawner runtime, but none is available`;
-			const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
-			this.emitAndLog("act_end", agentId, this.depth, {
-				agent_name: delegation.agent_name,
-				success: false,
-				error: errorMsg,
-				child_id: childId,
-				...descData,
-				...payloadData,
-				tool_result_message: toolResultMsg,
-				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-			});
-			return { toolResultMsg, stumbles: 1 };
-		}
-
-		try {
-			const subGoal = formatDelegationGoal({
-				goal: effectiveDelegation.goal,
-				hints: effectiveDelegation.hints,
-				payload: normalizedPayload,
-			});
-
-			const subLogBasePath = this.logBasePath
-				? `${this.logBasePath}/subagents/${ulid()}`
-				: undefined;
-
-			// Resolve the subagent's tree context (selfPath and children)
-			let subTreeSelfPath: string | undefined;
-			let subTreeChildren: string[] | undefined;
-			if (treeEntry) {
-				subTreeSelfPath = treeEntry.path;
-				subTreeChildren = treeEntry.children;
-			}
-			const writeAuthorization = deriveTrustedMemoryWriteAuthorization({
-				agentName: subagentSpec.name,
-				userInstruction: this.trustedUserInstruction,
-			});
-
-			const subagent = new Agent({
-				spec: subagentSpec,
-				env: this.env,
-				client: this.client,
-				primitiveRegistry: this.primitiveRegistryForAgent(subagentSpec.name, writeAuthorization),
-				availableAgents: this.genome ? this.genome.allAgents() : this.availableAgents,
-				genome: this.genome,
-				depth: this.depth + 1,
-				events: this.events,
-				sessionId: this.sessionId,
-				learnProcess: this.learnProcess,
-				logBasePath: subLogBasePath,
-				preambles: this.preambles,
-				genomePostscripts: this.genomePostscripts,
-				projectDataDir: this.projectDataDir,
-				providerIdOverride: this.resolved.provider,
-				resolverSettings: this.resolverSettings,
-				evalMode: this.evalMode,
-				allowExec: this.allowExec,
-				agentId: childId,
-				self: buildAgentAddress({
-					agentName: subagentSpec.name,
-					depth: this.depth + 1,
-					handleId: childId,
-					agentId: childId,
-					isObserver: subagentSpec.tags.includes("observer"),
-				}),
-				caller: this.selfAddress,
-				logger: this.logger,
-				rootDir: this.rootDir,
-				agentTree: this.agentTree,
-				agentTreeChildren: subTreeChildren,
-				agentTreeSelfPath: subTreeSelfPath,
-				enableStreaming: this.enableStreaming,
-				surfacedMemoryBlock: this.childSurfacedMemoryBlock(subagentSpec.name),
-				trustedUserInstruction: this.trustedUserInstruction,
-				dataPlaneEnabled: this.dataPlaneEnabled,
-			});
-
-			const subResult = await subagent.run(subGoal, this.signal);
-
-			const actResult: ActResult = {
-				agent_name: delegation.agent_name,
-				goal: effectiveDelegation.goal,
-				output: subResult.output,
-				success: subResult.success,
-				stumbles: subResult.stumbles,
-				turns: subResult.turns,
-				timed_out: subResult.timed_out,
-			};
-
-			const { verify, learnSignal } = verifyActResult(actResult, this.sessionId);
-
-			this.emitAndLog("verify", agentId, this.depth, {
-				agent_name: delegation.agent_name,
-				success: verify.success,
-				stumbled: verify.stumbled,
-			});
-
-			if (learnSignal) {
-				this.emitAndLog("learn_signal", agentId, this.depth, {
-					signal: learnSignal,
-				});
-				if (this.learnProcess && this.spec.constraints.can_learn) {
-					this.learnProcess.push(learnSignal);
-				}
-			}
-
-			const resultContent = renderDelegationResult(
-				subResult.output,
-				delegation.agent_name,
-				{ lines: "", rewrites: new Map(), values: [] },
-				false,
-			);
-			const toolResultMsg = Msg.toolResult(delegation.call_id, resultContent);
-
-			this.emitAndLog("act_end", agentId, this.depth, {
-				agent_name: delegation.agent_name,
-				success: subResult.success,
-				turns: subResult.turns,
-				timed_out: subResult.timed_out,
-				child_id: childId,
-				...descData,
-				...payloadData,
-				tool_result_message: toolResultMsg,
-				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-			});
-
-			if (this.learnProcess) {
-				this.learnProcess.recordAction(agentId);
-			}
-
-			return {
-				toolResultMsg,
-				stumbles: verify.stumbled ? 1 : 0,
-				output: subResult.output,
-			};
-		} catch (err) {
-			const errorMsg = `Subagent '${delegation.agent_name}' failed: ${String(err)}`;
-			const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
-			this.emitAndLog("act_end", agentId, this.depth, {
-				agent_name: delegation.agent_name,
-				success: false,
-				error: errorMsg,
-				child_id: childId,
-				...descData,
-				tool_result_message: toolResultMsg,
-				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-			});
-			return { toolResultMsg, stumbles: 1 };
-		}
-	}
-
 	private childSurfacedMemoryBlock(agentName: string): string | undefined {
 		if (agentName === "archivist") return "";
 		return this.surfacedMemoryBlock ?? this.initialSurfacedMemoryBlock;
-	}
-
-	private primitiveRegistryForAgent(
-		agentName: string,
-		writeAuthorization?: MemoryWriteAuthorization,
-	): PrimitiveRegistry {
-		if (!this.genome) return this.primitiveRegistry;
-		const registry = createPrimitiveRegistry(
-			this.env,
-			{
-				genome: this.genome,
-				agentName,
-				sessionId: this.sessionId,
-				...(writeAuthorization ? { writeAuthorization } : {}),
-			},
-			{ evalMode: this.evalMode, allowExec: this.allowExec },
-		);
-		for (const prim of this.callerPrimitivePrimitives) {
-			registry.register(prim);
-		}
-		return registry;
 	}
 
 	private async beginDelegateObserverCapture(childId: string): Promise<boolean> {
@@ -2951,14 +2684,15 @@ export class Agent {
 			stumbles++;
 		}
 
-		// Launch all delegations concurrently (spawner or in-process fallback).
+		// Launch all delegations concurrently on the spawner runtime. Delegation
+		// has no in-process fallback: every production entry wires a spawner, so
+		// a spawnerless Agent rejects loudly instead of drifting on a shadow path.
 		// Flag-off (spec §6): env grants on delegate are a data-plane field —
 		// reject loudly naming the flag before the delegation runs.
 		const executeDelegationFn = (
 			d: Delegation,
 		): Promise<{ toolResultMsg: Message; stumbles: number; output?: string }> => {
-			if (!this.dataPlaneEnabled && d.env !== undefined) {
-				const errorMsg = this.dataPlaneDisabledError("env grants on delegate");
+			const rejectDelegation = (errorMsg: string) => {
 				const toolResultMsg = Msg.toolResult(d.call_id, `Error: ${errorMsg}`, true);
 				this.emitAndLog("act_end", agentId, this.depth, {
 					agent_name: d.agent_name,
@@ -2967,10 +2701,16 @@ export class Agent {
 					tool_result_message: toolResultMsg,
 				});
 				return Promise.resolve({ toolResultMsg, stumbles: 1 });
+			};
+			if (!this.dataPlaneEnabled && d.env !== undefined) {
+				return rejectDelegation(this.dataPlaneDisabledError("env grants on delegate"));
 			}
-			return this.spawner
-				? this.executeSpawnerDelegation(d, agentId)
-				: this.executeDelegation(d, agentId);
+			if (!this.spawner) {
+				return rejectDelegation(
+					`Agent delegation to '${d.agent_name}': delegation requires the spawner runtime, but none is available`,
+				);
+			}
+			return this.executeSpawnerDelegation(d, agentId);
 		};
 
 		const delegationPromises = delegations.map((delegation) => {
