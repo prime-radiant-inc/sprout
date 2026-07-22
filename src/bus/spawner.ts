@@ -1,5 +1,6 @@
 import { appendFile, mkdir, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { formatDelegationGoal, normalizeTaskPayload } from "../agents/delegation-payload.ts";
 import type { ResolverSettings } from "../agents/model-resolver.ts";
 import type { HandleRegistrar } from "../host/handle-registrar.ts";
 import { hashToken, mintToken, type ObserverRemit } from "../host/handle-registry.ts";
@@ -190,21 +191,36 @@ export type SpawnFn = (
  */
 export interface FeatherweightExecInput {
 	agentName: string;
-	genomePath: string;
+	/** The child goal, already formatted (hints/payload/env announcement included). */
 	goal: string;
-	handleId: string;
 	self: AgentAddress;
 	caller: AgentAddress;
-	workDir: string;
-	rootDir?: string;
-	projectDataDir?: string;
 	evalMode?: boolean;
-	allowExec?: boolean;
 	model?: string;
 	providerIdOverride?: string;
 	resolverSettings?: ResolverSettings;
+	/** The caller-surfaced memory block, exactly as a subprocess child receives it. */
+	surfacedMemoryBlock?: string;
 	/** Prior conversation replayed from the handle log for a re-run. */
 	history?: Message[];
+}
+
+/** One registered env grant, enough to synthesize the child's announcement line. */
+interface EnvGrantAnnouncement {
+	alias: string;
+	preview: string;
+}
+
+/**
+ * The announcement text a subprocess child derives by claiming its grants
+ * (agent-process claimEnvGrants). A featherweight child cannot claim — the
+ * store keys claims by recipient scope, and the child has none of its own —
+ * so the owner synthesizes the identical text from the registrations.
+ */
+function renderEnvAnnouncement(granted: EnvGrantAnnouncement[] | undefined): string | undefined {
+	if (!granted || granted.length === 0) return undefined;
+	const lines = granted.map((grant) => `⟦${grant.alias}⟧ (${grant.preview.split("\n", 1)[0]})`);
+	return `Values now in your scope:\n${lines.join("\n")}`;
 }
 
 /** Result of a featherweight execution — the run outcome the owner synthesizes into events/log. */
@@ -705,18 +721,20 @@ export class AgentSpawner {
 	private async registerEnvGrants(
 		recipientHandleId: string,
 		env: Record<string, string> | undefined,
-	): Promise<Record<string, string> | undefined> {
+	): Promise<{ wire: Record<string, string>; granted: EnvGrantAnnouncement[] } | undefined> {
 		if (env === undefined || Object.keys(env).length === 0) return undefined;
 		const store = this.authChannel?.store;
 		if (!store) {
 			throw new Error("env grants require the authenticated store, but none is available");
 		}
 		const wire: Record<string, string> = {};
+		const granted: EnvGrantAnnouncement[] = [];
 		for (const [alias, ref] of Object.entries(env)) {
-			const granted = await store.registerEnvGrant(recipientHandleId, alias, ref);
-			wire[alias] = granted.ulid;
+			const metadata = await store.registerEnvGrant(recipientHandleId, alias, ref);
+			wire[alias] = metadata.ulid;
+			granted.push({ alias, preview: metadata.preview });
 		}
-		return wire;
+		return { wire, granted };
 	}
 
 	/**
@@ -764,7 +782,7 @@ export class AgentSpawner {
 
 		// Grants register before launch so the child's claims find them pending;
 		// a rejection aborts the spawn before any process exists.
-		const wireEnv = await this.registerEnvGrants(handleId, opts.env);
+		const wireEnv = (await this.registerEnvGrants(handleId, opts.env))?.wire;
 
 		const resultRecoveryLogOffset = await this.captureResultRecoveryLogOffset(
 			opts.projectDataDir ?? opts.genomePath,
@@ -887,7 +905,19 @@ export class AgentSpawner {
 		};
 		this.handles.set(handleId, handle);
 
-		const result = await this.runFeatherweight(handle, opts.goal);
+		// Parity with the subprocess path (spec §5): grants register before the
+		// run — a rejection aborts the spawn — and hints/payload format into the
+		// child goal exactly as the subprocess child formats its StartMessage.
+		const registration = await this.registerEnvGrants(handleId, opts.env);
+		const baseGoal = formatDelegationGoal({
+			goal: opts.goal,
+			hints: opts.hints,
+			payload: opts.payload ? normalizeTaskPayload(opts.payload, "agent start message") : undefined,
+		});
+		const announcement = renderEnvAnnouncement(registration?.granted);
+		const goal = announcement ? `${baseGoal}\n\n${announcement}` : baseGoal;
+
+		const result = await this.runFeatherweight(handle, goal);
 		this.settleHandleResult(handle, result, keepAlive ? "idle" : "completed");
 
 		if (opts.blocking) {
@@ -910,19 +940,14 @@ export class AgentSpawner {
 
 		const exec = await this.featherweightFn!({
 			agentName: handle.agentName,
-			genomePath: handle.genomePath,
 			goal,
-			handleId: handle.handleId,
 			self: handle.address,
 			caller: handle.caller,
-			workDir: handle.workDir,
-			rootDir: handle.rootDir,
-			projectDataDir: handle.projectDataDir,
 			evalMode: handle.evalMode,
-			allowExec: handle.allowExec,
 			model: handle.model,
 			providerIdOverride: handle.providerIdOverride,
 			resolverSettings: handle.resolverSettings,
+			surfacedMemoryBlock: handle.surfacedMemoryBlock,
 			history: priorHistory.length > 0 ? priorHistory : undefined,
 		});
 
@@ -1098,7 +1123,7 @@ export class AgentSpawner {
 				message,
 				from: caller,
 				to: caller,
-				env: await this.registerEnvGrants("root", envGrants),
+				env: (await this.registerEnvGrants("root", envGrants))?.wire,
 			};
 			await this.bus.publish(agentInbox(this.sessionId, "root"), JSON.stringify(rootMsg));
 			return undefined;
@@ -1116,7 +1141,7 @@ export class AgentSpawner {
 				message,
 				from: caller,
 				to: callerTarget,
-				env: await this.registerEnvGrants(callerTarget.handleId, envGrants),
+				env: (await this.registerEnvGrants(callerTarget.handleId, envGrants))?.wire,
 			};
 			await this.publishAgentMessageWithAck(
 				agentInbox(this.sessionId, callerTarget.handleId),
@@ -1149,7 +1174,12 @@ export class AgentSpawner {
 			handle.trustedUserInstruction = trustedUserInstruction;
 			handle.result = undefined;
 			handle.status = "running";
-			const result = await this.runFeatherweight(handle, message);
+			const registration = await this.registerEnvGrants(handleId, envGrants);
+			const announcement = renderEnvAnnouncement(registration?.granted);
+			const result = await this.runFeatherweight(
+				handle,
+				announcement ? `${message}\n\n${announcement}` : message,
+			);
 			this.settleHandleResult(handle, result, handle.keepAlive ? "idle" : "completed");
 			return blocking ? result : undefined;
 		}
@@ -1165,7 +1195,7 @@ export class AgentSpawner {
 				message,
 				from: caller,
 				to: handle.address,
-				env: await this.registerEnvGrants(handleId, envGrants),
+				env: (await this.registerEnvGrants(handleId, envGrants))?.wire,
 			};
 
 			await this.bus.publish(inboxTopic, JSON.stringify(agentMsg));
@@ -1174,7 +1204,7 @@ export class AgentSpawner {
 
 		if (handle.status === "idle") {
 			// Grants register before the continue publishes (spec §3).
-			const wireEnv = await this.registerEnvGrants(handleId, envGrants);
+			const wireEnv = (await this.registerEnvGrants(handleId, envGrants))?.wire;
 			handle.trustedUserInstruction = trustedUserInstruction;
 			// Agent process is alive — send continue message
 			handle.resultRecoveryLogOffset = await this.captureResultRecoveryLogOffset(
@@ -1202,7 +1232,7 @@ export class AgentSpawner {
 		// Agent process has exited — re-spawn with the message as the new goal.
 		// The agent process auto-resumes from its prior event log.
 		// Grants register before the fresh StartMessage carries them.
-		const respawnWireEnv = await this.registerEnvGrants(handleId, envGrants);
+		const respawnWireEnv = (await this.registerEnvGrants(handleId, envGrants))?.wire;
 		const resultRecoveryLogOffset = await this.captureResultRecoveryLogOffset(
 			handle.projectDataDir ?? handle.genomePath,
 			handleId,

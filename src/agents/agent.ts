@@ -585,9 +585,13 @@ export class Agent {
 
 	/**
 	 * Run a featherweight-eligible child in this process (spec §5). Builds a
-	 * minimal single-turn Agent over this process's LLM client and no genome (so
-	 * no recall pass), runs one turn, and returns the outcome. The spawner
-	 * synthesizes the equivalent handle, session events, and log.
+	 * minimal single-turn Agent over this process's LLM client, runs one turn,
+	 * and returns the outcome. The spawner synthesizes the equivalent handle,
+	 * session events, and log. Placement-invisibility (spec §5): the child's
+	 * prompt composes from the same inputs a subprocess child gets — preambles,
+	 * genome postscripts, project docs, root-dir expansion, and the surfaced
+	 * memory block (the cached-recall path a subprocess child takes with a
+	 * surfaced block; no live recall runs when the block is present).
 	 */
 	private async runFeatherweightChild(
 		input: FeatherweightExecInput,
@@ -615,7 +619,13 @@ export class Agent {
 			env: this.env,
 			client: this.client,
 			primitiveRegistry: this.primitiveRegistry,
-			availableAgents: [],
+			availableAgents: this.genome ? this.genome.allAgents() : [],
+			genome: this.genome,
+			preambles: this.preambles,
+			projectDocs: this.projectDocs,
+			genomePostscripts: this.genomePostscripts,
+			rootDir: this.rootDir,
+			surfacedMemoryBlock: input.surfacedMemoryBlock,
 			sessionId: this.sessionId,
 			depth: input.self.depth,
 			agentId: input.self.agentId,

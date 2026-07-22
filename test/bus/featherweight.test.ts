@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { formatDelegationGoal, normalizeTaskPayload } from "../../src/agents/delegation-payload.ts";
 import { BusClient } from "../../src/bus/client.ts";
 import { loadCompletedChildHandles } from "../../src/bus/resume.ts";
 import { BusServer } from "../../src/bus/server.ts";
@@ -175,6 +176,94 @@ describe("featherweight placement (spec §5)", () => {
 		const result = (await spawner.spawnAgent(baseOpts("crunch the numbers"))) as ResultMessage;
 		expect(result.output).toBe(full);
 		expect(result.output).not.toContain("truncated");
+	});
+
+	test("hints and payload format into the featherweight goal like the subprocess path", async () => {
+		// Spec §5 placement-invisibility: the subprocess child formats
+		// goal+hints+payload via formatDelegationGoal; the in-process placement
+		// must produce the identical child goal, not silently drop the fields.
+		const { fn, calls } = recordingExecutor();
+		const spawner = new AgentSpawner(
+			bus,
+			server.url,
+			SESSION_ID,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			fn,
+		);
+
+		const payload = { ticket: "T-42", steps: ["a", "b"] };
+		await spawner.spawnAgent(
+			baseOpts("summarize the ticket", {
+				hints: ["keep it short", "cite the ticket id"],
+				payload,
+			}),
+		);
+
+		const expected = formatDelegationGoal({
+			goal: "summarize the ticket",
+			hints: ["keep it short", "cite the ticket id"],
+			payload: normalizeTaskPayload(payload, "agent start message"),
+		});
+		expect(calls[0]!.goal).toBe(expected);
+	});
+
+	test("env grants register for the featherweight handle and announce in the goal", async () => {
+		const { fn, calls } = recordingExecutor();
+		const store = fakeStore() as ReturnType<typeof fakeStore> & {
+			grants: Array<{ recipient: string; alias: string; ref: string }>;
+			registerEnvGrant(
+				recipient: string,
+				alias: string,
+				ref: string,
+			): Promise<{ ulid: string; name: string; preview: string }>;
+		};
+		store.grants = [];
+		store.registerEnvGrant = async (recipient: string, alias: string, ref: string) => {
+			store.grants.push({ recipient, alias, ref });
+			return {
+				ulid: `grant_${store.grants.length}`,
+				name: "api-key",
+				preview: "sk-…redacted\nrest",
+			};
+		};
+		const spawner = spawnerWithStore(fn, store);
+
+		const result = (await spawner.spawnAgent(
+			baseOpts("call the api", { env: { API_KEY: "⟦api-key⟧" } }),
+		)) as ResultMessage;
+
+		expect(result.success).toBe(true);
+		// The grant registered before the run, addressed to the featherweight handle.
+		expect(store.grants).toHaveLength(1);
+		expect(store.grants[0]!.alias).toBe("API_KEY");
+		expect(store.grants[0]!.recipient).toBe(result.handle_id);
+		// The child sees the same announcement text a subprocess child gets.
+		expect(calls[0]!.goal).toContain("call the api");
+		expect(calls[0]!.goal).toContain("⟦API_KEY⟧ (sk-…redacted)");
+	});
+
+	test("env grants without a store reject the featherweight spawn loudly", async () => {
+		// Parity with the subprocess path: registration precedes the run and a
+		// rejection aborts the spawn — env is never silently stripped.
+		const { fn, calls } = recordingExecutor();
+		const spawner = new AgentSpawner(
+			bus,
+			server.url,
+			SESSION_ID,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			fn,
+		);
+
+		await expect(
+			spawner.spawnAgent(baseOpts("call the api", { env: { API_KEY: "⟦api-key⟧" } })),
+		).rejects.toThrow("env grants require the authenticated store");
+		expect(calls).toHaveLength(0);
 	});
 
 	test("runs in-process without touching the subprocess spawnFn", async () => {

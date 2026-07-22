@@ -9429,28 +9429,31 @@ describe("featherweight token accounting (Phase 7 review)", () => {
 			primitiveRegistry: createPrimitiveRegistry(env),
 			availableAgents: [],
 			events,
-			genome: { getAgent: (name: string) => (name === "llm-call" ? fwSpec : undefined) } as never,
+			genome: {
+				getAgent: (name: string) => (name === "llm-call" ? fwSpec : undefined),
+				allAgents: () => [],
+				loadAgentTools: async () => [],
+				loadAgentToolsWithRoot: async () => [],
+				matchRoutingRules: () => [],
+				agentDir: () => join(tmpdir(), "fw-agent-dir"),
+			} as never,
 		});
 
 		const internals = parent as unknown as {
 			runFeatherweightChild(input: {
 				agentName: string;
-				genomePath: string;
 				goal: string;
-				handleId: string;
 				self: AgentAddress;
 				caller: AgentAddress;
-				workDir: string;
+				surfacedMemoryBlock?: string;
 			}): Promise<{ success: boolean }>;
 		};
 		const result = await internals.runFeatherweightChild({
 			agentName: "llm-call",
-			genomePath: "/tmp/unused",
 			goal: "answer briefly",
-			handleId: "fw-handle-1",
 			self: { agentName: "llm-call", agentId: "fw-child-1", handleId: "fw-handle-1", depth: 1 },
 			caller: { agentName: "root-parent", agentId: "root", handleId: "root-handle", depth: 0 },
-			workDir: tmpdir(),
+			surfacedMemoryBlock: "",
 		});
 
 		expect(result.success).toBe(true);
@@ -9459,5 +9462,93 @@ describe("featherweight token accounting (Phase 7 review)", () => {
 		expect(llmEnds.length).toBeGreaterThan(0);
 		expect(llmEnds[0]!.input_tokens).toBe(42);
 		expect(llmEnds[0]!.output_tokens).toBe(7);
+	});
+
+	test("a featherweight child's prompt matches subprocess placement: preambles, postscripts, project docs, memory block", async () => {
+		// Spec §5 placement-invisibility: a subprocess child renders preambles +
+		// genome postscripts + project docs + the surfaced memory block into its
+		// system prompt. The in-process placement must not silently drop them.
+		const fwSpec: AgentSpec = {
+			name: "llm-call",
+			description: "Pure completion leaf",
+			system_prompt: "SPEC-PROMPT with {{SPROUT_ROOT}} marker.",
+			model: "fast",
+			tools: [],
+			agents: [],
+			constraints: { max_turns: 1, timeout_ms: 60_000, can_spawn: false, can_learn: false },
+			tags: [],
+			version: 1,
+		};
+		const systemPrompts: string[] = [];
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (request: { messages: Message[] }): Promise<Response> => {
+				const system = request.messages.find((m) => m.role === "system");
+				systemPrompts.push(system ? (system.content[0]?.text ?? "") : "");
+				return {
+					id: "fw-parity-1",
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: { role: "assistant", content: [{ kind: ContentKind.TEXT, text: "done" }] },
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const parent = new Agent({
+			spec: { ...fwSpec, name: "root-parent", system_prompt: "parent prompt" },
+			env,
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [],
+			events: new AgentEventEmitter(),
+			rootDir: "/sprout-root-dir",
+			preambles: {
+				global: "PREAMBLE-GLOBAL",
+				orchestrator: "",
+				observer: "",
+				worker: "PREAMBLE-WORKER",
+			},
+			projectDocs: "PROJECT-DOCS-BODY",
+			genomePostscripts: {
+				global: "POSTSCRIPT-GLOBAL",
+				orchestrator: "",
+				observer: "",
+				worker: "",
+			},
+			genome: {
+				getAgent: (name: string) => (name === "llm-call" ? fwSpec : undefined),
+				allAgents: () => [fwSpec],
+				loadAgentPostscript: async () => "POSTSCRIPT-AGENT",
+				loadAgentToolsWithRoot: async () => [],
+				matchRoutingRules: () => [],
+				agentDir: () => join(tmpdir(), "fw-agent-dir"),
+			} as never,
+		});
+
+		const internals = parent as unknown as {
+			runFeatherweightChild(input: Record<string, unknown>): Promise<{ success: boolean }>;
+		};
+		const result = await internals.runFeatherweightChild({
+			agentName: "llm-call",
+			goal: "answer briefly",
+			self: { agentName: "llm-call", agentId: "fw-child-2", handleId: "fw-handle-2", depth: 1 },
+			caller: { agentName: "root-parent", agentId: "root", handleId: "root-handle", depth: 0 },
+			surfacedMemoryBlock: "\nMEMORY-BLOCK-BODY",
+		});
+
+		expect(result.success).toBe(true);
+		const childPrompt = systemPrompts.at(-1) ?? "";
+		expect(childPrompt).toContain("PREAMBLE-GLOBAL");
+		expect(childPrompt).toContain("PREAMBLE-WORKER");
+		expect(childPrompt).toContain("POSTSCRIPT-GLOBAL");
+		expect(childPrompt).toContain("POSTSCRIPT-AGENT");
+		expect(childPrompt).toContain("PROJECT-DOCS-BODY");
+		expect(childPrompt).toContain("MEMORY-BLOCK-BODY");
+		// {{SPROUT_ROOT}} expands like the subprocess child's prompt does.
+		expect(childPrompt).toContain("SPEC-PROMPT with /sprout-root-dir marker.");
 	});
 });
