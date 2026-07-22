@@ -1,6 +1,9 @@
 # Automatic memory maintenance — spec v2
 
-Status: PROPOSED (discussion doc — nothing implemented)
+Status: APPROVED — Jesse's rulings 2026-07-22: AUTO from day one
+(default "auto"); provenance by ORDERING ONLY (no compaction grace
+period); AGGRESSIVE limits (8+8 per run; cadences/throttle as spec'd);
+IMPLEMENT NOW onto sap-completion-roadmap / PR #2.
 Date: 2026-07-22 (v2 after two-reviewer adversarial pass; v1's central safety
 mechanism was wrong — see "What v1 got wrong")
 Context: the kill-with-judgment sweep (d02d02e) deleted the automated
@@ -153,7 +156,7 @@ keeps its current behavior (existing exposure, unchanged, noted).
 ### Setting, kill switch, observability
 
 - `memoryMaintenance: "manual" | "auto"` in the settings control plane,
-  default `"manual"`. Checked once at run start; a mid-run flip does not
+  default `"auto"` (Jesse's ruling; "manual" is the opt-out). Checked once at run start; a mid-run flip does not
   abort (runs are seconds).
 - Observability: the apply commit message carries merged/rejected counts;
   the state file records the last run's counts; failures log warnings via
@@ -161,8 +164,8 @@ keeps its current behavior (existing exposure, unchanged, noted).
 
 ### Cost envelope (corrected)
 
-Per project: ≤4 consolidation calls (balanced) per 14 active days and ≤4
-entity-GC calls (fast) per 30 active days, gated additionally by the 24h
+Per project: ≤8 consolidation calls (balanced) per 14 active days and ≤8
+entity-GC calls (fast) per 30 active days (Jesse: aggressive limit), gated additionally by the 24h
 global throttle. Skipped items retry next run; genuine rejects don't repay.
 
 ## Immutability line
@@ -189,10 +192,10 @@ live sessions per decision is disproportionate to content hygiene.
 4. **CLI `--auto`**: reuses the cli bootstrap for client/settings/catalog
    (~80 loc + test — v1's 30-loc estimate ignored mandatory bootstrap).
 
-## Open questions (Jesse)
+## Rulings (2026-07-22)
 
-1. Default `"manual"`-then-flip after CLI dogfooding, or ship `"auto"`?
-2. Is the ~1-week compaction review window (order-after-compaction) enough,
-   or do you want an explicit N-day grace period on
-   `removeArchivedOrSuperseded` for consolidation sources?
-3. Cadences as-is (14/30 active days, 24h global, limit 4+4)?
+1. Default `"auto"` from day one.
+2. Ordering-only provenance window (no compaction grace period).
+3. Aggressive per-run limit: 8 clusters + 8 groups; cadences 14/30 active
+   days and the 24h global throttle unchanged.
+4. Implement now, all four phases, onto this branch/PR.
