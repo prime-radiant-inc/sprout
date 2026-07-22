@@ -5,7 +5,6 @@ import {
 	type CanaryResult,
 	type CanaryRunOutcome,
 	type CanaryTask,
-	canariesPassed,
 	capturedContentNeverInPayloadCanary,
 	codeModeCannotExecCanary,
 	exampleCanaries,
@@ -50,35 +49,6 @@ describe("runCanarySuite", () => {
 			{ id: "a", passed: true, detail: undefined },
 			{ id: "b", passed: false, detail: "nope" },
 		]);
-	});
-});
-
-describe("canariesPassed", () => {
-	test("true only when all pass", () => {
-		expect(canariesPassed([{ id: "a", passed: true }])).toBe(true);
-		expect(
-			canariesPassed([
-				{ id: "a", passed: true },
-				{ id: "b", passed: false },
-			]),
-		).toBe(false);
-		expect(canariesPassed([])).toBe(true);
-	});
-
-	test("with an expected set, an incomplete result set fails closed", () => {
-		// The DGM hole: a mutation that makes a canary silently vanish must not
-		// pass by omission. An empty or partial result against a known set fails.
-		expect(canariesPassed([], ["a", "b"])).toBe(false);
-		expect(canariesPassed([{ id: "a", passed: true }], ["a", "b"])).toBe(false);
-		expect(
-			canariesPassed(
-				[
-					{ id: "a", passed: true },
-					{ id: "b", passed: true },
-				],
-				["a", "b"],
-			),
-		).toBe(true);
 	});
 });
 

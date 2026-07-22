@@ -194,15 +194,23 @@ export function compareArms(
 }
 
 /**
+ * The improvement acceptance rule over a finished comparison: accept ONLY a
+ * significant improvement (lower stumble rate). Underpowered, inconclusive,
+ * or significantly-worse comparisons all reject. compareGenomes applies this
+ * to the gate tier; shouldAcceptMutation wraps it for raw arm results.
+ */
+export function acceptsComparison(result: CompareResult): boolean {
+	return result.significant && result.direction === "better";
+}
+
+/**
  * The quartermaster's accept/reject gate: accept a mutation ONLY on a
- * significant improvement (lower stumble rate). Underpowered, inconclusive, or
- * significantly-worse comparisons all reject.
+ * significant improvement (lower stumble rate).
  */
 export function shouldAcceptMutation(
 	treatment: ArmResult,
 	baseline: ArmResult,
 	opts: CompareOptions = {},
 ): boolean {
-	const result = compareArms(treatment, baseline, opts);
-	return result.significant && result.direction === "better";
+	return acceptsComparison(compareArms(treatment, baseline, opts));
 }

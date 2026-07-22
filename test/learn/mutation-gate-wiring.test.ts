@@ -245,6 +245,55 @@ describe("LearnProcess adoption chokepoint wiring", () => {
 		expect(genome.allPrograms().some((p) => p.provenance === "fabricated-from-pattern")).toBe(true);
 	});
 
+	test("a quartermaster-only cycle labels learn_end as quartermaster, not memory extraction", async () => {
+		// No memories extract and no mutation reasons out — only the
+		// quartermaster fabricates. The learn_end label must say so instead of
+		// claiming a memory extraction that never happened.
+		const genomeDir = join(tempDir, "fab-label");
+		await cp(templateDir, genomeDir, { recursive: true });
+		const genome = createTestGenome(genomeDir, ROOT_DIR);
+		await genome.loadFromDisk();
+		const metrics = new MetricsStore(join(genomeDir, "metrics", "metrics.jsonl"));
+		await metrics.load();
+		const events = new AgentEventEmitter();
+		const client = makeMockClient("[]");
+		const resolverContext = await buildTestResolverContext(client);
+		const learn = new LearnProcess({
+			genome,
+			metrics,
+			events,
+			client,
+			pendingEvaluationsPath: join(genomeDir, "metrics", "pending-evaluations.json"),
+			modelsByProvider: resolverContext.modelsByProvider,
+			resolverSettings: resolverContext.resolverSettings,
+			mutationGate: realGate((m) => m.type === "create_program"),
+		});
+		emitRecurringCell(events, 'return bind("z", 3);', 3);
+		learn.push({
+			kind: "failure",
+			goal: "do z",
+			agent_name: "root",
+			details: {
+				agent_name: "root",
+				goal: "do z",
+				output: "failed",
+				success: false,
+				stumbles: 1,
+				turns: 3,
+				timed_out: false,
+			},
+			session_id: "s1",
+			timestamp: Date.now(),
+		});
+
+		const result = await learn.processNext();
+
+		expect(result).toBe("applied");
+		const learnEnd = events.collected().findLast((event) => event.kind === "learn_end");
+		expect(learnEnd?.data.mutation_type).toBe("quartermaster");
+		expect(learnEnd?.data.extracted_memories).toBe(false);
+	});
+
 	test("a never-delegated overlay agent routes a retire_agent proposal through the chokepoint", async () => {
 		const { genome, learn, events } = await setup(
 			"agent-retire",

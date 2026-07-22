@@ -4,7 +4,6 @@ export {
 	type CanaryResult,
 	type CanaryRunOutcome,
 	type CanaryTask,
-	canariesPassed,
 	exampleCanaries,
 	mutationRegressesCanaries,
 	runCanarySuite,

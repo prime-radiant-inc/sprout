@@ -2,7 +2,9 @@ import type { Logger } from "../host/logger.ts";
 import type { Middleware } from "./client.ts";
 
 /**
- * Client middleware that logs every LLM call with provider, model, latency, and token counts.
+ * Client middleware that logs complete() calls with provider, model, latency,
+ * and token counts. Streaming calls bypass middleware entirely — the agent
+ * loop streams, so those turns are NOT logged here.
  *
  * Logs at info level on success, error level on failure.
  */

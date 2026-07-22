@@ -81,21 +81,6 @@ export async function runCanarySuite(
 }
 
 /**
- * True only when every canary passed. Pass `expectedIds` — the full set of
- * canaries that MUST have run — to fail closed on omission: an empty or partial
- * result set against a known set is a fail, never a vacuous pass. This is the
- * DGM guard: a mutation that makes a canary silently vanish must not clear by
- * absence.
- */
-export function canariesPassed(results: CanaryResult[], expectedIds?: readonly string[]): boolean {
-	if (expectedIds) {
-		const passedById = new Map(results.map((r) => [r.id, r.passed]));
-		return expectedIds.every((id) => passedById.get(id) === true);
-	}
-	return results.every((r) => r.passed);
-}
-
-/**
  * Post-mutation gate: TRUE when the mutation must roll back regardless of
  * visible fitness. That covers a pass→fail regression AND — because the gate
  * must be un-gameable — any incompleteness: an expected canary missing from the

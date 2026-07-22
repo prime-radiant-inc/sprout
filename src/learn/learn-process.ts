@@ -62,8 +62,6 @@ export type LearnMutation =
 	| { type: "retire_agent"; agent_name: string }
 	| { type: "retire_memory"; memory_id: string };
 
-type ReasonedLearnMutation = LearnMutation;
-
 /**
  * A mutation's adoption INTENT (mutation-gate.ts): retirements are `curation`
  * (rot removal — adopt on non-regression), everything else is `improvement`
@@ -512,9 +510,12 @@ export class LearnProcess {
 			// Mark this agent+kind as recently addressed to prevent redundant improvements
 			this.recentImprovements.add(`${signal.agent_name}:${signal.kind}`);
 
+			// Label the cycle by what actually applied: the reasoned mutation, a
+			// memory extraction, or (neither) a quartermaster adoption.
 			this.events.emit("learn_end", signal.agent_name, 0, {
 				result: "applied",
-				mutation_type: mutation?.type ?? MEMORY_EXTRACTION_MUTATION_TYPE,
+				mutation_type:
+					mutation?.type ?? (memoryApplied ? MEMORY_EXTRACTION_MUTATION_TYPE : "quartermaster"),
 				extracted_memories: memoryApplied,
 			});
 			return "applied";
@@ -672,7 +673,7 @@ export class LearnProcess {
 	}
 
 	/** Ask the LLM to reason about what mutation to make given a stumble signal. */
-	private async reasonAboutImprovement(signal: LearnSignal): Promise<ReasonedLearnMutation | null> {
+	private async reasonAboutImprovement(signal: LearnSignal): Promise<LearnMutation | null> {
 		if (!this.client || !this.reasonerModel) return null;
 
 		// Gather genome context for the LLM
@@ -781,7 +782,7 @@ Choose the most appropriate non-memory improvement. Use skip for factual learnin
 			} else {
 				return null; // unknown type
 			}
-			return parsed as ReasonedLearnMutation;
+			return parsed as LearnMutation;
 		} catch {
 			return null;
 		}

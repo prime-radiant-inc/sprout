@@ -24,6 +24,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	type ArmResult,
+	acceptsComparison,
 	type CompareOptions,
 	type CompareResult,
 	compareArms,
@@ -264,7 +265,7 @@ export async function compareGenomes(
 	}
 
 	const gate = perTier[GATE_TIER];
-	const accepted = gate.significant && gate.direction === "better";
+	const accepted = acceptsComparison(gate);
 
 	return {
 		perTier,
