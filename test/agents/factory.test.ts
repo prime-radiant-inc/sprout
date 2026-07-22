@@ -268,9 +268,9 @@ describe("createAgent", () => {
 		expect(result.learnProcess).toBeNull();
 		const qmPostscript = await result.genome.loadAgentPostscript("quartermaster");
 		expect(qmPostscript).not.toContain(DEV_MODE_SENTINEL);
-		await expect(
-			result.genome.savePostscript("agents/quartermaster.md", "mutate me"),
-		).rejects.toThrow("read-only genome");
+		expect(() => result.genome.savePostscript("agents/quartermaster.md", "mutate me")).toThrow(
+			"read-only genome",
+		);
 	}, 15_000);
 
 	test("eval mode prebuilds missing memory index before read-only recall", async () => {

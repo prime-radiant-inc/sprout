@@ -47,7 +47,7 @@ describe("createReadOnlyGenome", () => {
 	test("rejects mutation methods", async () => {
 		const readOnlyGenome = createReadOnlyGenome(genome);
 
-		await expect(
+		expect(() =>
 			readOnlyGenome.updateAgent({
 				name: "reader",
 				description: "Mutated",
@@ -64,7 +64,7 @@ describe("createReadOnlyGenome", () => {
 				tags: ["test"],
 				version: 1,
 			}),
-		).rejects.toThrow("read-only genome");
+		).toThrow("read-only genome");
 	});
 
 	test("rejects memory and segment mutation methods", async () => {
@@ -94,23 +94,21 @@ describe("createReadOnlyGenome", () => {
 			source: "session-collapse",
 		};
 
-		await expect(readOnlyGenome.addMemory(memory)).rejects.toThrow("read-only genome");
-		await expect(readOnlyGenome.addMemories([memory], "blocked")).rejects.toThrow(
+		expect(() => readOnlyGenome.addMemory(memory)).toThrow("read-only genome");
+		expect(() => readOnlyGenome.addMemories([memory], "blocked")).toThrow("read-only genome");
+		expect(() => readOnlyGenome.stageMemoryForMutation(memory)).toThrow("read-only genome");
+		expect(() => readOnlyGenome.saveMemoryMutation("blocked")).toThrow("read-only genome");
+		expect(() => readOnlyGenome.addSegment(segment)).toThrow("read-only genome");
+		expect(() => readOnlyGenome.addSegmentWithMemories(segment, [memory])).toThrow(
 			"read-only genome",
 		);
-		await expect(readOnlyGenome.stageMemoryForMutation(memory)).rejects.toThrow("read-only genome");
-		await expect(readOnlyGenome.saveMemoryMutation("blocked")).rejects.toThrow("read-only genome");
-		await expect(readOnlyGenome.addSegment(segment)).rejects.toThrow("read-only genome");
-		await expect(readOnlyGenome.addSegmentWithMemories(segment, [memory])).rejects.toThrow(
-			"read-only genome",
-		);
-		await expect(
+		expect(() =>
 			readOnlyGenome.addExtractedMemoriesWithRelationships({
 				segment,
 				memories: [memory],
 				classifyRelationships: async () => [],
 			}),
-		).rejects.toThrow("read-only genome");
+		).toThrow("read-only genome");
 		expect(() => readOnlyGenome.memories.stage(memory)).toThrow("read-only genome");
 		expect(() => readOnlyGenome.memories.mergeLatestFromDisk()).toThrow("read-only genome");
 		expect(() => readOnlyGenome.segments.add(segment)).toThrow("read-only genome");
@@ -119,7 +117,7 @@ describe("createReadOnlyGenome", () => {
 
 	test("rejects the later-added mutators that the blocklist had missed", async () => {
 		const readOnlyGenome = createReadOnlyGenome(genome);
-		await expect(
+		expect(() =>
 			readOnlyGenome.addProgram({
 				name: "blocked_prog",
 				description: "x",
@@ -128,16 +126,14 @@ describe("createReadOnlyGenome", () => {
 				version: 1,
 				body: "return 1;",
 			}),
-		).rejects.toThrow("read-only genome");
-		await expect(readOnlyGenome.removeProgram("blocked_prog")).rejects.toThrow("read-only genome");
-		await expect(readOnlyGenome.retireMemory("memory-x", "test")).rejects.toThrow(
-			"read-only genome",
-		);
-		await expect(readOnlyGenome.compactMemoryLog()).rejects.toThrow("read-only genome");
-		await expect(readOnlyGenome.compactMemoryLogIfDue()).rejects.toThrow("read-only genome");
-		await expect(
+		).toThrow("read-only genome");
+		expect(() => readOnlyGenome.removeProgram("blocked_prog")).toThrow("read-only genome");
+		expect(() => readOnlyGenome.retireMemory("memory-x", "test")).toThrow("read-only genome");
+		expect(() => readOnlyGenome.compactMemoryLog()).toThrow("read-only genome");
+		expect(() => readOnlyGenome.compactMemoryLogIfDue()).toThrow("read-only genome");
+		expect(() =>
 			readOnlyGenome.applyMemoryAndProjectActivityMutation("blocked", async () => {}),
-		).rejects.toThrow("read-only genome");
+		).toThrow("read-only genome");
 		expect(() => readOnlyGenome.memories.removeArchivedOrSuperseded()).toThrow("read-only genome");
 	});
 
@@ -145,14 +141,10 @@ describe("createReadOnlyGenome", () => {
 		const readOnlyGenome = createReadOnlyGenome(genome);
 		const project = { id: "sprout", name: "Sprout", confidence: 1, source: "explicit" as const };
 
-		await expect(readOnlyGenome.recordProjectActivity(project)).rejects.toThrow("read-only genome");
-		await expect(readOnlyGenome.saveProjectActivityMutation("blocked")).rejects.toThrow(
-			"read-only genome",
-		);
-		await expect(readOnlyGenome.recomputeMemoryScores()).rejects.toThrow("read-only genome");
-		await expect(readOnlyGenome.recordMemoryMentions(["mem_abc1234"])).rejects.toThrow(
-			"read-only genome",
-		);
+		expect(() => readOnlyGenome.recordProjectActivity(project)).toThrow("read-only genome");
+		expect(() => readOnlyGenome.saveProjectActivityMutation("blocked")).toThrow("read-only genome");
+		expect(() => readOnlyGenome.recomputeMemoryScores()).toThrow("read-only genome");
+		expect(() => readOnlyGenome.recordMemoryMentions(["mem_abc1234"])).toThrow("read-only genome");
 		expect(() => readOnlyGenome.projects.recordActiveDay(project, new Date())).toThrow(
 			"read-only genome",
 		);
@@ -165,6 +157,24 @@ describe("createReadOnlyGenome", () => {
 				name: "Sprout",
 				cumulative_active_days: 1,
 			}),
+		).toThrow("read-only genome");
+	});
+
+	test("an unknown method fails closed — new mutators are blocked by default", () => {
+		// The blocklist rotted once (six later-phase mutators slipped through and
+		// committed writes from a "read-only" genome). The allowlist inverts the
+		// default: a method the read surface has not enumerated throws, so a
+		// future mutator is blocked the day it is added.
+		(genome as unknown as Record<string, unknown>).newlyAddedMutator = () => "wrote!";
+		const readOnlyGenome = createReadOnlyGenome(genome) as unknown as Record<string, () => unknown>;
+		expect(() => readOnlyGenome.newlyAddedMutator!()).toThrow("read-only genome");
+	});
+
+	test("unknown store methods fail closed too", () => {
+		(genome.memories as unknown as Record<string, unknown>).newStoreMutator = () => "wrote!";
+		const readOnlyGenome = createReadOnlyGenome(genome);
+		expect(() =>
+			(readOnlyGenome.memories as unknown as Record<string, () => unknown>).newStoreMutator!(),
 		).toThrow("read-only genome");
 	});
 
