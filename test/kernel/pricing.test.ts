@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+	EFFECTIVE_FALLBACK_PRICING_TABLE,
 	FALLBACK_PRICING_TABLE,
 	longestPrefixMatch,
+	transformLiteLLMPrices,
 	transformOpenRouterPrices,
 	transformPrices,
 } from "../../src/kernel/pricing.ts";
@@ -181,5 +183,123 @@ describe("transformOpenRouterPrices", () => {
 		// No slash in ID, so only 1 entry
 		expect(result).toHaveLength(1);
 		expect(result[0]![0]).toBe("o4-mini");
+	});
+});
+
+describe("transformLiteLLMPrices", () => {
+	test("converts a claude-sonnet-5-shaped entry to per-million pricing", () => {
+		const result = transformLiteLLMPrices({
+			"claude-sonnet-5": {
+				input_cost_per_token: 0.000002,
+				output_cost_per_token: 0.00001,
+				cache_read_input_token_cost: 0.0000002,
+				cache_creation_input_token_cost: 0.0000025,
+				cache_creation_input_token_cost_above_1hr: 0.000004,
+				litellm_provider: "anthropic",
+				mode: "chat",
+			},
+		});
+		expect(result).toEqual([
+			[
+				"claude-sonnet-5",
+				{ input: 2, output: 10, cached_input: 0.2, cache_write_5m: 2.5, cache_write_1h: 4 },
+			],
+		]);
+	});
+
+	test("skips embedding-mode entries", () => {
+		const result = transformLiteLLMPrices({
+			"text-embedding-3-small": {
+				input_cost_per_token: 0.00000002,
+				mode: "embedding",
+				litellm_provider: "openai",
+			},
+		});
+		expect(result).toEqual([]);
+	});
+
+	test("skips costless entries", () => {
+		const result = transformLiteLLMPrices({
+			sample_spec: { input_cost_per_token: 0, output_cost_per_token: 0, mode: "chat" },
+		});
+		expect(result).toEqual([]);
+	});
+
+	test("skips entries with neither cost field present", () => {
+		const result = transformLiteLLMPrices({
+			"free-model": { mode: "chat", litellm_provider: "test" },
+		});
+		expect(result).toEqual([]);
+	});
+
+	test("does not skip entries with no mode field", () => {
+		const result = transformLiteLLMPrices({
+			"some-model": { input_cost_per_token: 0.000001, output_cost_per_token: 0.000002 },
+		});
+		expect(result).toEqual([["some-model", { input: 1, output: 2 }]]);
+	});
+
+	test("canonicalizes dot-prefixed provider keys to a bare id", () => {
+		const result = transformLiteLLMPrices({
+			"anthropic.claude-sonnet-5": {
+				input_cost_per_token: 0.000002,
+				output_cost_per_token: 0.00001,
+				mode: "chat",
+				litellm_provider: "bedrock",
+			},
+		});
+		expect(longestPrefixMatch("claude-sonnet-5", result)).toEqual({ input: 2, output: 10 });
+	});
+
+	test("canonicalizes slash-prefixed provider keys to a bare id", () => {
+		const result = transformLiteLLMPrices({
+			"azure_ai/claude-sonnet-5": {
+				input_cost_per_token: 0.000002,
+				output_cost_per_token: 0.00001,
+				mode: "chat",
+				litellm_provider: "azure_ai",
+			},
+		});
+		expect(longestPrefixMatch("claude-sonnet-5", result)).toEqual({ input: 2, output: 10 });
+	});
+
+	test("dedup keeps the first fully-priced entry when duplicate ids collide", () => {
+		const result = transformLiteLLMPrices({
+			"claude-foo": { input_cost_per_token: 0, output_cost_per_token: 0.00001, mode: "chat" },
+			"anthropic/claude-foo": {
+				input_cost_per_token: 0.000003,
+				output_cost_per_token: 0.00001,
+				mode: "chat",
+			},
+		});
+		expect(longestPrefixMatch("claude-foo", result)).toEqual({ input: 3, output: 10 });
+	});
+});
+
+describe("EFFECTIVE_FALLBACK_PRICING_TABLE", () => {
+	test("prefers the litellm-generated table over the hand-curated one, litellm first", () => {
+		expect(EFFECTIVE_FALLBACK_PRICING_TABLE.length).toBeGreaterThan(FALLBACK_PRICING_TABLE.length);
+	});
+
+	test("resolves current Claude models the hand-curated table alone cannot", () => {
+		expect(longestPrefixMatch("claude-opus-4-8", FALLBACK_PRICING_TABLE)).toBeNull();
+		const opus48 = longestPrefixMatch("claude-opus-4-8", EFFECTIVE_FALLBACK_PRICING_TABLE);
+		expect(opus48).not.toBeNull();
+		expect(opus48?.input).toBeGreaterThan(0);
+		expect(opus48?.output).toBeGreaterThan(0);
+	});
+
+	test("resolves claude-sonnet-5", () => {
+		const pricing = longestPrefixMatch("claude-sonnet-5", EFFECTIVE_FALLBACK_PRICING_TABLE);
+		expect(pricing).not.toBeNull();
+		expect(pricing?.input).toBeGreaterThan(0);
+		expect(pricing?.output).toBeGreaterThan(0);
+	});
+
+	test("resolves claude-opus-4-5", () => {
+		const pricing = longestPrefixMatch("claude-opus-4-5", EFFECTIVE_FALLBACK_PRICING_TABLE);
+		expect(pricing).not.toBeNull();
+		expect(pricing?.input).toBeGreaterThan(0);
+		expect(pricing?.output).toBeGreaterThan(0);
 	});
 });

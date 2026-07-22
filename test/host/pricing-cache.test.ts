@@ -6,6 +6,8 @@ import { loadPricingSnapshot } from "../../src/host/pricing-cache.ts";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/models";
 const LLM_PRICES_URL = "https://www.llm-prices.com/current-v1.json";
+const LITELLM_URL =
+	"https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
 
 /** Minimal OpenRouter response with one model */
 const openRouterPayload = {
@@ -21,6 +23,16 @@ const openRouterPayload = {
 const llmPricesPayload = {
 	updated_at: "2025-01-01T00:00:00Z",
 	prices: [{ id: "gpt-4o", vendor: "openai", name: "GPT-4o", input: 2.5, output: 10 }],
+};
+
+/** Minimal LiteLLM response with one model */
+const liteLLMPayload = {
+	"claude-sonnet-5": {
+		input_cost_per_token: 0.000002,
+		output_cost_per_token: 0.00001,
+		mode: "chat",
+		litellm_provider: "anthropic",
+	},
 };
 
 describe("loadPricingSnapshot", () => {
@@ -140,5 +152,59 @@ describe("loadPricingSnapshot", () => {
 
 		const snapshot = await loadPricingSnapshot(tempDir);
 		expect(snapshot).toBeNull();
+	});
+
+	test("litellm succeeds alongside the others → merged last, added to upstreams", async () => {
+		mockFetch((url) => {
+			if (url === OPENROUTER_URL) {
+				return { ok: true, json: async () => openRouterPayload };
+			}
+			if (url === LLM_PRICES_URL) {
+				return { ok: true, json: async () => llmPricesPayload };
+			}
+			if (url === LITELLM_URL) {
+				return { ok: true, json: async () => liteLLMPayload };
+			}
+			return null;
+		});
+
+		const snapshot = await loadPricingSnapshot(tempDir);
+		expect(snapshot).not.toBeNull();
+		expect(snapshot?.upstreams).toEqual(["openrouter", "llm-prices", "litellm"]);
+		// llm-prices' single entry ("gpt-4o") is at index 4; litellm's entry follows.
+		expect(snapshot!.table[4]![0]).toBe("gpt-4o");
+		expect(snapshot!.table[5]).toEqual(["claude-sonnet-5", { input: 2, output: 10 }]);
+	});
+
+	test("litellm fails → other sources still returned, litellm absent from upstreams", async () => {
+		mockFetch((url) => {
+			if (url === OPENROUTER_URL) {
+				return { ok: true, json: async () => openRouterPayload };
+			}
+			if (url === LLM_PRICES_URL) {
+				return { ok: true, json: async () => llmPricesPayload };
+			}
+			if (url === LITELLM_URL) return null; // network error
+			return null;
+		});
+
+		const snapshot = await loadPricingSnapshot(tempDir);
+		expect(snapshot).not.toBeNull();
+		expect(snapshot?.upstreams).toEqual(["openrouter", "llm-prices"]);
+	});
+
+	test("only litellm succeeds → litellm data returned", async () => {
+		mockFetch((url) => {
+			if (url === LITELLM_URL) {
+				return { ok: true, json: async () => liteLLMPayload };
+			}
+			return null; // openrouter and llm-prices fail
+		});
+
+		const snapshot = await loadPricingSnapshot(tempDir);
+		expect(snapshot).not.toBeNull();
+		expect(snapshot?.source).toBe("live");
+		expect(snapshot?.upstreams).toEqual(["litellm"]);
+		expect(snapshot!.table).toEqual([["claude-sonnet-5", { input: 2, output: 10 }]]);
 	});
 });

@@ -1,10 +1,21 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { LlmPricesResponse, OpenRouterResponse, PricingTable } from "../kernel/pricing.ts";
-import { transformOpenRouterPrices, transformPrices } from "../kernel/pricing.ts";
+import type {
+	LiteLLMEntry,
+	LlmPricesResponse,
+	OpenRouterResponse,
+	PricingTable,
+} from "../kernel/pricing.ts";
+import {
+	transformLiteLLMPrices,
+	transformOpenRouterPrices,
+	transformPrices,
+} from "../kernel/pricing.ts";
 
 const LLM_PRICES_URL = "https://www.llm-prices.com/current-v1.json";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/models";
+const LITELLM_URL =
+	"https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
 const CACHE_FILENAME = "pricing-cache.json";
 
 export interface PricingSnapshot {
@@ -15,10 +26,14 @@ export interface PricingSnapshot {
 }
 
 export async function loadPricingSnapshot(cacheDir: string): Promise<PricingSnapshot | null> {
-	// Fetch both sources in parallel (each has 5s timeout)
-	const [openRouter, llmPrices] = await Promise.all([fetchOpenRouter(), fetchLlmPrices()]);
+	// Fetch all sources in parallel (each has 5s timeout)
+	const [openRouter, llmPrices, liteLLM] = await Promise.all([
+		fetchOpenRouter(),
+		fetchLlmPrices(),
+		fetchLiteLLM(),
+	]);
 
-	// Merge: OpenRouter entries first (primary), llm-prices.com supplements
+	// Merge: OpenRouter entries first (primary), llm-prices.com and LiteLLM supplement
 	const table: PricingTable = [];
 	const upstreams: string[] = [];
 	if (openRouter) {
@@ -28,6 +43,10 @@ export async function loadPricingSnapshot(cacheDir: string): Promise<PricingSnap
 	if (llmPrices) {
 		table.push(...llmPrices);
 		upstreams.push("llm-prices");
+	}
+	if (liteLLM) {
+		table.push(...liteLLM);
+		upstreams.push("litellm");
 	}
 
 	if (table.length > 0) {
@@ -66,6 +85,17 @@ async function fetchLlmPrices(): Promise<PricingTable | null> {
 		if (!resp.ok) return null;
 		const data = (await resp.json()) as LlmPricesResponse;
 		return transformPrices(data.prices);
+	} catch {
+		return null;
+	}
+}
+
+async function fetchLiteLLM(): Promise<PricingTable | null> {
+	try {
+		const resp = await fetch(LITELLM_URL, { signal: AbortSignal.timeout(5_000) });
+		if (!resp.ok) return null;
+		const data = (await resp.json()) as Record<string, LiteLLMEntry>;
+		return transformLiteLLMPrices(data);
 	} catch {
 		return null;
 	}

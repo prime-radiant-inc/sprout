@@ -1,3 +1,5 @@
+import { LITELLM_PRICING_TABLE } from "../generated/litellm-pricing.ts";
+
 export interface ModelPricing {
 	input: number;
 	output: number;
@@ -33,6 +35,18 @@ export interface OpenRouterModel {
 
 export interface OpenRouterResponse {
 	data: OpenRouterModel[];
+}
+
+/** Mirrors one entry in LiteLLM's model_prices_and_context_window.json. All costs are per-token. */
+export interface LiteLLMEntry {
+	input_cost_per_token?: number;
+	output_cost_per_token?: number;
+	cache_read_input_token_cost?: number;
+	cache_creation_input_token_cost?: number;
+	cache_creation_input_token_cost_above_1hr?: number;
+	litellm_provider?: string;
+	mode?: string;
+	max_input_tokens?: number;
 }
 
 export function transformPrices(prices: LlmPriceEntry[]): PricingTable {
@@ -72,6 +86,73 @@ export function transformOpenRouterPrices(models: OpenRouterModel[]): PricingTab
 		}
 	}
 	return table;
+}
+
+/**
+ * Transform LiteLLM's model_prices_and_context_window.json into PricingTable format.
+ * Converts per-token pricing to per-million and canonicalizes provider-prefixed ids
+ * (e.g. "anthropic.claude-sonnet-5", "azure_ai/claude-sonnet-5") down to a bare id
+ * alongside the original, so longestPrefixMatch resolves either form.
+ *
+ * Dedup strategy: when multiple raw keys canonicalize to the same table id (e.g. a
+ * bare id and a provider-prefixed alias for the same model), keep the first entry
+ * that is fully priced (input > 0 and output > 0); if every colliding entry is only
+ * partially priced, keep whichever was encountered first.
+ */
+export function transformLiteLLMPrices(raw: Record<string, LiteLLMEntry>): PricingTable {
+	const byId = new Map<string, ModelPricing>();
+	for (const [rawId, entry] of Object.entries(raw)) {
+		if (entry.mode !== undefined && entry.mode !== "chat") continue;
+		if (!entry.input_cost_per_token && !entry.output_cost_per_token) continue;
+
+		const pricing: ModelPricing = {
+			input: perMillion(entry.input_cost_per_token ?? 0),
+			output: perMillion(entry.output_cost_per_token ?? 0),
+		};
+		if (entry.cache_read_input_token_cost !== undefined) {
+			pricing.cached_input = perMillion(entry.cache_read_input_token_cost);
+		}
+		if (entry.cache_creation_input_token_cost !== undefined) {
+			pricing.cache_write_5m = perMillion(entry.cache_creation_input_token_cost);
+		}
+		if (entry.cache_creation_input_token_cost_above_1hr !== undefined) {
+			pricing.cache_write_1h = perMillion(entry.cache_creation_input_token_cost_above_1hr);
+		}
+
+		for (const id of canonicalizeLiteLLMId(rawId)) {
+			const existing = byId.get(id);
+			if (existing === undefined || (!isFullyPriced(existing) && isFullyPriced(pricing))) {
+				byId.set(id, pricing);
+			}
+		}
+	}
+	return [...byId.entries()];
+}
+
+function isFullyPriced(pricing: ModelPricing): boolean {
+	return pricing.input > 0 && pricing.output > 0;
+}
+
+/** Converts a per-token rate to per-million, rounded to avoid float noise (e.g. 0.4969999...). */
+function perMillion(perTokenRate: number): number {
+	return Number((perTokenRate * 1_000_000).toFixed(6));
+}
+
+/** Ids to register for one LiteLLM key: its canonical form, plus the canonicalized
+ * bare id with any provider prefix stripped (when that differs from the raw key). */
+function canonicalizeLiteLLMId(rawId: string): string[] {
+	const ids = new Set<string>([canonicalPricingModelId(rawId)]);
+	const bare = stripLiteLLMProviderPrefix(rawId);
+	if (bare !== rawId) ids.add(canonicalPricingModelId(bare));
+	return [...ids];
+}
+
+function stripLiteLLMProviderPrefix(id: string): string {
+	const dotMatch = id.match(/^anthropic\.(claude-.+)$/i);
+	if (dotMatch) return dotMatch[1] as string;
+	const slashIdx = id.indexOf("/");
+	if (slashIdx >= 0) return id.slice(slashIdx + 1);
+	return id;
 }
 
 export const FALLBACK_PRICING_TABLE: PricingTable = [
@@ -123,6 +204,17 @@ export const FALLBACK_PRICING_TABLE: PricingTable = [
 	["o4-mini", { input: 1.1, output: 4.4 }],
 	["gemini-2.5-pro", { input: 1.25, output: 10 }],
 	["gemini-2.5-flash", { input: 0.3, output: 2.5 }],
+];
+
+/**
+ * The offline pricing table actually consulted when no live snapshot has a match.
+ * LITELLM_PRICING_TABLE is regenerated periodically (bun scripts/update-pricing.ts)
+ * and is comprehensive, so it goes first; FALLBACK_PRICING_TABLE remains a backstop
+ * for any custom/local ids LiteLLM doesn't carry.
+ */
+export const EFFECTIVE_FALLBACK_PRICING_TABLE: PricingTable = [
+	...LITELLM_PRICING_TABLE,
+	...FALLBACK_PRICING_TABLE,
 ];
 
 export function withAnthropicCachePricing(
