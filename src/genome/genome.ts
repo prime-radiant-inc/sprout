@@ -16,7 +16,7 @@ import type { AgentSpec, Memory, RoutingRule } from "../kernel/types.ts";
 import type { EmbeddingProvider } from "../llm/embeddings.ts";
 import { getToolDisplayName } from "../shared/tool-display.ts";
 import { filterDuplicateMemories } from "./dedup.ts";
-import { acquireDirectoryLock } from "./file-lock.ts";
+import { acquireDirectoryLock, type DirectoryLockOptions } from "./file-lock.ts";
 import { sanitizeGitEnv } from "./git-env.ts";
 import {
 	ensureMemoryIndexFresh,
@@ -111,6 +111,12 @@ export interface MemoryLogCompactionDueResult {
 export { sanitizeGitEnv } from "./git-env.ts";
 
 const MEMORY_LOG_COMPACTION_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * How long usage-marking waits for the memory write lock before dropping the
+ * refresh: recall must stay fast under contention (A-F3).
+ */
+const MARK_USED_LOCK_TIMEOUT_MS = 2_000;
 
 /** Run a git command in the given directory, returning trimmed stdout. */
 export async function git(cwd: string, ...args: string[]): Promise<string> {
@@ -592,6 +598,44 @@ export class Genome {
 
 		const segmentsPath = join(this.rootPath, "memories", "segments.jsonl");
 		const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
+
+		// Phase 1 — discover and classify OUTSIDE the memory write lock (A-F3):
+		// classification is up to a dozen serial LLM calls, and holding the lock
+		// through them starved every other acquirer past its timeout. A throwaway
+		// snapshot store keeps shared in-memory state untouched; the JSONL file
+		// is rewritten atomically, so a lockless read is consistent.
+		const snapshotStore = new MemoryStore(memoriesPath);
+		await snapshotStore.load();
+		const snapshot = snapshotStore.all();
+		const provisional = await filterDuplicateMemories(embeddedMemories, snapshot);
+		const explicitReferencesByNewMemoryId = explicitReferenceMapForNewMemories(
+			provisional,
+			input.explicitReferenceIds ?? [],
+		);
+		const candidates =
+			embeddedSegment || provisional.length > 0
+				? discoverLinkCandidatesForNewMemories({
+						memories: [...snapshot, ...provisional],
+						newMemoryIds: new Set(provisional.map((memory) => memory.id)),
+						...(explicitReferencesByNewMemoryId ? { explicitReferencesByNewMemoryId } : {}),
+						options: input.discovery,
+					})
+				: [];
+		const classified =
+			candidates.length > 0
+				? [
+						...(await input.classifyRelationships({
+							candidates,
+							memoriesById: new Map(
+								[...snapshot, ...provisional].map((memory) => [memory.id, memory]),
+							),
+						})),
+					]
+				: [];
+
+		// Phase 2 — re-validate and apply under the lock. Memories added or
+		// removed while classification ran simply miss this round's links; a
+		// relationship whose endpoint vanished (or deduped out) is dropped.
 		return this.withMemoryWriteLock(async () => {
 			await this.segments.load();
 			await this.memories.load();
@@ -622,25 +666,11 @@ export class Genome {
 						savedMemories.push(this.memories.stage(memory));
 					}
 
-					const explicitReferencesByNewMemoryId = explicitReferenceMapForNewMemories(
-						savedMemories,
-						input.explicitReferenceIds ?? [],
+					const currentById = new Map(this.memories.all().map((memory) => [memory.id, memory]));
+					const relationships = classified.filter(
+						(relationship) =>
+							currentById.has(relationship.source_id) && currentById.has(relationship.target_id),
 					);
-					const candidates = discoverLinkCandidatesForNewMemories({
-						memories: this.memories.all(),
-						newMemoryIds: new Set(savedMemories.map((memory) => memory.id)),
-						...(explicitReferencesByNewMemoryId ? { explicitReferencesByNewMemoryId } : {}),
-						options: input.discovery,
-					});
-					const relationships =
-						candidates.length > 0
-							? [
-									...(await input.classifyRelationships({
-										candidates,
-										memoriesById: new Map(this.memories.all().map((memory) => [memory.id, memory])),
-									})),
-								]
-							: [];
 					const { added: linksAdded } = applyMemoryLinks(this.memories.all(), relationships, {
 						now: input.now,
 					});
@@ -775,16 +805,29 @@ export class Genome {
 	/** Mark memories as used by id, saving to disk. No git commit — this is operational metadata. */
 	async markMemoriesUsed(ids: string[]): Promise<void> {
 		if (ids.length === 0) return;
-		await this.withMemoryWriteLock(async () => {
-			await this.memories.load();
-			for (const id of ids) {
-				this.memories.markUsed(id);
-				const memory = this.memories.getById(id);
-				if (memory) markMemoryAccessActivity(memory, this.projects.all());
+		try {
+			await this.withMemoryWriteLock(
+				async () => {
+					await this.memories.load();
+					for (const id of ids) {
+						this.memories.markUsed(id);
+						const memory = this.memories.getById(id);
+						if (memory) markMemoryAccessActivity(memory, this.projects.all());
+					}
+					await this.memories.save();
+					await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
+				},
+				{ timeoutMs: MARK_USED_LOCK_TIMEOUT_MS },
+			);
+		} catch (error) {
+			// Usage marking is best-effort telemetry: a busy write lock must not
+			// stall recall for the full lock timeout or kill the session's run
+			// (A-F3). The contended refresh is simply dropped this round.
+			if (error instanceof Error && error.message.includes("Timed out waiting for directory lock")) {
+				return;
 			}
-			await this.memories.save();
-			await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
-		});
+			throw error;
+		}
 	}
 
 	async recordProjectActivity(project: DetectedProject, date = new Date()): Promise<boolean> {
@@ -908,10 +951,13 @@ export class Genome {
 		});
 	}
 
-	private async withMemoryWriteLock<T>(fn: () => Promise<T>): Promise<T> {
+	private async withMemoryWriteLock<T>(
+		fn: () => Promise<T>,
+		options?: DirectoryLockOptions,
+	): Promise<T> {
 		const lockDir = join(this.rootPath, ".cache", "memory-write.lock");
 		await mkdir(join(this.rootPath, ".cache"), { recursive: true });
-		const release = await acquireDirectoryLock(lockDir);
+		const release = await acquireDirectoryLock(lockDir, options);
 		try {
 			return await fn();
 		} finally {
