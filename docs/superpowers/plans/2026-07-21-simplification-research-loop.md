@@ -591,3 +591,75 @@ the commit + both-canaries-PASS-on-balanced and the fast-tier keystone caveat.
 - Levers 1+2 (description trim, delegation secret guard) landed earlier today — their
   files are fair game for review but not re-litigation.
 - QuickJS cutover remains parked (Jesse's call).
+
+## Follow-up batch (2026-07-22, Jesse: "clean up duplicates and simplify. do other followups")
+
+DONE (each its own commit, full hook, TDD on every fix):
+- In-process delegation path DELETED per ruling (b695e81): dispatch rejects
+  loudly without a spawner; 26 tests migrated to createInProcessSpawner
+  (test/agents/fixtures.ts — runs a REAL child in-process mirroring
+  agent-process); 2 in-process-only pins deleted (subagent log placement,
+  caller-supplied primitives to children); e2e VCR suites wired to the fake
+  (tree/models/streaming parity) and replay unchanged; one vacuous archivist
+  capture fixed.
+- Featherweight divergences FIXED BOTH per ruling (dd50e51): hints/payload
+  format into the child goal via formatDelegationGoal; env grants register
+  before the run (rejection aborts; announcement synthesized from
+  registrations since claims are recipient-scope-keyed) incl. the
+  message_agent re-run arm; child prompt now carries preambles/genome
+  postscripts/project docs/{{SPROUT_ROOT}}/surfaced memory block (cached-
+  recall path). FeatherweightExecInput's 6 dead fields dropped.
+- Duplicates: genome commit-or-restore 12x -> runCommittedFileMutation
+  (36377ed); repairJson x5/stripCodeFence x4 -> genome/llm-json.ts;
+  entity-type list x6 -> memory-schema canon; cosine -> memory-embedding
+  (memory-index's distance variant kept deliberately) (4fc16cd);
+  sessionScopedEventApplies 4 copies/3 names -> shared (e1e65ca);
+  asRecord x4 -> util/record.ts (19d9c95); micro-dedup sweep via agent:
+  store codec + appendAndCharge + LineBuffer (5bf3e99), bus launch/teardown/
+  handle/log-dir/AbortSignal.any + agents denial/abort/settle helpers
+  (743d926) — escapeXml/truncate premise was false (already shared).
+- providerIdOverride dead plumbing deleted ~40 sites (0b0bba0); bus wire
+  provider_id kept for cross-version children.
+- Fixes: scoring never archives protected user memories (A-F2, adc2577);
+  corrupt genome JSONL fails loud with git-restore guidance (7c78082);
+  stale-lock reclaim rebuilt — rename-claim single-winner + validated
+  release + lost-dir retry; the race test reproduced BOTH the double-hold
+  and an ENOENT crash out of acquire (A-F4, 01ddc9c); failed compaction
+  releases the cooldown slot (5a01e82); learn_end no longer mislabels
+  quartermaster-only cycles (ccaea61); memory-write-lock liveness A-F3
+  (9046235): classify OUTSIDE the lock on a disk snapshot with re-validate
+  under the lock, markMemoriesUsed best-effort (2s cap, drop on contention);
+  streamed usage requested via stream_options (ff740e3).
+- Small: shouldAcceptMutation wired via acceptsComparison; canariesPassed
+  deleted (omission guard lives in mutationRegressesCanaries);
+  ReasonedLearnMutation alias gone; retry/logging-middleware docs honest;
+  MemoryToolContext dead members trimmed; memory_synthesize_answer +
+  sap-metrics doc lies fixed (2196cba); parked-spin ACCEPTED-HOLE comment
+  (113190a).
+
+INCIDENT (2026-07-22): a cherry-pick probe loop ran `git reset --hard`,
+wiping uncommitted work (my C8/allowlist/event-cap edits — restored exactly
+from session context — and the web-fix agent's in-flight edits — re-applied
+by the agent from its own transcript). All commits were unaffected. Lesson
+recorded: no destructive git commands while the tree holds uncommitted work.
+
+## Rulings from Jesse's Q&A round 3 (2026-07-22)
+
+- Memory-write-lock liveness (A-F3): FIX NOW — done (9046235).
+- Streaming usage: SEND stream_options:{include_usage:true} always — done
+  (ff740e3).
+- Web fixes: ALL FIVE — done (bf0a1e2), each TDD-pinned; plus the
+  StrictMode WS revive. Follow-up recorded: factory.ts also ignores the
+  program fields of syncRoot() (silently).
+- Read-only genome proxy: allowlist done (bb19c4d); the fail-closed
+  default immediately caught an unlisted read path in the factory tests.
+- Test-only mutation lanes: KILL WITH JUDGMENT — delete test-only surface,
+  migrate tests to real paths, record each deliberate keep. NOT STARTED.
+- Learn C8: best-available fallback done (731103c).
+- AgentEventEmitter: 5k-event ring done (731103c).
+- Perf branch: DONE — llm-retry pacing was already ported; the
+  event-driven task_update waits cherry-picked (33f1a3f); stale
+  test-file-weights kept at ours; shard-balancing commit dead per the
+  no-sharding constraint; branch deleted.
+- Merge: PREP THE MERGE once in-flight work lands — full suite + live
+  canaries, then merge/PR for review.
