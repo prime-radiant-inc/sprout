@@ -152,7 +152,6 @@ export async function defaultFactory(options: AgentFactoryOptions): Promise<Agen
 					dataPlaneEnabled: options.dataPlaneEnabled,
 					rootDir: options.rootDir,
 					projectDataDir: options.projectDataDir,
-					providerIdOverride: options.providerIdOverride,
 					resolverSettings: options.resolverSettings,
 				});
 			}
@@ -170,7 +169,6 @@ export async function defaultFactory(options: AgentFactoryOptions): Promise<Agen
 		initialHistory: options.initialHistory,
 		initialMemorySurface: options.initialMemorySurface,
 		model: options.model,
-		providerIdOverride: options.providerIdOverride,
 		resolverSettings: options.resolverSettings,
 		spawner: options.spawner,
 		genome: options.genome,

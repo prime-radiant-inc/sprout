@@ -70,7 +70,6 @@ describe("E2E Integration", () => {
 			rootDir,
 			workDir: workDir,
 			client: vcr.client,
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 			spawner,
 		});
@@ -107,7 +106,6 @@ describe("E2E Integration", () => {
 			rootDir,
 			workDir: workDir,
 			client: vcr.client,
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 			spawner,
 		});
@@ -147,7 +145,6 @@ describe("E2E Integration", () => {
 			rootDir: join(import.meta.dir, "../../root"),
 			workDir: workDir,
 			client: vcr.client,
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 		});
 
@@ -171,7 +168,6 @@ describe("E2E Integration", () => {
 			rootDir: join(import.meta.dir, "../../root"),
 			workDir: workDir,
 			client: vcr.client,
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 		});
 		expect(genome2.agentCount()).toBeGreaterThanOrEqual(4);
@@ -187,7 +183,6 @@ describe("E2E Integration", () => {
 			rootDir: join(import.meta.dir, "../../root"),
 			workDir: workDir,
 			client: vcr.client,
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 		});
 
@@ -206,7 +201,6 @@ describe("E2E Integration", () => {
 			rootDir: join(import.meta.dir, "../../root"),
 			workDir: workDir,
 			client: vcr.client,
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 		});
 

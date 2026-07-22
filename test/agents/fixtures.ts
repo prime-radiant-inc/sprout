@@ -83,7 +83,6 @@ export function createDefaultResolverSettings() {
 
 export function withDefaultResolverContext<T extends AgentOptions>(options: T): T {
 	return {
-		providerIdOverride: TEST_PROVIDER_ID,
 		resolverSettings: createDefaultResolverSettings(),
 		modelsByProvider: createDefaultModelsByProvider(),
 		...options,
@@ -239,16 +238,15 @@ export function createInProcessSpawner(config: InProcessSpawnerConfig): {
 				...(opts.dataPlaneEnabled !== undefined ? { dataPlaneEnabled: opts.dataPlaneEnabled } : {}),
 				agentId,
 				...(opts.model !== undefined ? { modelOverride: opts.model } : {}),
-				...(opts.providerIdOverride !== undefined
-					? { providerIdOverride: opts.providerIdOverride }
-					: {}),
 				...(opts.resolverSettings !== undefined ? { resolverSettings: opts.resolverSettings } : {}),
 				...(config.modelsByProvider ? { modelsByProvider: config.modelsByProvider } : {}),
 				...(config.rootDir ? { rootDir: config.rootDir } : {}),
 				...(config.agentTree
 					? { agentTree: config.agentTree, agentTreeChildren, agentTreeSelfPath }
 					: {}),
-				...(config.enableStreaming !== undefined ? { enableStreaming: config.enableStreaming } : {}),
+				...(config.enableStreaming !== undefined
+					? { enableStreaming: config.enableStreaming }
+					: {}),
 				surfacedMemoryBlock: opts.surfacedMemoryBlock,
 				trustedUserInstruction: opts.trustedUserInstruction,
 				self: { agentName: opts.agentName, depth: childDepth, handleId, agentId },

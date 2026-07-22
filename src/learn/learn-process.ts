@@ -188,7 +188,6 @@ export interface LearnProcessOptions {
 	client?: Client;
 	pendingEvaluationsPath?: string;
 	modelsByProvider?: Map<string, ProviderModel[]>;
-	providerIdOverride?: string;
 	resolverSettings?: ResolverSettings;
 	/**
 	 * The frozen adoption chokepoint. When present, EVERY genome mutation (agent

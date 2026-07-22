@@ -179,7 +179,6 @@ describe("AgentSpawner", () => {
 	function spawnWithResolver(opts: SpawnAgentOptions) {
 		return spawner.spawnAgent({
 			...opts,
-			providerIdOverride: TEST_PROVIDER_ID,
 			resolverSettings: TEST_RESOLVER_SETTINGS,
 		});
 	}
@@ -318,7 +317,6 @@ describe("AgentSpawner", () => {
 					workDir: tempDir,
 					handleId,
 					evalMode: true,
-					providerIdOverride: TEST_PROVIDER_ID,
 					resolverSettings: TEST_RESOLVER_SETTINGS,
 				});
 
@@ -370,7 +368,6 @@ describe("AgentSpawner", () => {
 					workDir: tempDir,
 					handleId,
 					model: "fast",
-					providerIdOverride: TEST_PROVIDER_ID,
 					resolverSettings: TEST_RESOLVER_SETTINGS,
 				});
 				await expect(spawnPromise).resolves.toBe(handleId);
@@ -1967,7 +1964,6 @@ describe("AgentSpawner", () => {
 				genomePath: genomeDir,
 				caller: addr("root", 0),
 				workDir: tempDir,
-				providerIdOverride: TEST_PROVIDER_ID,
 				resolverSettings: TEST_RESOLVER_SETTINGS,
 			});
 
@@ -2200,7 +2196,6 @@ describe("AgentSpawner", () => {
 					shared: false,
 					workDir: tempDir,
 					handleId,
-					providerIdOverride: TEST_PROVIDER_ID,
 					resolverSettings: TEST_RESOLVER_SETTINGS,
 				});
 

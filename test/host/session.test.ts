@@ -105,7 +105,6 @@ describe("submitGoal", () => {
 			availableAgents: [],
 			depth: 0,
 			events,
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 			modelsByProvider: resolverContext.modelsByProvider,
 		});
@@ -146,7 +145,6 @@ describe("submitGoal", () => {
 			availableAgents: [],
 			depth: 0,
 			events,
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 			modelsByProvider: resolverContext.modelsByProvider,
 		});
@@ -179,7 +177,6 @@ describe("submitGoal", () => {
 			availableAgents: [],
 			depth: 0,
 			events,
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 			modelsByProvider: resolverContext.modelsByProvider,
 		});

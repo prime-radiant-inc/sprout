@@ -65,9 +65,7 @@ async function writeLockOwner(lockDir: string): Promise<DirectoryLockOwner | und
 		return owner;
 	} catch (error) {
 		const code =
-			error instanceof Error && "code" in error
-				? (error as NodeJS.ErrnoException).code
-				: undefined;
+			error instanceof Error && "code" in error ? (error as NodeJS.ErrnoException).code : undefined;
 		// ENOENT: our directory was removed under us. EEXIST: another lock's
 		// owner file occupies the path (a reclaim restored a live lock there).
 		// Either way the path is not ours to clean up.

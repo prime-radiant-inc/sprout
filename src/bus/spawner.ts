@@ -197,7 +197,6 @@ export interface FeatherweightExecInput {
 	caller: AgentAddress;
 	evalMode?: boolean;
 	model?: string;
-	providerIdOverride?: string;
 	resolverSettings?: ResolverSettings;
 	/** The caller-surfaced memory block, exactly as a subprocess child receives it. */
 	surfacedMemoryBlock?: string;
@@ -945,7 +944,6 @@ export class AgentSpawner {
 			caller: handle.caller,
 			evalMode: handle.evalMode,
 			model: handle.model,
-			providerIdOverride: handle.providerIdOverride,
 			resolverSettings: handle.resolverSettings,
 			surfacedMemoryBlock: handle.surfacedMemoryBlock,
 			history: priorHistory.length > 0 ? priorHistory : undefined,

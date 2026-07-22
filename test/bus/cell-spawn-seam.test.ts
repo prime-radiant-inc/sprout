@@ -285,7 +285,6 @@ describe("cell spawn seam (real spawner, in-process child)", () => {
 			events,
 			spawner,
 			genomePath: genomeDir,
-			providerIdOverride: TEST_PROVIDER_ID,
 			resolverSettings: RESOLVER_SETTINGS,
 			cellWorkerSpawnFn: () => spawnCellWorkerProcess([process.execPath, WORKER_ENTRY]),
 		});

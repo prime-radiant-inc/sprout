@@ -207,7 +207,6 @@ async function setupGenomeWithClient(tempDir: string, name: string, client: Clie
 		client,
 		pendingEvaluationsPath,
 		modelsByProvider: resolverContext.modelsByProvider,
-		providerIdOverride: resolverContext.providerId,
 		resolverSettings: resolverContext.resolverSettings,
 	});
 	return { genome, metrics, events, learn, genomeDir, pendingEvaluationsPath };

@@ -70,7 +70,6 @@ describe("createAgent", () => {
 			rootDir,
 			workDir: tempDir,
 			client: sharedClient,
-			providerIdOverride: sharedResolverContext.providerId,
 			resolverSettings: sharedResolverContext.resolverSettings,
 		});
 
@@ -88,7 +87,6 @@ describe("createAgent", () => {
 			rootDir,
 			workDir: tempDir,
 			client: sharedClient,
-			providerIdOverride: sharedResolverContext.providerId,
 			resolverSettings: sharedResolverContext.resolverSettings,
 		});
 
@@ -103,7 +101,6 @@ describe("createAgent", () => {
 			rootAgent: "editor",
 			genome: sharedGenome,
 			client: sharedClient,
-			providerIdOverride: sharedResolverContext.providerId,
 			resolverSettings: sharedResolverContext.resolverSettings,
 		});
 
@@ -129,7 +126,6 @@ describe("createAgent", () => {
 			sessionId: customId,
 			genome: sharedGenome,
 			client: sharedClient,
-			providerIdOverride: sharedResolverContext.providerId,
 			resolverSettings: sharedResolverContext.resolverSettings,
 		});
 		expect(result.agent).toBeDefined();
@@ -146,7 +142,6 @@ describe("createAgent", () => {
 			model: "anthropic:claude-sonnet-4-6",
 			genome: sharedGenome,
 			client: sharedClient,
-			providerIdOverride: sharedResolverContext.providerId,
 			resolverSettings: sharedResolverContext.resolverSettings,
 		});
 
@@ -161,7 +156,6 @@ describe("createAgent", () => {
 			workDir: tempDir,
 			genome: sharedGenome,
 			client: sharedClient,
-			providerIdOverride: sharedResolverContext.providerId,
 			resolverSettings: sharedResolverContext.resolverSettings,
 		});
 
@@ -179,7 +173,6 @@ describe("createAgent", () => {
 				rootAgent: "nonexistent",
 				genome: sharedGenome,
 				client: sharedClient,
-				providerIdOverride: sharedResolverContext.providerId,
 				resolverSettings: sharedResolverContext.resolverSettings,
 			}),
 		).rejects.toThrow(/not found/);
@@ -192,7 +185,6 @@ describe("createAgent", () => {
 			workDir: tempDir,
 			genome: sharedGenome,
 			client: sharedClient,
-			providerIdOverride: sharedResolverContext.providerId,
 			resolverSettings: sharedResolverContext.resolverSettings,
 		});
 
@@ -223,7 +215,6 @@ describe("createAgent", () => {
 			rootDir,
 			workDir: sproutRoot,
 			client: sharedClient,
-			providerIdOverride: sharedResolverContext.providerId,
 			resolverSettings: sharedResolverContext.resolverSettings,
 		});
 
@@ -250,7 +241,6 @@ describe("createAgent", () => {
 			workDir: sproutRoot,
 			genome: preloadedGenome,
 			client: sharedClient,
-			providerIdOverride: sharedResolverContext.providerId,
 			resolverSettings: sharedResolverContext.resolverSettings,
 		});
 
@@ -272,7 +262,6 @@ describe("createAgent", () => {
 			workDir: sproutRoot,
 			evalMode: true,
 			client: sharedClient,
-			providerIdOverride: sharedResolverContext.providerId,
 			resolverSettings: sharedResolverContext.resolverSettings,
 		});
 
@@ -313,7 +302,6 @@ describe("createAgent", () => {
 			evalMode: true,
 			genome,
 			client: sharedClient,
-			providerIdOverride: sharedResolverContext.providerId,
 			resolverSettings: sharedResolverContext.resolverSettings,
 		});
 
@@ -381,7 +369,6 @@ describe("createAgent", () => {
 			rootDir,
 			workDir: tempDir,
 			client: promptClient,
-			providerIdOverride: sharedResolverContext.providerId,
 			resolverSettings: sharedResolverContext.resolverSettings,
 			nonInteractive: true,
 		});

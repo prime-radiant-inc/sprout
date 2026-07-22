@@ -70,7 +70,6 @@ describe("createAgent mutation gate wiring", () => {
 			rootDir,
 			workDir: tempDir,
 			client,
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 			mutationGateBuilders: stubBuilders,
 		});
@@ -84,7 +83,6 @@ describe("createAgent mutation gate wiring", () => {
 			rootDir,
 			workDir: tempDir,
 			client,
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 			mutationGateBuilders: stubBuilders,
 		});
@@ -100,7 +98,6 @@ describe("createAgent mutation gate wiring", () => {
 				rootDir,
 				workDir: tempDir,
 				client,
-				providerIdOverride: resolverContext.providerId,
 				resolverSettings: resolverContext.resolverSettings,
 			});
 			expect(result.learnProcess?.hasMutationGate()).toBe(false);

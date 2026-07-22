@@ -68,7 +68,6 @@ describe("Agent Integration", () => {
 			availableAgents: rootAgents,
 			depth: 1,
 			events,
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 			modelsByProvider: resolverContext.modelsByProvider,
 		});
@@ -164,7 +163,6 @@ describe("Agent Integration", () => {
 			agentTree: rootTree,
 			agentTreeChildren: rootTreeChildren,
 			agentTreeSelfPath: "",
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 			modelsByProvider: resolverContext.modelsByProvider,
 			spawner,
@@ -272,7 +270,6 @@ describe("Agent with Genome Integration", () => {
 			agentTree,
 			agentTreeChildren: [...agentTree.keys()].filter((p) => !p.includes("/")),
 			agentTreeSelfPath: "",
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 			modelsByProvider: resolverContext.modelsByProvider,
 			spawner,
@@ -327,7 +324,6 @@ describe("Agent with Genome Integration", () => {
 			genome,
 			events,
 			depth: 0,
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 			modelsByProvider: resolverContext.modelsByProvider,
 		});

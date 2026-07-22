@@ -51,7 +51,6 @@ export interface CreateAgentOptions {
 	/** Model override — if provided, overrides the root agent's spec model. */
 	model?: string | ModelRef;
 	/** Default provider context for exact-model resolution. */
-	providerIdOverride?: string;
 	/** Provider settings used for global tier and exact-model resolution. */
 	resolverSettings?: ResolverSettings;
 	/** Bus-based spawner for running subagents as separate processes. */
@@ -258,7 +257,6 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 				client,
 				pendingEvaluationsPath,
 				modelsByProvider,
-				providerIdOverride: options.providerIdOverride,
 				resolverSettings: options.resolverSettings,
 			});
 
@@ -288,7 +286,6 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		surfacedMemoryBlock: options.initialMemorySurface?.memoryBlock,
 		surfacedMemoryIds: options.initialMemorySurface?.memoryIds,
 		modelOverride: options.model,
-		providerIdOverride: options.providerIdOverride,
 		resolverSettings: options.resolverSettings,
 		modelsByProvider,
 		preambles,

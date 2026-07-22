@@ -131,7 +131,6 @@ export interface AgentOptions {
 	/** Override the spec's model for this agent instance. */
 	modelOverride?: string | ModelRef;
 	/** Default provider context for exact-model resolution. */
-	providerIdOverride?: string;
 	/** Provider settings used for global tier and exact-model resolution. */
 	resolverSettings?: ResolverSettings;
 	/** Prompt preambles (global + role-specific) to prepend to system prompt. */
@@ -634,7 +633,6 @@ export class Agent {
 			evalMode: input.evalMode,
 			allowExec: this.allowExec,
 			...(input.model !== undefined ? { modelOverride: input.model } : {}),
-			providerIdOverride: input.providerIdOverride,
 			resolverSettings: input.resolverSettings ?? this.resolverSettings,
 			modelsByProvider: this.modelsByProvider,
 			...(input.history !== undefined ? { initialHistory: input.history } : {}),
