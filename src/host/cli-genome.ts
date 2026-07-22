@@ -23,6 +23,8 @@ export type GenomeCommand =
 			 *  24h throttle is ignored (mutually exclusive with --apply /
 			 *  --decision-file). */
 			auto?: boolean;
+			/** Isolated settings.json for --auto's model resolution (see --settings-path). */
+			settingsPath?: string;
 	  };
 
 export function isGenomeCommand<T extends { kind: string }>(
@@ -153,8 +155,12 @@ export async function runGenomeCommand(command: GenomeCommand): Promise<void> {
 					logPath: join(command.genomePath, ".cache", "genome-maintain-auto.log.jsonl"),
 					component: "cli",
 				});
-				const client = await createAgentProcessClient(logger);
-				const { settings } = await new SettingsStore().load();
+				const client = await createAgentProcessClient(logger, {
+					createSettingsStore: () => new SettingsStore({ settingsPath: command.settingsPath }),
+				});
+				const { settings } = await new SettingsStore({
+					settingsPath: command.settingsPath,
+				}).load();
 				const resolverSettings = createResolverSettings(
 					settings.providers,
 					settings.defaults,

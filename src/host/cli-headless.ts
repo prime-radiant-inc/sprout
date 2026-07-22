@@ -21,6 +21,8 @@ export interface HeadlessInfrastructure {
 export interface RunHeadlessOptions {
 	goal: string;
 	genomePath: string;
+	/** Isolated settings.json path (providers, model tiers). See SessionBootstrapOptions.settingsPath. */
+	settingsPath?: string;
 	projectDataDir: string;
 	rootDir: string;
 	sessionId?: string;
@@ -130,6 +132,7 @@ export async function runHeadlessMode(
 	try {
 		const runtime = await d.bootstrapRuntime({
 			genomePath: opts.genomePath,
+			settingsPath: opts.settingsPath,
 			projectDataDir: opts.projectDataDir,
 			rootDir: opts.rootDir,
 			sessionId,

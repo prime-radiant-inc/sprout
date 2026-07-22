@@ -56,6 +56,11 @@ export function resolveStderrLevel(opts: { logStderr?: boolean; debug?: boolean 
 
 export interface SessionBootstrapOptions {
 	genomePath: string;
+	/** Isolated settings.json path (providers, model tiers). Falls back to the
+	 *  host-global default resolution when omitted. Does NOT isolate provider
+	 *  credentials — API keys/OAuth tokens live in the OS secret store, keyed
+	 *  independently of this path. */
+	settingsPath?: string;
 	projectDataDir: string;
 	rootDir: string;
 	sessionId: string;
@@ -197,7 +202,8 @@ export async function bootstrapSessionRuntime(
 }> {
 	const d: InteractiveBootstrapDeps = {
 		createBus: deps.createBus ?? (() => new EventBus()),
-		createSettingsStore: deps.createSettingsStore ?? (() => new SettingsStore()),
+		createSettingsStore:
+			deps.createSettingsStore ?? (() => new SettingsStore({ settingsPath: opts.settingsPath })),
 		createSecretStore:
 			deps.createSecretStore ?? (() => createSecretStoreRuntime({ env: process.env })),
 		importSettingsFromEnv:

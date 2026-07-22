@@ -256,6 +256,101 @@ describe("parseArgs", () => {
 		});
 	});
 
+	// --- Settings path ---
+
+	test("--settings-path with no args → interactive with settingsPath", () => {
+		const result = parseArgs(["--settings-path", "/custom/settings.json"]);
+		expect(result).toEqual({
+			kind: "interactive",
+			genomePath: defaultGenomePath,
+			settingsPath: "/custom/settings.json",
+		});
+	});
+
+	test("--settings-path with --prompt → headless with settingsPath", () => {
+		const result = parseArgs(["--settings-path", "/custom/settings.json", "--prompt", "Fix bug"]);
+		expect(result).toEqual({
+			kind: "headless",
+			goal: "Fix bug",
+			genomePath: defaultGenomePath,
+			settingsPath: "/custom/settings.json",
+		});
+	});
+
+	test("--settings-path combined with --genome-path captures both", () => {
+		const result = parseArgs([
+			"--genome-path",
+			"/custom/genome",
+			"--settings-path",
+			"/custom/settings.json",
+			"--prompt",
+			"Fix bug",
+		]);
+		expect(result).toEqual({
+			kind: "headless",
+			goal: "Fix bug",
+			genomePath: "/custom/genome",
+			settingsPath: "/custom/settings.json",
+		});
+	});
+
+	test("--settings-path with --resume <id> → resume with settingsPath", () => {
+		const result = parseArgs(["--settings-path", "/custom/settings.json", "--resume", "01ABC123"]);
+		expect(result).toEqual({
+			kind: "resume",
+			sessionId: "01ABC123",
+			genomePath: defaultGenomePath,
+			settingsPath: "/custom/settings.json",
+		});
+	});
+
+	test("--settings-path with --resume (no id) → list with settingsPath", () => {
+		const result = parseArgs(["--settings-path", "/custom/settings.json", "--resume"]);
+		expect(result).toEqual({
+			kind: "list",
+			genomePath: defaultGenomePath,
+			settingsPath: "/custom/settings.json",
+		});
+	});
+
+	test("no --settings-path → omitted (falls back to default resolution)", () => {
+		const result = parseArgs(["--prompt", "Fix bug"]);
+		expect(result).toEqual({
+			kind: "headless",
+			goal: "Fix bug",
+			genomePath: defaultGenomePath,
+		});
+		expect("settingsPath" in result).toBe(false);
+	});
+
+	test("--settings-path with no value returns help", () => {
+		const result = parseArgs(["--settings-path"]);
+		expect(result).toEqual({ kind: "help" });
+	});
+
+	test("duplicate --settings-path returns help", () => {
+		const result = parseArgs(["--settings-path", "/a", "--settings-path", "/b"]);
+		expect(result).toEqual({ kind: "help" });
+	});
+
+	test("--settings-path with --genome maintain --auto captures settingsPath", () => {
+		const result = parseArgs([
+			"--settings-path",
+			"/custom/settings.json",
+			"--genome",
+			"maintain",
+			"--auto",
+		]);
+		expect(result).toEqual({
+			kind: "genome-maintain",
+			genomePath: defaultGenomePath,
+			apply: false,
+			scope: "all",
+			auto: true,
+			settingsPath: "/custom/settings.json",
+		});
+	});
+
 	test("--cwd with no args → interactive with startup cwd", () => {
 		const result = parseArgs(["--cwd", "/workspace/project"]);
 		expect(result).toEqual({

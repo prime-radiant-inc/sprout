@@ -29,8 +29,13 @@ export interface CwdFlag {
 	cwd?: string;
 }
 
+/** Path to an isolated settings.json (providers, model tiers) — see --settings-path. */
+export interface SettingsPathFlag {
+	settingsPath?: string;
+}
+
 export type CliCommand =
-	| ({ kind: "interactive"; genomePath: string } & WebFlags & LogFlags & CwdFlag)
+	| ({ kind: "interactive"; genomePath: string } & WebFlags & LogFlags & CwdFlag & SettingsPathFlag)
 	| ({
 			kind: "headless";
 			goal: string;
@@ -38,15 +43,20 @@ export type CliCommand =
 			sessionId?: string;
 			atifPath?: string;
 			evalMode?: true;
-	  } & CwdFlag)
-	| ({ kind: "resume"; sessionId: string; genomePath: string } & WebFlags & LogFlags & CwdFlag)
-	| ({ kind: "list"; genomePath: string } & CwdFlag)
+	  } & CwdFlag &
+			SettingsPathFlag)
+	| ({ kind: "resume"; sessionId: string; genomePath: string } & WebFlags &
+			LogFlags &
+			CwdFlag &
+			SettingsPathFlag)
+	| ({ kind: "list"; genomePath: string } & CwdFlag & SettingsPathFlag)
 	| GenomeCommand
 	| { kind: "help" };
 
 interface ParseState {
 	genomePath: string;
 	cwd?: string;
+	settingsPath?: string;
 	prompt?: string;
 	atifPath?: string;
 	evalMode?: true;
@@ -93,6 +103,7 @@ function parseGenomeMaintainCommand(
 	argv: string[],
 	startIndex: number,
 	genomePath: string,
+	settingsPath: string | undefined,
 ): { command?: GenomeCommand; nextIndex: number } {
 	let index = startIndex;
 	let apply = false;
@@ -183,6 +194,7 @@ function parseGenomeMaintainCommand(
 			...(decisionFile !== undefined ? { decisionFile } : {}),
 			...(limit !== undefined ? { limit } : {}),
 			...(auto ? { auto } : {}),
+			...(settingsPath !== undefined ? { settingsPath } : {}),
 		},
 		nextIndex: index,
 	};
@@ -202,6 +214,10 @@ function collectInteractiveFlags(state: ParseState): WebFlags & LogFlags {
 
 function collectCwdFlag(state: ParseState): CwdFlag {
 	return state.cwd !== undefined ? { cwd: state.cwd } : {};
+}
+
+function collectSettingsPathFlag(state: ParseState): SettingsPathFlag {
+	return state.settingsPath !== undefined ? { settingsPath: state.settingsPath } : {};
 }
 
 function hasInteractiveOnlyFlags(state: ParseState): boolean {
@@ -241,6 +257,15 @@ export function parseArgs(argv: string[]): CliCommand {
 			const value = argv[index + 1];
 			if (!value || value.startsWith("-")) return { kind: "help" };
 			state.cwd = value;
+			index += 2;
+			continue;
+		}
+
+		if (token === "--settings-path") {
+			if (state.settingsPath !== undefined) return { kind: "help" };
+			const value = argv[index + 1];
+			if (!value || value.startsWith("-")) return { kind: "help" };
+			state.settingsPath = value;
 			index += 2;
 			continue;
 		}
@@ -310,7 +335,12 @@ export function parseArgs(argv: string[]): CliCommand {
 				continue;
 			}
 			if (subcommand === "maintain") {
-				const parsed = parseGenomeMaintainCommand(argv, index + 2, state.genomePath);
+				const parsed = parseGenomeMaintainCommand(
+					argv,
+					index + 2,
+					state.genomePath,
+					state.settingsPath,
+				);
 				if (!parsed.command || parsed.nextIndex !== argv.length) return { kind: "help" };
 				state.genomeCommand = parsed.command;
 				index = parsed.nextIndex;
@@ -405,6 +435,7 @@ export function parseArgs(argv: string[]): CliCommand {
 			...(state.atifPath !== undefined ? { atifPath: state.atifPath } : {}),
 			...(state.evalMode === true ? { evalMode: true as const } : {}),
 			...collectCwdFlag(state),
+			...collectSettingsPathFlag(state),
 		};
 	}
 
@@ -417,7 +448,12 @@ export function parseArgs(argv: string[]): CliCommand {
 			) {
 				return { kind: "help" };
 			}
-			return { kind: "list", genomePath: state.genomePath, ...collectCwdFlag(state) };
+			return {
+				kind: "list",
+				genomePath: state.genomePath,
+				...collectCwdFlag(state),
+				...collectSettingsPathFlag(state),
+			};
 		}
 		if (state.atifPath !== undefined || state.evalMode === true) return { kind: "help" };
 		return {
@@ -426,6 +462,7 @@ export function parseArgs(argv: string[]): CliCommand {
 			genomePath: state.genomePath,
 			...collectInteractiveFlags(state),
 			...collectCwdFlag(state),
+			...collectSettingsPathFlag(state),
 		};
 	}
 
@@ -436,6 +473,7 @@ export function parseArgs(argv: string[]): CliCommand {
 		genomePath: state.genomePath,
 		...collectInteractiveFlags(state),
 		...collectCwdFlag(state),
+		...collectSettingsPathFlag(state),
 	};
 }
 
@@ -473,6 +511,7 @@ Logging:
 Options:
   --cwd <path>           Run as if Sprout was started from this working directory
   --genome-path <path>   Path to genome directory (default: $SPROUT_GENOME_PATH or $XDG_DATA_HOME/sprout-genome or ~/.local/share/sprout-genome)
+  --settings-path <path> Use an isolated settings.json (providers, model tiers) instead of the host-global config — pair with --genome-path for a fully isolated run. Does not isolate provider credentials (API keys/OAuth tokens live in the OS keychain, not settings.json).
   --dry-run              For --genome maintain, print candidates without mutating (default)
   --apply                For --genome maintain, apply reviewed decisions
   --auto                 For --genome maintain, apply unattended LLM decisions, ignoring the 24h throttle
