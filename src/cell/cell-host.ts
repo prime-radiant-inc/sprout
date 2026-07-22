@@ -288,6 +288,10 @@ export class CellHost {
 			// cell that floods un-awaited ambient calls parks the clock instead;
 			// CELL_MAX_OUTSTANDING_AMBIENT caps that, and the RSS watchdog below
 			// is the ultimate net for any pathological flood that slips under it.
+			// ACCEPTED HOLE (ruled 2026-07-21): ONE un-awaited ambient call parks
+			// the clock, so a cell can spin CPU un-billed while it stays pending.
+			// These guards bound accidents, not adversaries; the RSS watchdog is
+			// the net. Do not re-flag without a new threat model.
 			const budgetTimer = setInterval(() => {
 				const now = Date.now();
 				if (this.outstandingAmbient === 0) computeMs += now - lastTick;
