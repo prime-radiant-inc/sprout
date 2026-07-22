@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type AgentOptions, Agent as RawAgent } from "../../src/agents/agent.ts";
@@ -9383,6 +9383,109 @@ describe("cell-spawn observer batching (Slice B)", () => {
 		expect(message).toContain("fan-out child output");
 		// Deduped by handle: the handle appears once, not once per spawn+wait.
 		expect(message.match(/handle-fanout-1/g)).toHaveLength(1);
+	});
+});
+
+describe("compaction retry after failure", () => {
+	test("a failed compaction releases the slot so the next turn retries", async () => {
+		// evaluateCompaction consumes the cooldown slot when it DECIDES to
+		// compact; if the summary call then fails, the slot must be restored —
+		// otherwise the retry is suppressed for the whole cooldown while the
+		// context keeps growing past the threshold.
+		const spec: AgentSpec = {
+			name: "compact-root",
+			description: "root",
+			system_prompt: "Do the work.",
+			model: "fast",
+			tools: ["read_file"],
+			agents: [],
+			constraints: { max_turns: 10, timeout_ms: 60_000, can_spawn: false, can_learn: false },
+			tags: [],
+			version: 1,
+		};
+		const workDir = await mkdtemp(join(tmpdir(), "sprout-compact-retry-"));
+		await writeFile(join(workDir, "note.txt"), "hello");
+
+		let agentTurns = 0;
+		let compactionAttempts = 0;
+		const hugeUsage = {
+			input_tokens: 1_000_000,
+			output_tokens: 5,
+			total_tokens: 1_000_005,
+			total_input_tokens: 1_000_000,
+		};
+		const toolTurn = (n: number): Message => ({
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: `call-compact-${n}`,
+						name: "read_file",
+						arguments: JSON.stringify({ path: join(workDir, "note.txt") }),
+					},
+				},
+			],
+		});
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (request: { messages: Message[] }): Promise<Response> => {
+				const isCompaction = request.messages.some((m) =>
+					m.content.some((c) => c.text?.includes("CONTEXT CHECKPOINT COMPACTION")),
+				);
+				if (isCompaction) {
+					compactionAttempts++;
+					if (compactionAttempts === 1) throw new Error("summary model unavailable");
+					return {
+						id: `compact-ok-${compactionAttempts}`,
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: { role: "assistant", content: [{ kind: ContentKind.TEXT, text: "summary" }] },
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+					};
+				}
+				agentTurns++;
+				const done = agentTurns >= 6;
+				return {
+					id: `turn-${agentTurns}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: done
+						? { role: "assistant", content: [{ kind: ContentKind.TEXT, text: "done" }] }
+						: toolTurn(agentTurns),
+					finish_reason: { reason: done ? "stop" : "tool_calls" },
+					usage: hugeUsage,
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(workDir);
+		const agent = new Agent({
+			spec,
+			env,
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [],
+			events,
+		});
+		const result = await agent.run("do the work");
+		expect(result.success).toBe(true);
+
+		const collected = events.collected();
+		const warnings = collected.filter(
+			(e) => e.kind === "warning" && String(e.data.message).includes("Compaction failed"),
+		);
+		// Ignore the short-history no-op compaction (summary "") from turn 1.
+		const compactions = collected.filter((e) => e.kind === "compaction" && e.data.summary !== "");
+		// Attempt 1 (after the cooldown) fails; the very next eligible turn
+		// retries and succeeds instead of waiting out a fresh cooldown.
+		expect(compactionAttempts).toBe(2);
+		expect(warnings).toHaveLength(1);
+		expect(compactions).toHaveLength(1);
+		await rm(workDir, { recursive: true, force: true });
 	});
 });
 

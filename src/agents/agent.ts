@@ -3208,6 +3208,7 @@ export class Agent {
 				// requested. total_input_tokens is the real context size — plain
 				// input_tokens is only the uncached sliver, which prompt caching
 				// shrinks to near-zero, silently disabling threshold compaction.
+				const turnsBeforeCompactionDecision = this.turnsSinceCompaction;
 				const compactionDecision = evaluateCompaction({
 					turnsSinceCompaction: this.turnsSinceCompaction,
 					compactionRequested: this.compactionRequested,
@@ -3240,6 +3241,10 @@ export class Agent {
 							logPath: this.logBasePath ? `${this.logBasePath}.jsonl` : undefined,
 						});
 					} catch (err) {
+						// The decision consumed the cooldown slot before the attempt;
+						// give it back so the next over-threshold turn retries instead
+						// of waiting out a fresh cooldown while the context grows.
+						this.turnsSinceCompaction = turnsBeforeCompactionDecision + 1;
 						this.emitAndLog("warning", agentId, this.depth, {
 							message: `Compaction failed, continuing without: ${String(err)}`,
 						});
