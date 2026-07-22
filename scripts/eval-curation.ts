@@ -158,7 +158,12 @@ async function main(): Promise<void> {
 	]);
 }
 
-main().catch((err) => {
-	log(`FATAL: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
-	process.exit(1);
-});
+// Live sessions can leak event-loop handles (dozens of real runs); exit
+// explicitly once the verdict is printed and the temp dirs are removed.
+main().then(
+	() => process.exit(0),
+	(err) => {
+		log(`FATAL: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
+		process.exit(1);
+	},
+);
