@@ -1,146 +1,198 @@
-# Automatic memory maintenance — spec
+# Automatic memory maintenance — spec v2
 
 Status: PROPOSED (discussion doc — nothing implemented)
-Date: 2026-07-22
+Date: 2026-07-22 (v2 after two-reviewer adversarial pass; v1's central safety
+mechanism was wrong — see "What v1 got wrong")
 Context: the kill-with-judgment sweep (d02d02e) deleted the automated
-maintenance-decision lane because nothing wired it. Jesse asked what making
-maintenance automatic would take. This spec is the answer.
+maintenance-decision lane because nothing wired it. This specs wiring
+consolidation + entity GC to run unattended.
 
 ## Goal
 
 Memory consolidation (merge near-duplicate memories) and entity GC (alias
-cleanup) run unattended on their existing activity-day cadence, with LLM
-decisions replacing the human decision file — without weakening any of the
-protections the manual flow enforces.
+cleanup) run unattended on their existing activity-day cadences, with LLM
+decisions replacing the human decision file — without weakening any
+protection the manual flow enforces, and without the failure modes below.
 
 ## Non-goals
 
-- No new discovery, clustering, validation, or apply logic. The surviving
-  production flow (discover → validate → apply) is untouched; only the
-  DECISION step becomes automatic.
-- No change to the manual CLI flow — `--genome maintain` with a decision
-  file keeps working and stays the escape hatch.
+- No new discovery/clustering/validation logic beyond the hardening listed.
+- The manual CLI flow stays intact and remains the escape hatch.
 - Not routed through the frozen adoption gate (see "Immutability line").
 
-## What already exists (survived the sweep)
+## What v1 got wrong (verified findings; the design constraints of v2)
 
-- `discoverMemoryMaintenancePlan` — per-project cadence built in
-  (`projectDueForConsolidation` ≥14 active days, `projectDueForEntityGc`
-  likewise), cluster/group limits, global-project handling.
-- `applyMemoryMaintenanceDecisions` — atomic (commit-or-restore envelope via
-  `applyMemoryAndProjectActivityMutation`), validates every decision,
-  THROWS on consolidating a protected manual/user memory without explicit
-  confirmation, stamps `markConsolidated`/`markEntityGc` cadence.
-- The post-session maintenance hook (session-agent-factory `collapseMemory`
-  closure): already runs project-activity recording, session collapse,
-  score recompute, and `compactMemoryLogIfDue` — the natural trigger site.
-- Settings plumbing: `memoryModels.consolidation` (default tier: balanced)
-  and `memoryModels.entityGc` (default: fast) exist and are currently
-  consumer-less; this feature re-consumes them. C8 ruling applies: a
-  missing tier falls back to the best available model.
+1. **Rejects are destructive state, not no-ops.** `rejectConsolidationCluster`
+   mutates EVERY cluster member (annotation, `updated_at`,
+   `consolidation_rejection_count`) and discovery drops a cluster at 2
+   rejections — for the manual flow too. Entity-GC rejection is worse: one
+   reject annotation suppresses the group from all future discovery, forever.
+   So v1's "auto-reject protected clusters" would have WRITTEN to protected
+   memories and then permanently buried their clusters, and v1's "LLM failure
+   degrades to reject" would let one transient API error permanently suppress
+   maintenance candidates.
+2. **Entity GC has no protected-memory checks at all** — it rewrites
+   `entity_links`/`annotations` on any memory.
+3. **The restored normalizers are too lenient for unattended use**: a merge
+   reply with no `aliases` field merges the whole group; canonical NAME is
+   unvalidated (LLM can rename entities to arbitrary text); a consolidation
+   draft's `entities` REPLACE the source union with arbitrary uuids;
+   `draft.confidence` is accepted verbatim; draft text is uncapped.
+4. **C8 fallback is not automatic**: `resolveMemoryModel` throws on a missing
+   tier; the best-available fallback is local to LearnProcess. A bare restore
+   would turn a settings gap into thrown decisions.
+5. **Entity-GC cadence is 30 active days** (consolidation is 14); v1 said 14
+   for both and priced the cost envelope off the wrong number.
+6. **Apply embeds under the memory write lock**: `applyConsolidationMerge` →
+   `stageMemoryForMutation` → network embedding call inside the
+   commit-or-restore envelope — the starvation class A-F3 (9046235) just
+   removed from incorporation.
+7. **The prompts don't exist as loadable artifacts**: `MEMORY_CONSOLIDATION_PROMPT`
+   exists but its loader was deleted as dead; an entity-GC system prompt
+   exists nowhere (the old lane took it as a caller argument no caller built).
+8. **Same-shutdown compaction can delete merged sources immediately** (no
+   grace period in `removeArchivedOrSuperseded`), stripping the consolidated
+   memory's `supersedes` links and live memories' links to the sources.
+9. **Machine-merged memories re-enter clustering** — paraphrase-of-paraphrase
+   drift with no generation cap while originals age out of the JSONL.
+10. Throttle stamping/concurrency, hook placement details, and the CLI
+    bootstrap cost were unspecified or wrong (details inline below).
 
-## What comes back from git (commit d02d02e^)
+## What already exists and is verified sound
 
-Restored verbatim with their tests, no redesign:
-- `requestConsolidationDecision` / `requestConsolidationDecisionWithSettings`
-- `requestEntityGcDecision` / `requestEntityGcDecisionWithSettings`
-- `renderMemoryConsolidationUserPrompt`, `renderEntityGcReviewUserPrompt`
-- `normalizeConsolidationDecisionPayload`, `normalizeEntityGcDecisionPayload`
+- `discoverMemoryMaintenancePlan`: per-project cadence (consolidation ≥14,
+  entity GC ≥30 active days), global-project handling, top-N limit.
+- `applyMemoryMaintenanceDecisions`: atomic commit-or-restore envelope,
+  full validation, protected-merge throw (unless explicitly confirmed),
+  `markConsolidated`/`markEntityGc` cadence stamping.
+- Settings fields `memoryModels.consolidation` (balanced) / `entityGc`
+  (fast), currently consumer-less.
+- The post-session sequence: `session-controller.collapseMemoryAfterRun`
+  (root, non-eval, collapse-models-configured sessions only) → project
+  activity → collapse → conditional `recomputeMemoryScores` →
+  `compactMemoryLogIfDue` (a sibling factory field, not part of the
+  collapse closure).
 
-NOT restored: `reviewMemoryMaintenancePlanWithSettings` — replaced by the
-driver below (the old aggregator had no protected-memory filtering and no
-fail-safe semantics).
+## Design (v2)
 
-## Design
+### Protected memories: filtered, never decided
 
-### Driver (new): `runMemoryMaintenanceIfDue`
+Protected manual/user memories are removed from the DISCOVERY INPUT POOL
+before clustering (the F2 posture: skip, not reject). They never appear in
+clusters or entity-GC groups, are never written to, never consume limit
+slots, and their clusters remain formable by the manual flow (which passes
+an unfiltered pool). Entity GC gets the same pre-filter — closing the
+existing "no protection in entity GC" hole for the automatic path. The
+"structurally incapable" claim then holds by construction: protected
+memories are simply not in the data the automatic flow operates on.
 
-Home: `src/genome/maintenance.ts` (beside discover/apply).
+### Three-way decision semantics
 
-```
-runMemoryMaintenanceIfDue(genome, {
-  client, resolverSettings, modelsByProvider,
-  now?, limit?,            // limit default 4 clusters + 4 groups per run
-  statePath?,              // .cache/memory-maintenance-state.json
-}): Promise<MaintenanceRunResult | { due: false } | { failed: string }>
-```
+- LLM decides MERGE → validated, applied.
+- LLM decides REJECT (a genuine judgment) → persisted rejection: the
+  existing 2-strike (consolidation) / permanent (entity GC) suppression is
+  the system working as designed.
+- DRIVER OR LLM FAILURE (throw, timeout, unparseable) → SKIP: no decision
+  recorded, nothing mutated, the item stays discoverable next run.
 
-1. **Throttle**: state file records `lastCheckedAt`; return `{due:false}`
-   inside 24h (mirrors `compactMemoryLogIfDue`'s weekly pattern — the
-   per-PROJECT 14-active-day cadence stays inside discovery; this global
-   throttle only stops multiple same-day sessions from re-discovering).
-2. **Discover** with the run limit. Empty plan → stamp state, done.
-3. **Protected filter**: any consolidation cluster containing an
-   `isProtectedManualMemory` member is AUTO-REJECTED (recorded in the
-   decision file as a rejection, so cadence still advances). The automatic
-   flow never populates `confirmed_memory_ids` — structurally incapable of
-   touching user memories, same posture as the F2 scoring fix.
-4. **Decide**: one LLM call per cluster (consolidation model, balanced
-   default) and per group (entityGc model, fast default) via the restored
-   requesters. A failed/unparseable decision degrades to REJECT for that
-   item — never aborts the run, never merges by default.
-5. **Apply** via the untouched `applyMemoryMaintenanceDecisions` (atomic,
-   git-committed, cadence-stamped). Validation errors abort the apply
-   atomically (restore envelope) and the run reports `{failed}`.
-6. The whole driver is wrapped so the CALLER (session shutdown) can never
-   be failed by maintenance: outer catch → log warning, return `{failed}`.
+### Normalizer hardening (restored code is modified, not verbatim)
 
-### Trigger
+- Entity GC: absent/empty `aliases` on a merge → REJECT-decision refused →
+  treated as unparseable → SKIP. Canonical `name` must exactly match one of
+  the group's occurrence names (no renames). Alias uuids already validate
+  against the group.
+- Consolidation: `draft.entities` is IGNORED — the merged memory's
+  `entity_links` are always the union of source links (the LLM's job is the
+  text, not entity rewiring). `draft.confidence` is ignored — derived as
+  today's fallback (max source effective importance). Draft text hard-capped
+  (2,000 chars; over-cap → skip). Invalid tags dropped as today.
 
-The post-session hook in `session-agent-factory`, after `recomputeMemoryScores`,
-gated on: setting enabled AND NOT evalMode AND collapse models configured.
-Same placement class as `compactMemoryLogIfDue`. No new scheduler, no
-background process.
+### Model resolution
 
-### Setting
+The driver preflights BOTH models before discovery, implementing the C8
+fallback itself (try `resolveMemoryModel`, catch → `resolveModel("best")`,
+catch → the run is skipped with a logged warning). No decision path can
+throw on settings gaps.
 
-`memoryMaintenance: "manual" | "auto"` in the settings control plane
-(SettingsSnapshot), default `"manual"`. No env var. The CLI gains
-`--genome maintain --auto` running the same driver ignoring the 24h
-throttle — the dogfooding/diagnostic path before anyone flips the default.
+### Prompts
 
-### Cost envelope
+Phase 1 adds a `loadMemoryConsolidationPrompt` loader (the overridable
+prompt file already exists) and WRITES the missing entity-GC system prompt
+(root prompt file + overridable map entry + loader). Genuinely new content.
 
-Worst case per run: 4 balanced calls + 4 fast calls. Runs at most once per
-24h per genome, and only when a project crosses 14 active days since its
-last pass — amortized, a few balanced-tier calls per project per two weeks.
-No A/B, no canaries, no sessions spawned.
+### Lock hygiene (A-F3 pattern)
 
-### Immutability line
+The driver pre-embeds each accepted merged draft OUTSIDE the write lock
+(same throwaway-snapshot pattern as incorporation), and
+`applyConsolidationMerge` gains an optional pre-embedded memory input so
+no network call runs under the lock on the automatic path. The manual flow
+keeps its current behavior (existing exposure, unchanged, noted).
 
-Consolidation/entity GC are memory HYGIENE, joining the existing
-ungated-but-protected lifecycle class (scoring auto-archive, weekly
-compaction) — not behavior evolution, so the frozen adoption chokepoint
-does not apply. Routing each merge through the gate (~100 live sessions
-per decision) was considered and rejected. The safety story is instead:
-protected memories structurally unreachable, reject-by-default on any
-uncertainty, atomic git-committed applies, `git revert` as rollback.
+### Trigger, throttle, ordering
 
-### Observability
+- New sibling step in `collapseMemoryAfterRun`, invoked AFTER
+  `compactMemoryLogIfDue`: newly archived merge-sources then survive in the
+  JSONL until at least the NEXT weekly compaction (~a week of review
+  window) instead of being deletable in the same shutdown. Provenance
+  beyond that window: `consolidates_memory_ids` (survives compaction) and
+  git history (every apply is one commit).
+- Runs only when: setting is `"auto"` AND not evalMode AND collapse models
+  are configured. Child/bus/eval/VCR sessions never reach this hook —
+  enumerated as intended behavior.
+- Throttle: `.cache/memory-maintenance-state.json`; the driver stamps
+  `lastCheckedAt` BEFORE deciding (cost-bounding beats retry eagerness — a
+  failed run waits out the 24h window). Read-check-write race between two
+  same-moment shutdowns is accepted: stamp-first shrinks the window to
+  milliseconds, and the loser's apply aborts atomically on the envelope.
+- Generation cap: memories with source `"memory-consolidation"` are
+  excluded from the clustering input (cap = 1). Merged-of-merged drift
+  doesn't happen; revisit only if hygiene visibly suffers.
+- A run whose applies yield merged=0 across 3 consecutive runs logs a
+  warning naming the streak (silent-failure tripwire).
 
-Each apply is one git commit whose message carries the counts (extend
-`applyMemoryMaintenanceDecisions`' commit message with merged/rejected
-numbers). Driver failures log a warning through the session logger. No new
-event kinds unless dogfooding shows we miss them.
+### Setting, kill switch, observability
+
+- `memoryMaintenance: "manual" | "auto"` in the settings control plane,
+  default `"manual"`. Checked once at run start; a mid-run flip does not
+  abort (runs are seconds).
+- Observability: the apply commit message carries merged/rejected counts;
+  the state file records the last run's counts; failures log warnings via
+  the session logger. No new event kinds until dogfooding demands them.
+
+### Cost envelope (corrected)
+
+Per project: ≤4 consolidation calls (balanced) per 14 active days and ≤4
+entity-GC calls (fast) per 30 active days, gated additionally by the 24h
+global throttle. Skipped items retry next run; genuine rejects don't repay.
+
+## Immutability line
+
+Hygiene ops join the ungated-but-protected lifecycle class (scoring
+auto-archive, weekly compaction). Distinct from those, consolidation
+CREATES content — the specific risks (hallucinated merges, drift,
+provenance loss) are addressed above by strict validation, the generation
+cap, entity/confidence derivation from sources, the compaction-ordering
+review window, and git-revert rollback — not by the A/B gate, whose ~100
+live sessions per decision is disproportionate to content hygiene.
 
 ## Phases (TDD each; loc estimates)
 
-1. **Restore the decision lane** from d02d02e^ + its deleted tests
-   (~250 loc, mechanical; re-point the two WithSettings tests at the
-   restored functions).
-2. **Driver** with throttle/protected-filter/reject-on-failure semantics
-   (~150 src + ~250 test: due/not-due, protected cluster auto-reject,
-   LLM-failure→reject, apply-failure atomicity, state stamping).
-3. **Setting + trigger wiring** (~60 src + tests: auto runs post-session,
-   manual doesn't, evalMode never).
-4. **CLI `--auto`** (~30 loc + test).
+1. **Restore + harden the decision lane** from d02d02e^ (~250 restored, ~80
+   modified: normalizer strictness, entity/confidence derivation) + restore
+   the consolidation prompt loader + write the entity-GC prompt (~60).
+   Tests: restored suites re-pointed + new strictness pins (~300).
+2. **Driver** `runMemoryMaintenanceIfDue`: preflight/fallback, protected +
+   generation pre-filters, three-way semantics, stamp-first throttle,
+   pre-embedding, merged=0 streak warning (~200 src + ~350 test).
+3. **Setting + trigger wiring** in `collapseMemoryAfterRun` after
+   compaction (~60 src + tests incl. ordering + never-in-eval).
+4. **CLI `--auto`**: reuses the cli bootstrap for client/settings/catalog
+   (~80 loc + test — v1's 30-loc estimate ignored mandatory bootstrap).
 
 ## Open questions (Jesse)
 
-1. **Entity GC on protected memories**: alias merges touch entity metadata
-   on memories but never content. Allow on protected memories (aliases keep
-   a full archive trail) or exclude them like consolidation? Spec currently
-   ALLOWS; flipping to exclude is a two-line filter.
-2. **Default**: ship `"manual"` and flip to `"auto"` after dogfooding via
-   CLI `--auto`, or ship `"auto"` directly?
-3. **Throttle**: 24h global + 14-active-day per project acceptable?
+1. Default `"manual"`-then-flip after CLI dogfooding, or ship `"auto"`?
+2. Is the ~1-week compaction review window (order-after-compaction) enough,
+   or do you want an explicit N-day grace period on
+   `removeArchivedOrSuperseded` for consolidation sources?
+3. Cadences as-is (14/30 active days, 24h global, limit 4+4)?
