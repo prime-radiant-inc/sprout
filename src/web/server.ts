@@ -18,7 +18,10 @@ import type {
 import { EVENT_CAP } from "../kernel/constants.ts";
 import type { PricingTable } from "../kernel/pricing.ts";
 import type { SessionEvent } from "../kernel/types.ts";
-import { requiresSessionIdAfterClear } from "../shared/session-event-scope.ts";
+import {
+	requiresSessionIdAfterClear,
+	sessionScopedEventApplies,
+} from "../shared/session-event-scope.ts";
 import type { SessionSelectionRequest } from "../shared/session-selection.ts";
 import type { CommandMessage, ServerMessage } from "./protocol.ts";
 import { parseCommandMessage } from "./protocol.ts";
@@ -53,30 +56,6 @@ export interface WebServerOptions {
 }
 
 type SessionStatus = "idle" | "running" | "interrupted";
-
-function cleanString(value: unknown): string | undefined {
-	return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
-}
-
-function sessionLifecycleApplies(
-	event: SessionEvent,
-	currentSessionId: string | undefined,
-	requireSessionId = false,
-): boolean {
-	const eventSessionId = cleanString(event.data.session_id);
-	if (requireSessionId && !eventSessionId) return false;
-	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
-}
-
-function sessionScopedEventApplies(
-	event: SessionEvent,
-	currentSessionId: string | undefined,
-	requireSessionId = false,
-): boolean {
-	const eventSessionId = cleanString(event.data.session_id);
-	if (requireSessionId && !eventSessionId) return false;
-	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
-}
 
 /**
  * Bun HTTP + WebSocket server that bridges a SessionBus to browser clients.
@@ -510,21 +489,21 @@ export class WebServer {
 		switch (event.kind) {
 			case "session_start":
 				if (event.depth !== 0) break;
-				if (!sessionLifecycleApplies(event, this.sessionId, this.sessionScopedEventsRequireIds)) {
+				if (!sessionScopedEventApplies(event, this.sessionId, this.sessionScopedEventsRequireIds)) {
 					break;
 				}
 				this.status = "running";
 				break;
 			case "session_end":
 				if (event.depth !== 0) break;
-				if (!sessionLifecycleApplies(event, this.sessionId, this.sessionScopedEventsRequireIds)) {
+				if (!sessionScopedEventApplies(event, this.sessionId, this.sessionScopedEventsRequireIds)) {
 					break;
 				}
 				this.status = "idle";
 				break;
 			case "interrupted":
 				if (event.depth !== 0) break;
-				if (!sessionLifecycleApplies(event, this.sessionId, this.sessionScopedEventsRequireIds)) {
+				if (!sessionScopedEventApplies(event, this.sessionId, this.sessionScopedEventsRequireIds)) {
 					break;
 				}
 				this.status = "interrupted";
