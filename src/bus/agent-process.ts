@@ -24,7 +24,7 @@ import { createAgentProcessClient } from "./agent-process-client.ts";
 import { BusClient } from "./client.ts";
 import { BusLearnForwarder } from "./learn-forwarder.ts";
 import { prepareResultOutput } from "./result-gate.ts";
-import { loadCompletedChildHandles, replayHandleLog } from "./resume.ts";
+import { loadCompletedChildHandles, replayHandleLog, sessionLogDir } from "./resume.ts";
 import { AgentSpawner, type SpawnerAuthChannel } from "./spawner.ts";
 import { agentInbox, agentReady, agentResult, sessionEvents } from "./topics.ts";
 import type {
@@ -67,34 +67,6 @@ export interface AgentProcessConfig {
 	logger?: import("../host/logger.ts").Logger;
 }
 
-function composeAbortSignal(...signals: Array<AbortSignal | undefined>): {
-	signal?: AbortSignal;
-	cleanup: () => void;
-} {
-	const activeSignals = signals.filter((sig): sig is AbortSignal => sig !== undefined);
-	if (activeSignals.length === 0) return { cleanup: () => {} };
-	if (activeSignals.length === 1) return { signal: activeSignals[0], cleanup: () => {} };
-
-	const controller = new AbortController();
-	const abort = () => controller.abort();
-	for (const sig of activeSignals) {
-		if (sig.aborted) {
-			controller.abort();
-			break;
-		}
-		sig.addEventListener("abort", abort, { once: true });
-	}
-
-	return {
-		signal: controller.signal,
-		cleanup: () => {
-			for (const sig of activeSignals) {
-				sig.removeEventListener("abort", abort);
-			}
-		},
-	};
-}
-
 function monitorParentProcess(
 	parentPid: number | undefined,
 	controller: AbortController,
@@ -120,8 +92,9 @@ function parseParentPid(raw: string | undefined): number | undefined {
 export async function runAgentProcess(config: AgentProcessConfig): Promise<void> {
 	const { busUrl, handleId, sessionId, genomePath, client, workDir, signal } = config;
 	const lifecycleController = new AbortController();
-	const combined = composeAbortSignal(signal, lifecycleController.signal);
-	const runSignal = combined.signal;
+	const runSignal = signal
+		? AbortSignal.any([signal, lifecycleController.signal])
+		: lifecycleController.signal;
 	const stopParentMonitor = monitorParentProcess(config.parentPid, lifecycleController);
 
 	// Connect to bus
@@ -235,7 +208,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		const genomePostscripts = await runtimeGenome.loadPostscripts();
 		const dataDir = config.projectDataDir ?? genomePath;
 		await ensureProjectDirs(dataDir);
-		const logBasePath = join(dataDir, "logs", sessionId, handleId);
+		const logBasePath = join(sessionLogDir(dataDir, sessionId), handleId);
 
 		// Check for a prior log — if this handle ran before, replay its history
 		const priorLogPath = `${logBasePath}.jsonl`;
@@ -243,7 +216,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		const currentAgentDepth = startMsg.self.depth;
 		const resumedCompletedHandles = await loadCompletedChildHandles({
 			logPath: priorLogPath,
-			handleLogDir: join(dataDir, "logs", sessionId),
+			handleLogDir: sessionLogDir(dataDir, sessionId),
 			ownerId: startMsg.self.agentName,
 		});
 
@@ -460,7 +433,6 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 	} finally {
 		stopBusDisconnectAbort();
 		stopParentMonitor();
-		combined.cleanup();
 		await childSpawner?.shutdown();
 		livenessReporter?.stop();
 		await authClient?.disconnect();
@@ -723,7 +695,7 @@ export async function runAgentProcessFromEnvironment(
 	process.on("SIGINT", () => controller.abort());
 
 	const dataDir = projectDataDir ?? genomePath;
-	const logPath = join(dataDir, "logs", sessionId, handleId, "session.log.jsonl");
+	const logPath = join(sessionLogDir(dataDir, sessionId), handleId, "session.log.jsonl");
 	const logger = new SessionLogger({ logPath, component: "agent-process", sessionId });
 
 	try {

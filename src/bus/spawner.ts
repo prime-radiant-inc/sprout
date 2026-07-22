@@ -12,7 +12,7 @@ import { buildInternalSproutCommand } from "../util/self-command.ts";
 import { ulid } from "../util/ulid.ts";
 import type { BusClient } from "./client.ts";
 import { prepareResultOutput } from "./result-gate.ts";
-import { readHandleResult, replayHandleLog } from "./resume.ts";
+import { readHandleResult, replayHandleLog, sessionLogDir } from "./resume.ts";
 import { agentInbox, agentMessageAck, agentReady, agentResult, sessionEvents } from "./topics.ts";
 import type {
 	AgentAddress,
@@ -430,7 +430,7 @@ export class AgentSpawner {
 		if (handle.resultRecoveryLogOffset == null) {
 			return null;
 		}
-		const handleLogDir = join(handle.projectDataDir ?? handle.genomePath, "logs", this.sessionId);
+		const handleLogDir = sessionLogDir(handle.projectDataDir ?? handle.genomePath, this.sessionId);
 		return readHandleResult(handleLogDir, handle.handleId, {
 			afterByteOffset: handle.resultRecoveryLogOffset,
 		});
@@ -440,7 +440,7 @@ export class AgentSpawner {
 		dataDir: string,
 		handleId: string,
 	): Promise<number | null> {
-		const logPath = join(dataDir, "logs", this.sessionId, `${handleId}.jsonl`);
+		const logPath = join(sessionLogDir(dataDir, this.sessionId), `${handleId}.jsonl`);
 		try {
 			return (await stat(logPath)).size;
 		} catch (error) {
@@ -573,15 +573,24 @@ export class AgentSpawner {
 	 * and kill any running processes. Called on session reset (/clear).
 	 */
 	async clearHandles(): Promise<void> {
+		await this.stopAllHandles("Session cleared");
+		this.handles.clear();
+	}
+
+	/**
+	 * Tear down every tracked handle: reject pending waiters (so they don't
+	 * hang for the timeout duration), SIGTERM live processes (SIGKILL after a
+	 * grace period), and unsubscribe from result topics.
+	 */
+	private async stopAllHandles(reason: string): Promise<void> {
 		const processesToStop: Array<{
 			process: AgentHandle["process"];
 			exited: Promise<number>;
 		}> = [];
 		for (const handle of this.handles.values()) {
-			// Reject pending waiters so they don't hang for the timeout duration
 			for (const waiter of handle.pendingWaiters) {
 				if (waiter.timer) clearTimeout(waiter.timer);
-				waiter.reject(new Error("Session cleared"));
+				waiter.reject(new Error(reason));
 			}
 			handle.pendingWaiters = [];
 
@@ -594,7 +603,6 @@ export class AgentSpawner {
 			}
 		}
 		await forceKillAfterGrace(processesToStop, PROCESS_SHUTDOWN_GRACE_MS);
-		this.handles.clear();
 	}
 
 	private async subscribeToSessionTopic(): Promise<void> {
@@ -737,6 +745,145 @@ export class AgentSpawner {
 	}
 
 	/**
+	 * The AgentHandle shape shared by every registration path (subprocess
+	 * spawn, featherweight, resume). Callers spread the result and override
+	 * what their path knows better (process, status, result, featherweight,
+	 * resultRecoveryLogOffset).
+	 */
+	private buildHandle(
+		spawn: Pick<
+			SpawnAgentOptions,
+			| "agentName"
+			| "genomePath"
+			| "caller"
+			| "workDir"
+			| "rootDir"
+			| "projectDataDir"
+			| "mnemonicName"
+			| "evalMode"
+			| "allowExec"
+			| "dataPlaneEnabled"
+			| "model"
+			| "providerIdOverride"
+			| "resolverSettings"
+			| "trustedUserInstruction"
+			| "surfacedMemoryBlock"
+		>,
+		identity: {
+			handleId: string;
+			agentId: string;
+			self: AgentAddress;
+			visibility: HandleVisibility;
+			keepAlive: boolean;
+			isObserver: boolean;
+		},
+	): AgentHandle {
+		return {
+			handleId: identity.handleId,
+			agentId: identity.agentId,
+			address: identity.self,
+			process: { kill: () => {}, exited: Promise.resolve(0) },
+			status: "running",
+			keepAlive: identity.keepAlive,
+			visibility: identity.visibility,
+			isObserver: identity.isObserver,
+			pendingWaiters: [],
+			owner: spawn.caller,
+			agentName: spawn.agentName,
+			genomePath: spawn.genomePath,
+			caller: spawn.caller,
+			workDir: spawn.workDir,
+			rootDir: spawn.rootDir,
+			projectDataDir: spawn.projectDataDir,
+			mnemonicName: spawn.mnemonicName,
+			evalMode: spawn.evalMode,
+			allowExec: spawn.allowExec,
+			dataPlaneEnabled: spawn.dataPlaneEnabled,
+			model: spawn.model,
+			providerIdOverride: spawn.providerIdOverride,
+			resolverSettings: spawn.resolverSettings,
+			trustedUserInstruction: spawn.trustedUserInstruction,
+			surfacedMemoryBlock: spawn.surfacedMemoryBlock,
+		};
+	}
+
+	/**
+	 * Env for a handle's subprocess launch, including the freshly minted
+	 * per-handle credentials from registerHandleForLaunch.
+	 */
+	private async buildLaunchEnv(handle: AgentHandle): Promise<Record<string, string>> {
+		return {
+			SPROUT_BUS_URL: this.busUrl,
+			SPROUT_HANDLE_ID: handle.handleId,
+			SPROUT_SESSION_ID: this.sessionId,
+			SPROUT_GENOME_PATH: handle.genomePath,
+			SPROUT_WORK_DIR: handle.workDir,
+			SPROUT_PARENT_PID: String(process.pid),
+			...(handle.rootDir ? { SPROUT_ROOT_DIR: handle.rootDir } : {}),
+			...(handle.projectDataDir ? { SPROUT_PROJECT_DATA_DIR: handle.projectDataDir } : {}),
+			...(await this.registerHandleForLaunch({
+				handleId: handle.handleId,
+				ownerId: handle.owner.handleId,
+				depth: handle.address.depth,
+				isObserver: handle.isObserver,
+			})),
+		};
+	}
+
+	/**
+	 * Launch (or relaunch) a handle's subprocess and run the shared post-spawn
+	 * sequence: track the process, watch its exit, subscribe to results, wait
+	 * for ready, and publish the StartMessage built from the handle's fields.
+	 */
+	private async launchHandleProcess(
+		handle: AgentHandle,
+		env: Record<string, string>,
+		start: {
+			goal: string;
+			hints?: string[];
+			payload?: Record<string, unknown>;
+			wireEnv?: Record<string, string>;
+		},
+	): Promise<void> {
+		const proc = this.spawnFn(handle.handleId, env);
+		handle.process = proc;
+		handle.result = undefined;
+		handle.status = "running";
+		this.handles.set(handle.handleId, handle);
+		this.monitorProcessExit(handle.handleId, proc);
+
+		// Subscribe to result topic to track status
+		await this.subscribeToResultTopic(handle);
+
+		// Wait for the agent process to signal it's ready (subscribed to inbox)
+		await this.waitForReadyOrExit(handle.handleId, proc);
+
+		// Publish start message to the agent's inbox
+		const startMsg: StartMessage = {
+			kind: "start",
+			handle_id: handle.handleId,
+			genome_path: handle.genomePath,
+			session_id: this.sessionId,
+			self: handle.address,
+			caller: handle.caller,
+			goal: start.goal,
+			hints: start.hints,
+			payload: start.payload,
+			shared: handle.keepAlive,
+			eval_mode: handle.evalMode,
+			allow_exec: handle.allowExec,
+			data_plane_enabled: handle.dataPlaneEnabled,
+			model: handle.model,
+			provider_id: handle.providerIdOverride,
+			resolver_settings: handle.resolverSettings,
+			trusted_user_instruction: handle.trustedUserInstruction,
+			surfaced_memory_block: handle.surfacedMemoryBlock,
+			env: start.wireEnv,
+		};
+		await this.bus.publish(agentInbox(this.sessionId, handle.handleId), JSON.stringify(startMsg));
+	}
+
+	/**
 	 * Spawn a new agent process.
 	 *
 	 * If blocking: waits for the agent to produce a result and returns it.
@@ -762,96 +909,31 @@ export class AgentSpawner {
 			return this.spawnFeatherweight(opts, handleId, agentId, self, visibility, keepAlive);
 		}
 
-		const env: Record<string, string> = {
-			SPROUT_BUS_URL: this.busUrl,
-			SPROUT_HANDLE_ID: handleId,
-			SPROUT_SESSION_ID: this.sessionId,
-			SPROUT_GENOME_PATH: opts.genomePath,
-			SPROUT_WORK_DIR: opts.workDir,
-			SPROUT_PARENT_PID: String(process.pid),
-			...(opts.rootDir ? { SPROUT_ROOT_DIR: opts.rootDir } : {}),
-			...(opts.projectDataDir ? { SPROUT_PROJECT_DATA_DIR: opts.projectDataDir } : {}),
-			...(await this.registerHandleForLaunch({
-				handleId,
-				ownerId: opts.caller.handleId,
-				depth: self.depth,
-				isObserver: opts.isObserver === true,
-			})),
-		};
+		const handle = this.buildHandle(opts, {
+			handleId,
+			agentId,
+			self,
+			visibility,
+			keepAlive,
+			isObserver: opts.isObserver === true,
+		});
+		const env = await this.buildLaunchEnv(handle);
 
 		// Grants register before launch so the child's claims find them pending;
 		// a rejection aborts the spawn before any process exists.
 		const wireEnv = (await this.registerEnvGrants(handleId, opts.env))?.wire;
 
-		const resultRecoveryLogOffset = await this.captureResultRecoveryLogOffset(
+		handle.resultRecoveryLogOffset = await this.captureResultRecoveryLogOffset(
 			opts.projectDataDir ?? opts.genomePath,
 			handleId,
 		);
 
-		// Spawn the process
-		const proc = this.spawnFn(handleId, env);
-
-		const handle: AgentHandle = {
-			handleId,
-			agentId,
-			address: self,
-			process: proc,
-			status: "running",
-			keepAlive,
-			visibility,
-			isObserver: opts.isObserver === true,
-			pendingWaiters: [],
-			owner: opts.caller,
-			agentName: opts.agentName,
-			genomePath: opts.genomePath,
-			caller: opts.caller,
-			workDir: opts.workDir,
-			rootDir: opts.rootDir,
-			projectDataDir: opts.projectDataDir,
-			mnemonicName: opts.mnemonicName,
-			evalMode: opts.evalMode,
-			allowExec: opts.allowExec,
-			dataPlaneEnabled: opts.dataPlaneEnabled,
-			model: opts.model,
-			providerIdOverride: opts.providerIdOverride,
-			resolverSettings: opts.resolverSettings,
-			trustedUserInstruction: opts.trustedUserInstruction,
-			surfacedMemoryBlock: opts.surfacedMemoryBlock,
-			resultRecoveryLogOffset,
-		};
-		this.handles.set(handleId, handle);
-		this.monitorProcessExit(handleId, proc);
-
-		// Subscribe to result topic to track status
-		await this.subscribeToResultTopic(handle);
-
-		// Wait for the agent process to signal it's ready (subscribed to inbox)
-		await this.waitForReadyOrExit(handleId, proc);
-
-		// Publish start message to the agent's inbox
-		const inboxTopic = agentInbox(this.sessionId, handleId);
-		const startMsg: StartMessage = {
-			kind: "start",
-			handle_id: handleId,
-			genome_path: opts.genomePath,
-			session_id: this.sessionId,
-			self,
-			caller: opts.caller,
+		await this.launchHandleProcess(handle, env, {
 			goal: opts.goal,
 			hints: opts.hints,
 			payload: opts.payload,
-			shared: keepAlive,
-			eval_mode: opts.evalMode,
-			allow_exec: opts.allowExec,
-			data_plane_enabled: opts.dataPlaneEnabled,
-			model: opts.model,
-			provider_id: opts.providerIdOverride,
-			resolver_settings: opts.resolverSettings,
-			trusted_user_instruction: opts.trustedUserInstruction,
-			surfaced_memory_block: opts.surfacedMemoryBlock,
-			env: wireEnv,
-		};
-		await this.bus.publish(inboxTopic, JSON.stringify(startMsg));
+			wireEnv,
+		});
 
 		if (opts.blocking) {
 			return this.waitForBlockingSpawn(handleId);
@@ -875,31 +957,14 @@ export class AgentSpawner {
 		keepAlive: boolean,
 	): Promise<ResultMessage | string> {
 		const handle: AgentHandle = {
-			handleId,
-			agentId,
-			address: self,
-			process: { kill: () => {}, exited: Promise.resolve(0) },
-			status: "running",
-			keepAlive,
-			visibility,
-			isObserver: false,
-			pendingWaiters: [],
-			owner: opts.caller,
-			agentName: opts.agentName,
-			genomePath: opts.genomePath,
-			caller: opts.caller,
-			workDir: opts.workDir,
-			rootDir: opts.rootDir,
-			projectDataDir: opts.projectDataDir,
-			mnemonicName: opts.mnemonicName,
-			evalMode: opts.evalMode,
-			allowExec: opts.allowExec,
-			dataPlaneEnabled: opts.dataPlaneEnabled,
-			model: opts.model,
-			providerIdOverride: opts.providerIdOverride,
-			resolverSettings: opts.resolverSettings,
-			trustedUserInstruction: opts.trustedUserInstruction,
-			surfacedMemoryBlock: opts.surfacedMemoryBlock,
+			...this.buildHandle(opts, {
+				handleId,
+				agentId,
+				self,
+				visibility,
+				keepAlive,
+				isObserver: false,
+			}),
 			featherweight: true,
 		};
 		this.handles.set(handleId, handle);
@@ -933,7 +998,7 @@ export class AgentSpawner {
 	 */
 	private async runFeatherweight(handle: AgentHandle, goal: string): Promise<ResultMessage> {
 		const dataDir = handle.projectDataDir ?? handle.genomePath;
-		const handleLogDir = join(dataDir, "logs", this.sessionId);
+		const handleLogDir = sessionLogDir(dataDir, this.sessionId);
 		const logPath = join(handleLogDir, `${handle.handleId}.jsonl`);
 		const priorHistory = await replayHandleLog(logPath);
 
@@ -1231,58 +1296,13 @@ export class AgentSpawner {
 		// The agent process auto-resumes from its prior event log.
 		// Grants register before the fresh StartMessage carries them.
 		const respawnWireEnv = (await this.registerEnvGrants(handleId, envGrants))?.wire;
-		const resultRecoveryLogOffset = await this.captureResultRecoveryLogOffset(
+		handle.resultRecoveryLogOffset = await this.captureResultRecoveryLogOffset(
 			handle.projectDataDir ?? handle.genomePath,
 			handleId,
 		);
-		const env: Record<string, string> = {
-			SPROUT_BUS_URL: this.busUrl,
-			SPROUT_HANDLE_ID: handleId,
-			SPROUT_SESSION_ID: this.sessionId,
-			SPROUT_GENOME_PATH: handle.genomePath,
-			SPROUT_WORK_DIR: handle.workDir,
-			SPROUT_PARENT_PID: String(process.pid),
-			...(handle.rootDir ? { SPROUT_ROOT_DIR: handle.rootDir } : {}),
-			...(handle.projectDataDir ? { SPROUT_PROJECT_DATA_DIR: handle.projectDataDir } : {}),
-			// Tokens are never journaled, so a re-spawn mints and registers anew.
-			...(await this.registerHandleForLaunch({
-				handleId,
-				ownerId: handle.owner.handleId,
-				depth: handle.address.depth,
-				isObserver: handle.isObserver,
-			})),
-		};
-
-		const proc = this.spawnFn(handleId, env);
-		handle.process = proc;
-		handle.result = undefined;
-		handle.status = "running";
-		handle.resultRecoveryLogOffset = resultRecoveryLogOffset;
-		this.monitorProcessExit(handleId, proc);
-		await this.subscribeToResultTopic(handle);
-
-		await this.waitForReadyOrExit(handleId, proc);
-
-		const startMsg: StartMessage = {
-			kind: "start",
-			handle_id: handleId,
-			genome_path: handle.genomePath,
-			session_id: this.sessionId,
-			self: handle.address,
-			caller: handle.caller,
-			goal: message,
-			shared: handle.keepAlive,
-			eval_mode: handle.evalMode,
-			allow_exec: handle.allowExec,
-			data_plane_enabled: handle.dataPlaneEnabled,
-			model: handle.model,
-			provider_id: handle.providerIdOverride,
-			resolver_settings: handle.resolverSettings,
-			trusted_user_instruction: handle.trustedUserInstruction,
-			surfaced_memory_block: handle.surfacedMemoryBlock,
-			env: respawnWireEnv,
-		};
-		await this.bus.publish(inboxTopic, JSON.stringify(startMsg));
+		// Tokens are never journaled, so a re-spawn mints and registers anew.
+		const env = await this.buildLaunchEnv(handle);
+		await this.launchHandleProcess(handle, env, { goal: message, wireEnv: respawnWireEnv });
 
 		if (blocking) {
 			return this.waitAgent(handleId);
@@ -1394,49 +1414,47 @@ export class AgentSpawner {
 		// live handle with stale completed data.
 		if (this.handles.has(handleId)) return;
 
+		const agentId = spawnInfo?.agentId ?? handleId;
+		const caller: AgentAddress = spawnInfo?.caller ?? {
+			agentName: ownerId,
+			depth: 0,
+			handleId: ownerId,
+			agentId: ownerId,
+		};
 		const handle: AgentHandle = {
-			handleId,
-			agentId: spawnInfo?.agentId ?? handleId,
-			address: {
-				agentName: spawnInfo?.agentName ?? "",
-				depth: (spawnInfo?.caller.depth ?? 0) + 1,
-				handleId,
-				agentId: spawnInfo?.agentId ?? handleId,
-			},
-			process: { kill: () => {}, exited: Promise.resolve(0) },
+			...this.buildHandle(
+				{
+					agentName: spawnInfo?.agentName ?? "",
+					genomePath: spawnInfo?.genomePath ?? "",
+					caller,
+					workDir: spawnInfo?.workDir ?? "",
+					rootDir: spawnInfo?.rootDir,
+					projectDataDir: spawnInfo?.projectDataDir,
+					evalMode: spawnInfo?.evalMode,
+					allowExec: spawnInfo?.allowExec,
+					dataPlaneEnabled: spawnInfo?.dataPlaneEnabled,
+					model: spawnInfo?.model,
+					providerIdOverride: spawnInfo?.providerIdOverride,
+					resolverSettings: spawnInfo?.resolverSettings,
+					trustedUserInstruction: spawnInfo?.trustedUserInstruction,
+					surfacedMemoryBlock: spawnInfo?.surfacedMemoryBlock,
+				},
+				{
+					handleId,
+					agentId,
+					self: {
+						agentName: spawnInfo?.agentName ?? "",
+						depth: (spawnInfo?.caller.depth ?? 0) + 1,
+						handleId,
+						agentId,
+					},
+					visibility: "private",
+					keepAlive: false,
+					isObserver: false,
+				},
+			),
 			status: "completed",
 			result,
-			keepAlive: false,
-			visibility: "private",
-			isObserver: false,
-			pendingWaiters: [],
-			owner: spawnInfo?.caller ?? {
-				agentName: ownerId,
-				depth: 0,
-				handleId: ownerId,
-				agentId: ownerId,
-			},
-			agentName: spawnInfo?.agentName ?? "",
-			genomePath: spawnInfo?.genomePath ?? "",
-			caller:
-				spawnInfo?.caller ??
-				({
-					agentName: ownerId,
-					depth: 0,
-					handleId: ownerId,
-					agentId: ownerId,
-				} satisfies AgentAddress),
-			workDir: spawnInfo?.workDir ?? "",
-			rootDir: spawnInfo?.rootDir,
-			projectDataDir: spawnInfo?.projectDataDir,
-			evalMode: spawnInfo?.evalMode,
-			allowExec: spawnInfo?.allowExec,
-			dataPlaneEnabled: spawnInfo?.dataPlaneEnabled,
-			model: spawnInfo?.model,
-			providerIdOverride: spawnInfo?.providerIdOverride,
-			resolverSettings: spawnInfo?.resolverSettings,
-			trustedUserInstruction: spawnInfo?.trustedUserInstruction,
-			surfacedMemoryBlock: spawnInfo?.surfacedMemoryBlock,
 			featherweight: spawnInfo?.featherweight,
 		};
 		this.handles.set(handleId, handle);
@@ -1454,26 +1472,7 @@ export class AgentSpawner {
 
 	/** Kill all running agent processes and clean up bus subscriptions. */
 	async shutdown(): Promise<void> {
-		const processesToStop: Array<{
-			process: AgentHandle["process"];
-			exited: Promise<number>;
-		}> = [];
-		for (const handle of this.handles.values()) {
-			for (const waiter of handle.pendingWaiters) {
-				if (waiter.timer) clearTimeout(waiter.timer);
-				waiter.reject(new Error("Spawner shutting down"));
-			}
-			handle.pendingWaiters = [];
-
-			if (handle.status === "running" || handle.status === "idle") {
-				handle.process.kill("SIGTERM");
-				processesToStop.push({ process: handle.process, exited: handle.process.exited });
-			}
-			if (handle.resultTopic && this.bus.connected) {
-				this.bus.unsubscribe(handle.resultTopic).catch(() => {});
-			}
-		}
-		await forceKillAfterGrace(processesToStop, PROCESS_SHUTDOWN_GRACE_MS);
+		await this.stopAllHandles("Spawner shutting down");
 		if (this.currentSessionEventsTopic && this.bus.connected) {
 			this.bus.unsubscribe(this.currentSessionEventsTopic).catch(() => {});
 		}

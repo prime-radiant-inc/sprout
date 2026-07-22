@@ -5,6 +5,11 @@ import type { SessionEvent } from "../kernel/types.ts";
 import type { Message } from "../llm/types.ts";
 import type { ResultMessage } from "./types.ts";
 
+/** Per-session handle-log directory: <dataDir>/logs/<sessionId>. */
+export function sessionLogDir(dataDir: string, sessionId: string): string {
+	return join(dataDir, "logs", sessionId);
+}
+
 /** Info about a child agent spawned via the bus */
 export interface ChildHandleInfo {
 	handleId: string;

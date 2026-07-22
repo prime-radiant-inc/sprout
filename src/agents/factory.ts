@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { sessionLogDir } from "../bus/resume.ts";
 import type { AgentSpawner } from "../bus/spawner.ts";
 import { rootAgentAddress } from "../bus/types.ts";
 import { DEV_MODE_POSTSCRIPT, DEV_MODE_SENTINEL, isDevMode } from "../genome/dev-mode.ts";
@@ -260,7 +261,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 				resolverSettings: options.resolverSettings,
 			});
 
-	const logBasePath = join(dataDir, "logs", sessionId);
+	const logBasePath = sessionLogDir(dataDir, sessionId);
 	const rootAddress = rootAgentAddress(rootSpec.name);
 
 	// Scan the agent tree for path-based delegation resolution

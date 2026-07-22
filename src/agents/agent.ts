@@ -2237,33 +2237,43 @@ export class Agent {
 		const targetMnemonicName = handle?.mnemonicName;
 		const targetAgentName = handle?.agentName;
 
+		// Target identity carried on every act_end for this command.
+		const targetFields = {
+			child_id: childAgentId,
+			...(targetMnemonicName ? { mnemonic_name: targetMnemonicName } : {}),
+			...(targetAgentName ? { target_agent_name: targetAgentName } : {}),
+		};
+		// A blocking wait/message resolved with the target's result: render it
+		// (manifest lines included) and emit the act_end.
+		const settleResult = async (result: ResultMessage) => {
+			const manifest = await fetchManifestLines(
+				this.spawner?.storeAccess,
+				this.manifestRenames,
+				cmd.handle,
+			);
+			const content = renderDelegationResult(
+				result.output,
+				cmd.kind,
+				manifest,
+				result.recovered === true,
+			);
+			const toolResultMsg = Msg.toolResult(cmd.call_id, content);
+			this.emitAndLog("act_end", agentId, this.depth, {
+				agent_name: cmd.kind,
+				success: result.success,
+				...targetFields,
+				tool_result_message: toolResultMsg,
+			});
+			return { toolResultMsg, stumbles: result.success ? 0 : 1, output: result.output };
+		};
+
 		try {
 			if (cmd.kind === "wait_agent") {
 				// A blocking wait on another agent; suspend the inactivity timer.
 				const result = await this.withInactivitySuspendedFor(cmd.handle, () =>
 					spawner.waitAgent(cmd.handle, caller),
 				);
-				const manifest = await fetchManifestLines(
-					this.spawner?.storeAccess,
-					this.manifestRenames,
-					cmd.handle,
-				);
-				const content = renderDelegationResult(
-					result.output,
-					"wait_agent",
-					manifest,
-					result.recovered === true,
-				);
-				const toolResultMsg = Msg.toolResult(cmd.call_id, content);
-				this.emitAndLog("act_end", agentId, this.depth, {
-					agent_name: cmd.kind,
-					success: result.success,
-					child_id: childAgentId,
-					...(targetMnemonicName ? { mnemonic_name: targetMnemonicName } : {}),
-					...(targetAgentName ? { target_agent_name: targetAgentName } : {}),
-					tool_result_message: toolResultMsg,
-				});
-				return { toolResultMsg, stumbles: result.success ? 0 : 1, output: result.output };
+				return await settleResult(result);
 			}
 
 			// message_agent
@@ -2284,35 +2294,13 @@ export class Agent {
 				this.emitAndLog("act_end", agentId, this.depth, {
 					agent_name: cmd.kind,
 					success: true,
-					child_id: childAgentId,
-					...(targetMnemonicName ? { mnemonic_name: targetMnemonicName } : {}),
-					...(targetAgentName ? { target_agent_name: targetAgentName } : {}),
+					...targetFields,
 					tool_result_message: toolResultMsg,
 				});
 				return { toolResultMsg, stumbles: 0 };
 			}
 
-			const manifest = await fetchManifestLines(
-				this.spawner?.storeAccess,
-				this.manifestRenames,
-				cmd.handle,
-			);
-			const content = renderDelegationResult(
-				result.output,
-				"message_agent",
-				manifest,
-				result.recovered === true,
-			);
-			const toolResultMsg = Msg.toolResult(cmd.call_id, content);
-			this.emitAndLog("act_end", agentId, this.depth, {
-				agent_name: cmd.kind,
-				success: result.success,
-				child_id: childAgentId,
-				...(targetMnemonicName ? { mnemonic_name: targetMnemonicName } : {}),
-				...(targetAgentName ? { target_agent_name: targetAgentName } : {}),
-				tool_result_message: toolResultMsg,
-			});
-			return { toolResultMsg, stumbles: result.success ? 0 : 1, output: result.output };
+			return await settleResult(result);
 		} catch (err) {
 			const errorMsg = `${cmd.kind} failed: ${String(err)}`;
 			const toolResultMsg = Msg.toolResult(cmd.call_id, `Error: ${errorMsg}`, true);
@@ -2320,9 +2308,7 @@ export class Agent {
 				agent_name: cmd.kind,
 				success: false,
 				error: errorMsg,
-				child_id: childAgentId,
-				...(targetMnemonicName ? { mnemonic_name: targetMnemonicName } : {}),
-				...(targetAgentName ? { target_agent_name: targetAgentName } : {}),
+				...targetFields,
 				tool_result_message: toolResultMsg,
 			});
 			return { toolResultMsg, stumbles: 1 };
@@ -2670,15 +2656,31 @@ export class Agent {
 		// agent whose surface is "exactly cell" could still delegate or message
 		// with one hallucinated or injected tool call.
 		const allowedDispatchNames = new Set(this.resolvedTools().map((tool) => tool.name));
-		const surfaceDenial = (callId: string, toolName: string, agentName: string) => {
-			const errorMsg =
-				`Tool '${toolName}' is not in this agent's granted tool surface ` +
-				`(granted: ${[...allowedDispatchNames].join(", ") || "none"}).`;
+		const surfaceErrorMsg = (toolName: string) =>
+			`Tool '${toolName}' is not in this agent's granted tool surface ` +
+			`(granted: ${[...allowedDispatchNames].join(", ") || "none"}).`;
+		// Refuse a delegation/agent-command call: error tool result + act_end.
+		const denyCommand = (callId: string, agentName: string, errorMsg: string) => {
 			const toolResultMsg = Msg.toolResult(callId, `Error: ${errorMsg}`, true);
 			resultByCallId.set(callId, toolResultMsg);
 			this.emitAndLog("act_end", agentId, this.depth, {
 				agent_name: agentName,
 				success: false,
+				error: errorMsg,
+				tool_result_message: toolResultMsg,
+			});
+			stumbles++;
+		};
+		// Refuse a primitive call: error tool result + primitive_end.
+		const denyPrimitive = (call: ToolCall, displayName: string, errorMsg: string) => {
+			const toolResultMsg = Msg.toolResult(call.id, `Error: ${errorMsg}`, true);
+			resultByCallId.set(call.id, toolResultMsg);
+			this.emitAndLog("primitive_end", agentId, this.depth, {
+				name: call.name,
+				display_name: displayName,
+				success: false,
+				stumbled: true,
+				output: "",
 				error: errorMsg,
 				tool_result_message: toolResultMsg,
 			});
@@ -2723,7 +2725,7 @@ export class Agent {
 
 		const delegationPromises = delegations.map((delegation) => {
 			if (!allowedDispatchNames.has(DELEGATE_TOOL_NAME)) {
-				surfaceDenial(delegation.call_id, DELEGATE_TOOL_NAME, delegation.agent_name);
+				denyCommand(delegation.call_id, delegation.agent_name, surfaceErrorMsg(DELEGATE_TOOL_NAME));
 				return Promise.resolve();
 			}
 			return executeDelegationFn(delegation).then((dr) => {
@@ -2737,22 +2739,17 @@ export class Agent {
 		// Handle agent commands (wait_agent, message_agent)
 		for (const cmd of agentCommands) {
 			if (!allowedDispatchNames.has(cmd.kind)) {
-				surfaceDenial(cmd.call_id, cmd.kind, cmd.kind);
+				denyCommand(cmd.call_id, cmd.kind, surfaceErrorMsg(cmd.kind));
 				continue;
 			}
 			// Flag-off (spec §6): env grants on message_agent are a data-plane
 			// field — reject loudly naming the flag.
 			if (!this.dataPlaneEnabled && cmd.kind === "message_agent" && cmd.env !== undefined) {
-				const errorMsg = this.dataPlaneDisabledError("env grants on message_agent");
-				const toolResultMsg = Msg.toolResult(cmd.call_id, `Error: ${errorMsg}`, true);
-				resultByCallId.set(cmd.call_id, toolResultMsg);
-				this.emitAndLog("act_end", agentId, this.depth, {
-					agent_name: cmd.kind,
-					success: false,
-					error: errorMsg,
-					tool_result_message: toolResultMsg,
-				});
-				stumbles++;
+				denyCommand(
+					cmd.call_id,
+					cmd.kind,
+					this.dataPlaneDisabledError("env grants on message_agent"),
+				);
 				continue;
 			}
 			const result = await this.executeAgentCommand(cmd, agentId);
@@ -2788,21 +2785,7 @@ export class Agent {
 			// exec_command, so this is the line between "granted script tool" and
 			// "silent shell escape".
 			if (!allowedDispatchNames.has(call.name)) {
-				const errorMsg =
-					`Tool '${call.name}' is not in this agent's granted tool surface ` +
-					`(granted: ${[...allowedDispatchNames].join(", ") || "none"}).`;
-				const toolResultMsg = Msg.toolResult(call.id, `Error: ${errorMsg}`, true);
-				resultByCallId.set(call.id, toolResultMsg);
-				this.emitAndLog("primitive_end", agentId, this.depth, {
-					name: call.name,
-					display_name: displayName,
-					success: false,
-					stumbled: true,
-					output: "",
-					error: errorMsg,
-					tool_result_message: toolResultMsg,
-				});
-				stumbles++;
+				denyPrimitive(call, displayName, surfaceErrorMsg(call.name));
 				continue;
 			}
 
@@ -2813,19 +2796,7 @@ export class Agent {
 				const dataPlaneField =
 					"bind" in call.arguments ? "bind:" : "publish" in call.arguments ? "publish:" : undefined;
 				if (dataPlaneField) {
-					const errorMsg = this.dataPlaneDisabledError(dataPlaneField);
-					const toolResultMsg = Msg.toolResult(call.id, `Error: ${errorMsg}`, true);
-					resultByCallId.set(call.id, toolResultMsg);
-					this.emitAndLog("primitive_end", agentId, this.depth, {
-						name: call.name,
-						display_name: displayName,
-						success: false,
-						stumbled: true,
-						output: "",
-						error: errorMsg,
-						tool_result_message: toolResultMsg,
-					});
-					stumbles++;
+					denyPrimitive(call, displayName, this.dataPlaneDisabledError(dataPlaneField));
 					continue;
 				}
 			}
@@ -2838,19 +2809,7 @@ export class Agent {
 				this.env.working_directory(),
 			);
 			if (pathDenied) {
-				const content = `Error: ${pathDenied}`;
-				const toolResultMsg = Msg.toolResult(call.id, content, true);
-				resultByCallId.set(call.id, toolResultMsg);
-				this.emitAndLog("primitive_end", agentId, this.depth, {
-					name: call.name,
-					display_name: displayName,
-					success: false,
-					stumbled: true,
-					output: "",
-					error: pathDenied,
-					tool_result_message: toolResultMsg,
-				});
-				stumbles++;
+				denyPrimitive(call, displayName, pathDenied);
 				continue;
 			}
 
@@ -2859,19 +2818,7 @@ export class Agent {
 			// arguments (belt-and-braces, frozen rule) before execution.
 			const spliced = await this.spliceCallArguments(call.name, call.arguments);
 			if (!spliced.ok) {
-				const content = `Error: ${spliced.error}`;
-				const toolResultMsg = Msg.toolResult(call.id, content, true);
-				resultByCallId.set(call.id, toolResultMsg);
-				this.emitAndLog("primitive_end", agentId, this.depth, {
-					name: call.name,
-					display_name: displayName,
-					success: false,
-					stumbled: true,
-					output: "",
-					error: spliced.error,
-					tool_result_message: toolResultMsg,
-				});
-				stumbles++;
+				denyPrimitive(call, displayName, spliced.error);
 				continue;
 			}
 			if (spliced.splicedNames.length > 0) {
@@ -2882,19 +2829,7 @@ export class Agent {
 					this.env.working_directory(),
 				);
 				if (resolvedDenied) {
-					const content = `Error: ${resolvedDenied}`;
-					const toolResultMsg = Msg.toolResult(call.id, content, true);
-					resultByCallId.set(call.id, toolResultMsg);
-					this.emitAndLog("primitive_end", agentId, this.depth, {
-						name: call.name,
-						display_name: displayName,
-						success: false,
-						stumbled: true,
-						output: "",
-						error: resolvedDenied,
-						tool_result_message: toolResultMsg,
-					});
-					stumbles++;
+					denyPrimitive(call, displayName, resolvedDenied);
 					continue;
 				}
 			}
@@ -3039,6 +2974,26 @@ export class Agent {
 		// Update this.signal so executeToolCalls picks up the combined signal
 		if (signal) this.signal = signal;
 
+		// Classify an abort: inactivity timeout vs external interruption. The
+		// "interrupted" event is optional because one caller's path has already
+		// emitted it.
+		const classifyAbort = (opts: { emitInterrupted: boolean }) => {
+			if (timeoutController?.signal.aborted) {
+				this.emitAndLog("warning", agentId, this.depth, {
+					message: `Agent timed out after ${timeoutMs}ms idle (total elapsed: ${Math.round(performance.now() - startTime)}ms, limit: ${timeoutMs}ms)`,
+				});
+				timedOut = true;
+			} else {
+				interrupted = true;
+				if (opts.emitInterrupted) {
+					this.emitAndLog("interrupted", agentId, this.depth, {
+						message: "Agent interrupted by abort signal",
+						turns,
+					});
+				}
+			}
+		};
+
 		try {
 			while (turns < this.spec.constraints.max_turns) {
 				turns++;
@@ -3064,18 +3019,7 @@ export class Agent {
 
 				// Check abort signal (timeout or external)
 				if (signal?.aborted) {
-					if (timeoutController?.signal.aborted) {
-						this.emitAndLog("warning", agentId, this.depth, {
-							message: `Agent timed out after ${timeoutMs}ms idle (total elapsed: ${Math.round(performance.now() - startTime)}ms, limit: ${timeoutMs}ms)`,
-						});
-						timedOut = true;
-					} else {
-						interrupted = true;
-						this.emitAndLog("interrupted", agentId, this.depth, {
-							message: "Agent interrupted by abort signal",
-							turns,
-						});
-					}
+					classifyAbort({ emitInterrupted: true });
 					break;
 				}
 
@@ -3110,15 +3054,8 @@ export class Agent {
 					suppressNaturalAssistantText: this.shouldSuppressNaturalObserverOutput(),
 				});
 				if (planningResult.kind === "interrupted") {
-					if (timeoutController?.signal.aborted) {
-						this.emitAndLog("warning", agentId, this.depth, {
-							message: `Agent timed out after ${timeoutMs}ms idle (total elapsed: ${Math.round(performance.now() - startTime)}ms, limit: ${timeoutMs}ms)`,
-						});
-						timedOut = true;
-					} else {
-						// Note: requestPlanResponse already emitted the "interrupted" event
-						interrupted = true;
-					}
+					// Note: requestPlanResponse already emitted the "interrupted" event
+					classifyAbort({ emitInterrupted: false });
 					break;
 				}
 				const { response, assistantMessage, toolCalls } = planningResult;
