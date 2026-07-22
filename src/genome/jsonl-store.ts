@@ -29,8 +29,16 @@ export class JsonlStore<T> {
 			try {
 				records.push(JSON.parse(line) as T);
 			} catch (err: unknown) {
+				// These JSONL files are genome source of truth: fail loud with
+				// recovery guidance instead of skipping — every mutation is
+				// committed, so git always holds a good copy.
 				const reason = err instanceof Error ? err.message : String(err);
-				throw new Error(`${basename(this.path)}:${index + 1}: invalid JSONL record: ${reason}`);
+				throw new Error(
+					`${basename(this.path)}:${index + 1}: invalid JSONL record: ${reason}. ` +
+						`The genome file ${this.path} is corrupt (likely a hand-edit or interrupted merge). ` +
+						`It is committed to git on every mutation — restore the last good copy with ` +
+						`\`git checkout -- ${basename(this.path)}\` run from ${dirname(this.path)}, then retry.`,
+				);
 			}
 		}
 		return records;
