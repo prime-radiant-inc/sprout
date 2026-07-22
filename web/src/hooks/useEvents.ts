@@ -140,7 +140,12 @@ export class EventStore {
 	status: SessionStatus = { ...INITIAL_STATUS };
 	settings: SettingsSnapshot | null = null;
 	lastSettingsResult: SettingsCommandResult | null = null;
-	private historyExtended = false;
+	/**
+	 * Retained-event cap. Loading older history on purpose raises it so the
+	 * loaded events are not immediately trimmed away; snapshots and
+	 * session_clear reset it to EVENT_CAP so live events stay bounded.
+	 */
+	private retainedEventCap = EVENT_CAP;
 	private eventKeys = new Set<string>();
 	private sessionScopedEventsRequireIds = false;
 
@@ -168,7 +173,7 @@ export class EventStore {
 					? deriveAvailableModels(snapshotSettings.catalog)
 					: (msg.session.availableModels ?? []);
 
-				this.historyExtended = false;
+				this.retainedEventCap = EVENT_CAP;
 				this.sessionScopedEventsRequireIds = msg.events.some(
 					(event) => event.kind === "session_clear",
 				);
@@ -213,12 +218,12 @@ export class EventStore {
 			case "event":
 				this.activeWorkEvents = appendActiveWorkEvent(this.activeWorkEvents, msg.event);
 				this.appendEvent(msg.event);
-				if (!this.historyExtended && this.events.length > EVENT_CAP) {
-					this.replaceEvents(this.events.slice(-EVENT_CAP));
+				if (this.events.length > this.retainedEventCap) {
+					this.replaceEvents(this.events.slice(-this.retainedEventCap));
 				}
 				this.applyEventToStatus(msg.event);
 				if (msg.event.kind === "session_clear") {
-					this.historyExtended = false;
+					this.retainedEventCap = EVENT_CAP;
 					// Clear prior events but keep the session_clear event itself
 					// so the UI can render a "New session started" message.
 					this.replaceEvents([msg.event]);
@@ -250,8 +255,8 @@ export class EventStore {
 
 	prependHistory(events: SessionEvent[]): void {
 		if (events.length === 0) return;
-		this.historyExtended = true;
 		this.replaceEvents(dedupeEvents([...events, ...this.events]));
+		this.retainedEventCap = Math.max(this.retainedEventCap, this.events.length);
 		this.notify();
 	}
 

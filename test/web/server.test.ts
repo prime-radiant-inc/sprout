@@ -12,7 +12,7 @@ import type {
 import { createEmptySettings } from "../../src/host/settings/types.ts";
 import { EVENT_CAP, WEB_HISTORY_PAGE_SIZE } from "../../src/kernel/constants.ts";
 import type { SessionEvent } from "../../src/kernel/types.ts";
-import { WebServer } from "../../src/web/server.ts";
+import { HISTORY_CACHE_CAP, WebServer } from "../../src/web/server.ts";
 import {
 	collectMessages,
 	connect,
@@ -351,6 +351,65 @@ describe("WebServer", () => {
 			}
 		});
 
+		test("GET /api/session enforces the same token checks as /api/events", async () => {
+			const tokenServer = new WebServer({
+				bus,
+				port: 0,
+				staticDir,
+				sessionId: "session-auth",
+				webToken: "secret-token",
+			});
+			await tokenServer.start();
+			const tokenPort = tokenServer.getPort();
+			try {
+				const missing = await fetch(`http://localhost:${tokenPort}/api/session`);
+				expect(missing.status).toBe(401);
+				const wrong = await fetch(`http://localhost:${tokenPort}/api/session?token=wrong-token`);
+				expect(wrong.status).toBe(401);
+				const ok = await fetch(`http://localhost:${tokenPort}/api/session?token=secret-token`);
+				expect(ok.status).toBe(200);
+				const body = (await ok.json()) as { id: string; status: string };
+				expect(body.id).toBe("session-auth");
+			} finally {
+				await tokenServer.stop();
+			}
+		});
+
+		test("GET /api/models enforces the same token checks as /api/events", async () => {
+			const tokenServer = new WebServer({
+				bus,
+				port: 0,
+				staticDir,
+				sessionId: "models-auth",
+				webToken: "secret-token",
+				availableModels: ["model-a", "model-b"],
+			});
+			await tokenServer.start();
+			const tokenPort = tokenServer.getPort();
+			try {
+				const missing = await fetch(`http://localhost:${tokenPort}/api/models`);
+				expect(missing.status).toBe(401);
+				const wrong = await fetch(`http://localhost:${tokenPort}/api/models?token=wrong-token`);
+				expect(wrong.status).toBe(401);
+				const ok = await fetch(`http://localhost:${tokenPort}/api/models?token=secret-token`);
+				expect(ok.status).toBe(200);
+				const body = (await ok.json()) as { models: string[] };
+				expect(body.models).toEqual(["model-a", "model-b"]);
+			} finally {
+				await tokenServer.stop();
+			}
+		});
+
+		test("GET /api/session and /api/models reject cross-origin requests", async () => {
+			await startServer();
+			for (const path of ["/api/session", "/api/models"]) {
+				const resp = await fetch(`http://localhost:${port}${path}`, {
+					headers: { origin: "https://evil.example.com" },
+				});
+				expect(resp.status).toBe(403);
+			}
+		});
+
 		test("session status reflects session_start event", async () => {
 			await startServer();
 			bus.emitEvent("session_start", "root", 0, { goal: "test" });
@@ -605,6 +664,60 @@ describe("WebServer", () => {
 			expect(body.hasMore).toBe(true);
 			expect(body.nextBefore).toBe(EVENT_CAP + 5);
 			expect(body.total).toBe(EVENT_CAP + 8);
+		});
+
+		test("history cache is bounded for resumed sessions and live events", async () => {
+			const projectDataDir = mkdtempSync(join(tmpdir(), "sprout-web-history-cap-"));
+			const initialEvents = Array.from({ length: HISTORY_CACHE_CAP + 50 }, (_, index) => ({
+				kind: "warning" as const,
+				timestamp: index + 1,
+				agent_id: "cli",
+				depth: 0,
+				data: {},
+			}));
+			server = new WebServer({
+				bus,
+				port,
+				staticDir,
+				sessionId: "test-session",
+				projectDataDir,
+				initialEvents,
+			});
+			await startServer();
+
+			// The resumed cache keeps only the newest HISTORY_CACHE_CAP events.
+			let resp = await fetch(`http://localhost:${port}/api/events?before=0&limit=5`);
+			expect(resp.status).toBe(200);
+			let body = (await resp.json()) as {
+				events: SessionEvent[];
+				hasMore: boolean;
+				total: number;
+			};
+			expect(body.total).toBe(HISTORY_CACHE_CAP);
+			expect(body.events.map((event) => event.timestamp)).toEqual([
+				HISTORY_CACHE_CAP + 46,
+				HISTORY_CACHE_CAP + 47,
+				HISTORY_CACHE_CAP + 48,
+				HISTORY_CACHE_CAP + 49,
+				HISTORY_CACHE_CAP + 50,
+			]);
+
+			// Live events keep appending, but the cache stays bounded.
+			const liveCount = HISTORY_CACHE_CAP + 100;
+			for (let index = 1; index <= liveCount; index++) {
+				bus.emitEvent("warning", "root", 0, { n: index });
+			}
+			resp = await fetch(`http://localhost:${port}/api/events?before=0&limit=5`);
+			expect(resp.status).toBe(200);
+			body = (await resp.json()) as {
+				events: SessionEvent[];
+				hasMore: boolean;
+				total: number;
+			};
+			expect(body.total).toBeLessThanOrEqual(HISTORY_CACHE_CAP * 2);
+			expect(body.total).toBeGreaterThanOrEqual(HISTORY_CACHE_CAP);
+			// The newest live event is still the tail of the history.
+			expect(body.events[body.events.length - 1]!.data.n).toBe(liveCount);
 		});
 	});
 
@@ -1669,7 +1782,7 @@ describe("WebServer", () => {
 			await server2.stop();
 		});
 
-		test("seedTasksForClient sends synthetic task_update on connect when tasks.json exists", async () => {
+		test("connecting seeds a synthetic task_update when tasks.json exists", async () => {
 			const dataDir = mkdtempSync(join(tmpdir(), "sprout-seed-tasks-"));
 			const logsDir = join(dataDir, "logs", "seed-session");
 			mkdirSync(logsDir, { recursive: true });
@@ -1709,7 +1822,62 @@ describe("WebServer", () => {
 			await server2.stop();
 		});
 
-		test("seedTasksForClient does not send synthetic event when task_update already in buffer", async () => {
+		test("synthetic task_update seed does not skew /api/events pagination (A-F15)", async () => {
+			const dataDir = mkdtempSync(join(tmpdir(), "sprout-seed-paging-"));
+			const logsDir = join(dataDir, "logs");
+			mkdirSync(join(logsDir, "seed-page-session"), { recursive: true });
+			writeFileSync(
+				join(logsDir, "seed-page-session.jsonl"),
+				Array.from({ length: 30 }, (_, index) => eventLine("warning", index + 1)).join("\n"),
+			);
+			writeFileSync(
+				join(logsDir, "seed-page-session", "tasks.json"),
+				JSON.stringify({
+					tasks: [{ id: "1", description: "Seeded task", status: "new" }],
+				}),
+			);
+
+			const server2 = new WebServer({
+				bus,
+				port: 0,
+				staticDir,
+				sessionId: "seed-page-session",
+				projectDataDir: dataDir,
+			});
+			await server2.start();
+			try {
+				const ws = await connect(`ws://localhost:${server2.getPort()}/ws`);
+				clients.push(ws);
+				const snapshot = await nextMessage(ws);
+				expect(snapshot.type).toBe("snapshot");
+				if (snapshot.type !== "snapshot") throw new Error("Expected snapshot");
+				const seedMsg = await nextMessage(ws);
+				expect(seedMsg.type).toBe("event");
+				if (seedMsg.type !== "event") throw new Error("Expected event");
+				expect(seedMsg.event.kind).toBe("task_update");
+
+				// The client now holds the snapshot events plus the seed, and uses
+				// that count as its first loadOlderEvents cursor. Every history
+				// event it does not hold must come back — none skipped.
+				const held = snapshot.events.length + 1;
+				const resp = await fetch(
+					`http://localhost:${server2.getPort()}/api/events?before=${held}&limit=1000`,
+				);
+				expect(resp.status).toBe(200);
+				const body = (await resp.json()) as {
+					events: SessionEvent[];
+					hasMore: boolean;
+				};
+				expect(body.events.map((event) => event.timestamp)).toEqual(
+					Array.from({ length: 30 }, (_, index) => index + 1),
+				);
+				expect(body.hasMore).toBe(false);
+			} finally {
+				await server2.stop();
+			}
+		});
+
+		test("connecting does not seed a synthetic event when task_update already in buffer", async () => {
 			const dataDir = mkdtempSync(join(tmpdir(), "sprout-seed-exists-"));
 			const logsDir = join(dataDir, "logs", "seed-exists-session");
 			mkdirSync(logsDir, { recursive: true });

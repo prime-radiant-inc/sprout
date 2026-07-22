@@ -30,6 +30,15 @@ interface SettingsControlPlaneLike {
 	execute(command: SettingsCommand): Promise<SettingsCommandResult>;
 }
 
+/**
+ * Upper bound on cached history events served through /api/events. History
+ * exists so the client can page back past the live EVENT_CAP window; five
+ * windows is generous while keeping a long-running session's memory bounded.
+ * Trimming drops the oldest entries, so paging simply bottoms out earlier
+ * (hasMore=false) — the cursor counts from the end and is unaffected.
+ */
+export const HISTORY_CACHE_CAP = EVENT_CAP * 5;
+
 export interface WebServerOptions {
 	bus: SessionBus;
 	port: number;
@@ -109,7 +118,7 @@ export class WebServer {
 			this.currentModel = selectionSnapshotToCurrentModel(this.getCurrentSelection()) ?? null;
 		}
 		if (opts.initialEvents) {
-			this.historyCache = [...opts.initialEvents];
+			this.historyCache = opts.initialEvents.slice(-HISTORY_CACHE_CAP);
 			this.historyCacheSessionId = this.sessionId;
 			this.events =
 				opts.initialEvents.length > EVENT_CAP
@@ -163,6 +172,9 @@ export class WebServer {
 					}
 					if (this.historyCache && this.historyCacheSessionId === this.sessionId) {
 						this.historyCache.push(event);
+						if (this.historyCache.length > HISTORY_CACHE_CAP * 2) {
+							this.historyCache = this.historyCache.slice(-HISTORY_CACHE_CAP);
+						}
 					}
 				}
 			}
@@ -207,12 +219,8 @@ export class WebServer {
 
 				// WebSocket upgrade
 				if (req.headers.get("upgrade") === "websocket") {
-					if (!self.isAllowedOrigin(req)) {
-						return new Response("Forbidden", { status: 403 });
-					}
-					if (!self.hasValidToken(url, req)) {
-						return new Response("Unauthorized", { status: 401 });
-					}
+					const denied = self.guardApiRequest(url, req);
+					if (denied) return denied;
 					if (!server.upgrade(req, { data: undefined })) {
 						return new Response("WebSocket upgrade failed", { status: 400 });
 					}
@@ -231,30 +239,26 @@ export class WebServer {
 				}
 
 				if (url.pathname === "/api/session") {
+					const denied = self.guardApiRequest(url, req);
+					if (denied) return denied;
 					return Response.json({ id: self.sessionId, status: self.status });
 				}
 
 				if (url.pathname === "/api/events") {
-					if (!self.isAllowedOrigin(req)) {
-						return new Response("Forbidden", { status: 403 });
-					}
-					if (!self.hasValidToken(url, req)) {
-						return new Response("Unauthorized", { status: 401 });
-					}
+					const denied = self.guardApiRequest(url, req);
+					if (denied) return denied;
 					return self.serveEventHistory(url);
 				}
 
 				if (url.pathname === "/api/sessions") {
-					if (!self.isAllowedOrigin(req)) {
-						return new Response("Forbidden", { status: 403 });
-					}
-					if (!self.hasValidToken(url, req)) {
-						return new Response("Unauthorized", { status: 401 });
-					}
+					const denied = self.guardApiRequest(url, req);
+					if (denied) return denied;
 					return self.serveSessionList();
 				}
 
 				if (url.pathname === "/api/models") {
+					const denied = self.guardApiRequest(url, req);
+					if (denied) return denied;
 					return Response.json({
 						models: self.availableModels,
 						currentModel: self.getCurrentModel(),
@@ -364,9 +368,10 @@ export class WebServer {
 		const rootLogPath = join(this.projectDataDir, "logs", `${this.sessionId}.jsonl`);
 		const sessionLogDir = join(this.projectDataDir, "logs", this.sessionId);
 		const events = await loadAllEventLogs(rootLogPath, sessionLogDir);
-		this.historyCache = events;
+		this.historyCache =
+			events.length > HISTORY_CACHE_CAP ? events.slice(-HISTORY_CACHE_CAP) : events;
 		this.historyCacheSessionId = this.sessionId;
-		return events;
+		return this.historyCache;
 	}
 
 	private async emitTaskUpdate(agentId: string, depth: number, sessionId: string): Promise<void> {
@@ -399,21 +404,33 @@ export class WebServer {
 		this.logger?.debug("system", "WebSocket client connected", {
 			clients: this.wsClients.size,
 		});
-		void this.seedTasksForClient(ws);
+		void this.seedTaskUpdateEvent();
 	}
 
-	private async seedTasksForClient(ws: ServerWebSocket<unknown>): Promise<void> {
+	/**
+	 * Seed a synthetic task_update from the persisted task list when no live
+	 * one is buffered yet, so a freshly connected client sees the task list.
+	 */
+	private async seedTaskUpdateEvent(): Promise<void> {
 		// Check if any task_update event already exists in the buffered events
 		const hasTaskUpdate = this.events.some((e) => e.kind === "task_update");
 		if (hasTaskUpdate) return;
 		if (!this.projectDataDir) return;
+		const sessionId = this.sessionId;
 		try {
-			const path = `${this.projectDataDir}/logs/${this.sessionId}/tasks.json`;
+			const path = `${this.projectDataDir}/logs/${sessionId}/tasks.json`;
 			const file = Bun.file(path);
 			if (!(await file.exists())) return;
 			const data = await file.json();
 			const tasks = Array.isArray(data.tasks) ? data.tasks : [];
 			if (tasks.length === 0) return;
+			// The seed must be counted in the buffered events AND the history
+			// cache: the client counts every event it holds when computing its
+			// /api/events cursor, so a seed outside history skews pagination
+			// by one (A-F15). Warm the cache first so the seed lands in it.
+			await this.getHistoryEvents();
+			if (this.sessionId !== sessionId) return;
+			if (this.events.some((e) => e.kind === "task_update")) return;
 			const syntheticEvent: SessionEvent = {
 				kind: "task_update",
 				timestamp: Date.now(),
@@ -421,8 +438,11 @@ export class WebServer {
 				depth: 0,
 				data: { tasks },
 			};
-			const msg: ServerMessage = { type: "event", event: syntheticEvent };
-			ws.send(JSON.stringify(msg));
+			this.events.push(syntheticEvent);
+			if (this.historyCache && this.historyCacheSessionId === this.sessionId) {
+				this.historyCache.push(syntheticEvent);
+			}
+			this.broadcastEvent(syntheticEvent);
 		} catch {
 			// File read/parse error — silently skip
 		}
@@ -645,6 +665,17 @@ export class WebServer {
 		if (parts.length === 1) return first;
 		// likely raw ipv6 without brackets
 		return first;
+	}
+
+	/** Origin + token gate shared by the API routes; null when the request may proceed. */
+	private guardApiRequest(url: URL, req: Request): Response | null {
+		if (!this.isAllowedOrigin(req)) {
+			return new Response("Forbidden", { status: 403 });
+		}
+		if (!this.hasValidToken(url, req)) {
+			return new Response("Unauthorized", { status: 401 });
+		}
+		return null;
 	}
 
 	/** Enforce strict same-origin checks for browser-origin websocket upgrades. */
