@@ -1,7 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { AgentEventEmitter } from "../agents/events.ts";
-import type { MutationIntent } from "./mutation-gate.ts";
 import {
 	createResolverSettings,
 	type ResolvedModel,
@@ -24,6 +23,7 @@ import {
 	memoryReferenceIdsFromExtractionMessages,
 } from "./extraction-evidence.ts";
 import type { MetricsStore } from "./metrics-store.ts";
+import type { MutationIntent } from "./mutation-gate.ts";
 import {
 	type CellObservation,
 	curateAgents,
