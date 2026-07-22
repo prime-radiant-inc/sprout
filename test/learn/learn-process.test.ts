@@ -873,8 +873,11 @@ OPENAI_API_KEY=sk-${"a".repeat(32)}`,
 		expect(learnEnd?.data.result).toBe("error");
 	});
 
-	test("missing extraction model after shouldLearn emits error instead of skipped", async () => {
-		const client = makeMockClientSequence(["[]"]);
+	test("missing extraction model falls back to the best available model (C8)", async () => {
+		const requestedModels: string[] = [];
+		const client = makeMockClientSequence(["[]"], (req) => {
+			requestedModels.push(req.model);
+		});
 		const genomeDir = join(tempDir, "extract-missing-model");
 		await cp(genomeTemplateDir, genomeDir, { recursive: true });
 		const genome = createTestGenome(genomeDir, ROOT_DIR);
@@ -915,14 +918,19 @@ OPENAI_API_KEY=sk-${"a".repeat(32)}`,
 
 		const result = await learn.processNext();
 
-		expect(result).toBe("error");
+		// C8 ruling: a missing extraction-tier model must not error every learn
+		// signal — extraction runs on the best available model instead.
+		expect(result).not.toBe("error");
+		expect(requestedModels).toContain("reason-model");
 		const learnEnd = events.collected().findLast((event) => event.kind === "learn_end");
-		expect(learnEnd?.data.result).toBe("error");
-		expect(String(learnEnd?.data.error)).toContain("memory 'extraction' model");
+		expect(learnEnd?.data.error).toBeUndefined();
 	});
 
-	test("missing relationship model after shouldLearn emits error instead of fallback writes", async () => {
-		const client = makeMockClientSequence(["[]"]);
+	test("missing relationship model falls back to the best available model (C8)", async () => {
+		const requestedModels: string[] = [];
+		const client = makeMockClientSequence(["[]"], (req) => {
+			requestedModels.push(req.model);
+		});
 		const genomeDir = join(tempDir, "extract-missing-relationship-model");
 		await cp(genomeTemplateDir, genomeDir, { recursive: true });
 		const genome = createTestGenome(genomeDir, ROOT_DIR);
@@ -963,11 +971,12 @@ OPENAI_API_KEY=sk-${"a".repeat(32)}`,
 
 		const result = await learn.processNext();
 
-		expect(result).toBe("error");
+		// C8 ruling: a missing relationship-tier model must not error the cycle —
+		// classification runs on the best available model instead.
+		expect(result).not.toBe("error");
+		expect(requestedModels).toContain("shared-model");
 		const learnEnd = events.collected().findLast((event) => event.kind === "learn_end");
-		expect(learnEnd?.data.result).toBe("error");
-		expect(String(learnEnd?.data.error)).toContain("memory 'relationship' model");
-		expect(genome.memories.all()).toHaveLength(0);
+		expect(learnEnd?.data.error).toBeUndefined();
 	});
 
 	test("learn extraction does not write through raw addMemories", async () => {

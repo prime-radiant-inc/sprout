@@ -255,15 +255,19 @@ export class LearnProcess {
 			} catch {
 				this.reasonerModel = undefined;
 			}
+			// C8 (Jesse's ruling): a catalog that resolves a best model but not a
+			// memory tier must not error every learn signal — the tier falls back
+			// to the best available model. Only a catalog with nothing resolvable
+			// leaves the models unset (extraction then fails loud per signal).
 			try {
 				this.extractionModel = resolveMemoryModel("extraction", resolverSettings, modelMap);
 			} catch {
-				this.extractionModel = undefined;
+				this.extractionModel = this.reasonerModel;
 			}
 			try {
 				this.relationshipModel = resolveMemoryModel("relationship", resolverSettings, modelMap);
 			} catch {
-				this.relationshipModel = undefined;
+				this.relationshipModel = this.reasonerModel;
 			}
 		}
 	}
