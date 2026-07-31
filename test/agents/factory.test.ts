@@ -55,6 +55,17 @@ describe("createAgent", () => {
 		sharedGenome = new Genome(sharedGenomePath, rootDir);
 		await sharedGenome.init();
 		await sharedGenome.initFromRoot();
+		const now = Date.now();
+		await sharedGenome.addMemory({
+			id: "eval-readonly-index",
+			content: "Eval read-only recall should prebuild a missing memory index cache.",
+			tags: ["memory"],
+			source: "test",
+			created: now,
+			last_used: now,
+			use_count: 0,
+			confidence: 1,
+		});
 		sharedClient = createFactoryTestClient();
 		sharedResolverContext = await buildTestResolverContext(sharedClient);
 	});
@@ -285,33 +296,18 @@ describe("createAgent", () => {
 	}, 15_000);
 
 	test("eval mode prebuilds missing memory index before read-only recall", async () => {
-		const genomePath = join(tempDir, "eval-mode-index-test");
-		const genome = new Genome(genomePath, rootDir);
-		await genome.init();
-		await genome.initFromRoot();
-		const now = Date.now();
-		await genome.addMemory({
-			id: "eval-readonly-index",
-			content: "Eval read-only recall should prebuild a missing memory index cache.",
-			tags: ["memory"],
-			source: "test",
-			created: now,
-			last_used: now,
-			use_count: 0,
-			confidence: 1,
-		});
-		const indexPath = memoryIndexPath(genomePath);
+		const indexPath = memoryIndexPath(sharedGenomePath);
 		await rm(indexPath, { force: true });
 		await rm(`${indexPath}-shm`, { force: true });
 		await rm(`${indexPath}-wal`, { force: true });
 		expect(existsSync(indexPath)).toBe(false);
 
 		const result = await createAgent({
-			genomePath,
+			genomePath: sharedGenomePath,
 			rootDir,
 			workDir: tempDir,
 			evalMode: true,
-			genome,
+			genome: sharedGenome,
 			client: sharedClient,
 			providerIdOverride: sharedResolverContext.providerId,
 			resolverSettings: sharedResolverContext.resolverSettings,

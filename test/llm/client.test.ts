@@ -15,6 +15,34 @@ import "../helpers/test-env.ts";
 import { createVcr } from "../helpers/vcr.ts";
 
 const FIXTURE_DIR = join(import.meta.dir, "../fixtures/vcr/llm-client");
+const PROVIDER_API_KEY_ENV = [
+	"ANTHROPIC_API_KEY",
+	"OPENAI_API_KEY",
+	"GEMINI_API_KEY",
+	"GOOGLE_API_KEY",
+] as const;
+
+function withProviderApiKeys(
+	values: Partial<Record<(typeof PROVIDER_API_KEY_ENV)[number], string>>,
+	run: () => void,
+): void {
+	const saved = Object.fromEntries(
+		PROVIDER_API_KEY_ENV.map((key) => [key, process.env[key]]),
+	) as Record<(typeof PROVIDER_API_KEY_ENV)[number], string | undefined>;
+
+	for (const key of PROVIDER_API_KEY_ENV) delete process.env[key];
+	for (const [key, value] of Object.entries(values)) process.env[key] = value;
+
+	try {
+		run();
+	} finally {
+		for (const key of PROVIDER_API_KEY_ENV) {
+			const value = saved[key];
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		}
+	}
+}
 
 function slug(name: string): string {
 	return name
@@ -67,19 +95,27 @@ describe("Client", () => {
 	});
 
 	test("fromEnv creates client with available providers", () => {
-		// No VCR — only tests local provider registration (requires API keys in env)
-		const client = Client.fromEnv();
-		const providers = client.providers();
-		expect(providers.length).toBeGreaterThan(0);
+		withProviderApiKeys({ ANTHROPIC_API_KEY: "test-anthropic-key" }, () => {
+			const client = Client.fromEnv();
+			expect(client.providers()).toEqual(["anthropic"]);
+		});
 	});
 
 	test("fromEnv registers all three providers when keys present", () => {
-		// No VCR — only tests local provider registration (requires API keys in env)
-		const client = Client.fromEnv();
-		const providers = client.providers();
-		expect(providers).toContain("anthropic");
-		expect(providers).toContain("openai");
-		expect(providers).toContain("gemini");
+		withProviderApiKeys(
+			{
+				ANTHROPIC_API_KEY: "test-anthropic-key",
+				OPENAI_API_KEY: "test-openai-key",
+				GEMINI_API_KEY: "test-gemini-key",
+			},
+			() => {
+				const client = Client.fromEnv();
+				const providers = client.providers();
+				expect(providers).toContain("anthropic");
+				expect(providers).toContain("openai");
+				expect(providers).toContain("gemini");
+			},
+		);
 	});
 
 	test("fromEnv warns to console when no API keys are found", () => {
