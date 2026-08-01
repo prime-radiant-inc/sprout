@@ -243,6 +243,40 @@ describe("Genome workspace", () => {
 			expect(tools[0]!.provenance).toBe("root");
 		});
 
+		test("loads an explicit tool execution timeout from frontmatter", async () => {
+			const { genome } = await setupGenome("two-layer-tool-timeout");
+			const rootDir = join(tempDir, "bootstrap-tool-timeout");
+			const toolDir = join(rootDir, "mcp", "tools");
+			await mkdir(toolDir, { recursive: true });
+			await writeFile(
+				join(toolDir, "sprout-mcp"),
+				'---\nname: sprout-mcp\ndescription: Connect to MCP\ninterpreter: bash\ntimeout_ms: 120000\n---\necho "ok"',
+			);
+
+			const tools = await genome.loadAgentToolsWithRoot("mcp", rootDir);
+
+			expect(tools[0]!.timeoutMs).toBe(120_000);
+		});
+
+		test("loads an explicit tool parameter schema from frontmatter", async () => {
+			const { genome } = await setupGenome("two-layer-tool-parameters");
+			const rootDir = join(tempDir, "bootstrap-tool-parameters");
+			const toolDir = join(rootDir, "project-memory", "tools");
+			await mkdir(toolDir, { recursive: true });
+			await writeFile(
+				join(toolDir, "memory-cli"),
+				'---\nname: memory-cli\ndescription: Manage memory\ninterpreter: sprout-internal\nparameters:\n  type: object\n  properties:\n    command:\n      type: string\n  required: [command]\n---\nexport default async () => ({ success: true, output: "" });',
+			);
+
+			const tools = await genome.loadAgentToolsWithRoot("project-memory", rootDir);
+
+			expect(tools[0]!.parameters).toEqual({
+				type: "object",
+				properties: { command: { type: "string" } },
+				required: ["command"],
+			});
+		});
+
 		test("genome tool overrides bootstrap tool with same name", async () => {
 			const { genome } = await setupGenome("two-layer-override");
 

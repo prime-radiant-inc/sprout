@@ -28,6 +28,9 @@ workspace-tool source directories to PATH, so Bash interprets YAML frontmatter a
 - Update shared workspace-tool prompt rendering so it describes structured primitive calls and no
   longer claims tools are available through PATH or `exec`.
 - Retain `read_file` for MCP configuration inspection.
+- Parse each shell-style workspace tool's `args` string into argv using whitespace, quoting, and
+  backslash escaping only. Shell operators have no special meaning; quote every parsed argv element
+  before constructing the interpreter command and reject unterminated quoting before invocation.
 - Verify the real MCP agent runtime exposes `sprout-mcp` with its string `args` contract but not
   `exec`, and that agent startup does not publish metadata-bearing tool directories through PATH.
 

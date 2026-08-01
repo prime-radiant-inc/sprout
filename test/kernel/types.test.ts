@@ -217,9 +217,10 @@ describe("kernel types", () => {
 			"learn_mutation",
 			"learn_end",
 			"steering",
+			"delegation_update",
 			"warning",
 			"error",
 		];
-		expect(kinds).toHaveLength(19);
+		expect(kinds).toHaveLength(20);
 	});
 });

@@ -152,6 +152,20 @@ describe("loadRootAgents", () => {
 		expect(byName.get("the-balcony")?.constraints.requires_tool_use).toBeUndefined();
 	});
 
+	test("mcp agent invokes sprout-mcp as a structured workspace tool", async () => {
+		const agents = await loadRootAgents(join(import.meta.dir, "../../root"));
+		const mcp = agents.find((agent) => agent.name === "mcp");
+
+		expect(mcp).toBeDefined();
+		expect(mcp!.tools).toContain("read_file");
+		expect(mcp!.tools).not.toContain("exec");
+		expect(mcp!.system_prompt).toContain("structured `sprout-mcp` tool");
+		expect(mcp!.system_prompt).toContain("`args`");
+		expect(mcp!.system_prompt).not.toContain("PATH");
+		expect(mcp!.system_prompt).not.toContain("CLI tool");
+		expect(mcp!.system_prompt).not.toContain("The CLI");
+	});
+
 	test("leaf agents cannot spawn subagents", async () => {
 		const agents = await loadRootAgents(join(import.meta.dir, "../../root"));
 		const orchestrators = [
@@ -233,7 +247,13 @@ describe("loadRootAgents", () => {
 
 	test("QM self-awareness agents use {{SPROUT_ROOT}} template for resource paths", async () => {
 		const agents = await loadRootAgents(join(import.meta.dir, "../../root"));
-		for (const name of ["qm-sprout-architect", "qm-session-analyst", "qm-session-doctor"]) {
+		for (const name of [
+			"qm-sprout-architect",
+			"qm-session-analyst",
+			"qm-session-doctor",
+			"qm-indexer",
+			"qm-reconciler",
+		]) {
 			const agent = agents.find((a) => a.name === name);
 			expect(agent).toBeDefined();
 			expect(agent!.system_prompt).toContain("{{SPROUT_ROOT}}");

@@ -1,5 +1,5 @@
 import { appendFile, mkdir } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import type { AgentSpawner } from "../bus/spawner.ts";
 import type { AgentAddress, ResultMessage } from "../bus/types.ts";
 import { compactHistory } from "../core/compaction.ts";
@@ -59,7 +59,6 @@ import {
 } from "./delegation-payload.ts";
 import { AgentEventEmitter } from "./events.ts";
 import type { AgentTreeEntry, Preambles } from "./loader.ts";
-import { findRootToolsDir, resolveRootToolsDir } from "./loader.ts";
 import { generateMnemonicName } from "./mnemonic.ts";
 import {
 	createResolverSettings,
@@ -87,6 +86,8 @@ import { evaluateCompaction } from "./run-loop-compaction.ts";
 import { applyRetryAccounting, finalizeRunLoopResult } from "./run-loop-finalize.ts";
 import { executePlanningTurn } from "./run-loop-planning.ts";
 import { type CallRecord, verifyActResult, verifyPrimitiveResult } from "./verify.ts";
+
+const syntheticGenomeAgentTreeEntries = new WeakSet<AgentTreeEntry>();
 
 export interface AgentOptions {
 	spec: AgentSpec;
@@ -262,6 +263,8 @@ export class Agent {
 	private steeringQueue: Array<{ text: string; trustedUserInstruction?: string }> = [];
 	private agentMessageQueue: Array<{ from: AgentAddress; text: string }> = [];
 	private renderedAgentMessages = new Set<{ from: AgentAddress; text: string }>();
+	private delegationUpdateQueue: Array<{ name: string; description: string }> = [];
+	private renderedDelegationUpdates = new Set<{ name: string; description: string }>();
 	private readonly callerPrimitivePrimitives: Primitive[] = [];
 	private workspaceToolPrimitives: Primitive[] = [];
 	private workspaceToolDefinitions: ToolDefinition[] = [];
@@ -377,6 +380,8 @@ export class Agent {
 				);
 			}
 		}
+
+		this.mergeGenomeAgentsIntoRuntimeTree();
 
 		// Build delegate tool (single tool for all agent delegations)
 		this.agentTools = [];
@@ -577,7 +582,9 @@ export class Agent {
 		const humanContract = this.renderHumanContractForPrompt();
 		const agentMessages =
 			options.drainAgentMessages === false ? "" : this.renderAgentMessagesForPrompt();
-		return `${base}${humanContract}${agentMessages}${renderToolBoundaries(this.agentTools, this.primitiveTools)}`;
+		const delegationUpdate =
+			options.drainAgentMessages === false ? "" : this.renderDelegationUpdatesForPrompt();
+		return `${base}${humanContract}${agentMessages}${delegationUpdate}${renderToolBoundaries(this.agentTools, this.primitiveTools)}`;
 	}
 
 	private renderHumanContractForPrompt(): string {
@@ -683,6 +690,27 @@ export class Agent {
 			(message) => !this.renderedAgentMessages.has(message),
 		);
 		this.renderedAgentMessages.clear();
+	}
+
+	private clearRenderedDelegationUpdatesForPrompt(): void {
+		this.delegationUpdateQueue = this.delegationUpdateQueue.filter(
+			(update) => !this.renderedDelegationUpdates.has(update),
+		);
+		this.renderedDelegationUpdates.clear();
+	}
+
+	private renderDelegationUpdatesForPrompt(): string {
+		if (this.delegationUpdateQueue.length === 0) return "";
+		for (const update of this.delegationUpdateQueue) {
+			this.renderedDelegationUpdates.add(update);
+		}
+		const descriptions = this.delegationUpdateQueue
+			.map(
+				(update) =>
+					`<agent name="${escapeXml(update.name)}">${escapeXml(update.description)}</agent>`,
+			)
+			.join("\n");
+		return `\n\n<IMPORTANT>\n<sprout:delegation-update>\nNew agents are now available for delegation:\n${descriptions}\n</sprout:delegation-update>\n</IMPORTANT>`;
 	}
 
 	/** Emit an event and append it to the log file if logging is enabled. */
@@ -822,6 +850,35 @@ export class Agent {
 		return agents;
 	}
 
+	private mergeGenomeAgentsIntoRuntimeTree(): void {
+		if (!this.genome || !this.agentTree) return;
+
+		const representedEntries = new Map<string, AgentTreeEntry>();
+		for (const entry of this.agentTree.values()) {
+			if (!representedEntries.has(entry.spec.name)) {
+				representedEntries.set(entry.spec.name, entry);
+			}
+		}
+		for (const spec of this.genome.allAgents()) {
+			if (spec.name === this.spec.name) continue;
+			let entry = representedEntries.get(spec.name);
+			if (!entry) {
+				entry = { spec, path: spec.name, children: [], diskPath: "" };
+				syntheticGenomeAgentTreeEntries.add(entry);
+				this.agentTree.set(spec.name, entry);
+				representedEntries.set(spec.name, entry);
+			}
+			if (
+				this.agentTreeSelfPath === "" &&
+				this.agentTreeChildren &&
+				syntheticGenomeAgentTreeEntries.has(entry) &&
+				!this.agentTreeChildren.includes(spec.name)
+			) {
+				this.agentTreeChildren.push(spec.name);
+			}
+		}
+	}
+
 	/**
 	 * Check if the genome has new agents and refresh delegation tools if so.
 	 * Returns info about newly added agents, or null if nothing changed.
@@ -835,29 +892,7 @@ export class Agent {
 		if (this.genome.generation === this.lastGenomeGeneration) return null;
 		this.lastGenomeGeneration = this.genome.generation;
 
-		// Sync new genome agents into the shared agent tree so all agents
-		// (including siblings) see them via the shared Map reference.
-		if (this.agentTree) {
-			for (const spec of this.genome.allAgents()) {
-				if (!this.agentTree.has(spec.name)) {
-					this.agentTree.set(spec.name, {
-						spec,
-						path: spec.name,
-						children: [],
-						// diskPath is empty because these agents were created at
-						// runtime by the fabricator and have no on-disk directory.
-						diskPath: "",
-					});
-					// Only the root agent (selfPath === "") adds new children
-					// directly.  Non-root agents discover new delegates through
-					// getDelegatableAgents() which re-resolves against the
-					// updated tree, so they don't need manual child insertion.
-					if (this.agentTreeSelfPath === "" && this.agentTreeChildren) {
-						this.agentTreeChildren.push(spec.name);
-					}
-				}
-			}
-		}
+		this.mergeGenomeAgentsIntoRuntimeTree();
 
 		// Re-resolve delegates with updated tree/genome
 		const newDelegates = this.getDelegatableAgents();
@@ -1922,16 +1957,6 @@ export class Agent {
 				}
 				this.refreshPrimitiveToolList();
 			}
-
-			// Add both genome and root tool directories to PATH
-			const genomeToolsDir = join(this.genome.agentDir(this.spec.name), "tools");
-			this.env.addToPath?.(genomeToolsDir);
-			if (this.rootDir) {
-				const rootToolsDir = this.agentTree
-					? resolveRootToolsDir(this.agentTree, this.rootDir, this.spec.name)
-					: await findRootToolsDir(this.rootDir, this.spec.name);
-				this.env.addToPath?.(rootToolsDir);
-			}
 		}
 
 		// Safety: after all tool sources are resolved (primitives + agents + workspace tools),
@@ -2338,10 +2363,8 @@ export class Agent {
 				// Refresh delegation list if genome has changed
 				const newAgents = await this.refreshDelegationList();
 				if (newAgents) {
-					const descriptions = newAgents.map((a) => `- **${a.name}**: ${a.description}`).join("\n");
-					const text = `New agents are now available for delegation:\n${descriptions}`;
-					this.history.push(Msg.user(text));
-					this.emitAndLog("steering", agentId, this.depth, { text });
+					this.delegationUpdateQueue.push(...newAgents);
+					this.emitAndLog("delegation_update", agentId, this.depth, { agents: newAgents });
 				}
 
 				// Check abort signal (timeout or external)
@@ -2384,7 +2407,11 @@ export class Agent {
 					promptCache: this.spec.prompt_cache,
 					signal,
 					emit: this.emitAndLog.bind(this),
-					requestPlanResponse: this.requestPlanResponse.bind(this),
+					requestPlanResponse: (options) => {
+						const response = this.requestPlanResponse(options);
+						this.clearRenderedDelegationUpdatesForPrompt();
+						return response;
+					},
 					recordReplay: (record) => {
 						this.replayRecorder?.record(record);
 					},

@@ -107,7 +107,10 @@ Remove `exec` from `root/agents/utility/agents/mcp.md`, retain `read_file`, and 
 to call the `sprout-mcp` tool with CLI-style text in `args`. Remove the two workspace-tool
 `addToPath` calls from agent startup. Update `renderWorkspaceTools()` and
 `renderWorkspaceEncouragement()` to describe structured tool calls without PATH/exec claims. Do not
-change structured tool loading or `SPROUT_TOOL_DIR`.
+change `SPROUT_TOOL_DIR`. Parse shell-style workspace-tool `args` into argv without shell-operator
+semantics, shell-quote every argv element, and reject unterminated quotes or escapes before invoking
+the tool. Cover literal metacharacters, quoted JSON with apostrophes, and malformed input in
+`test/kernel/tool-loading.test.ts`.
 
 - [ ] **Step 4: Regenerate the embedded root bundle**
 

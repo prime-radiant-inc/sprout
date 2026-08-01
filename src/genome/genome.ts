@@ -1338,6 +1338,8 @@ export class Genome {
 					displayName: getToolDisplayName(parsed.name, parsed.displayName),
 					description: parsed.description,
 					interpreter: parsed.interpreter,
+					timeoutMs: parsed.timeoutMs,
+					parameters: parsed.parameters,
 					scriptPath: toolPath,
 					provenance,
 				});
@@ -1460,6 +1462,8 @@ export interface AgentToolDefinition {
 	displayName?: string;
 	description: string;
 	interpreter: string;
+	timeoutMs?: number;
+	parameters?: Record<string, unknown>;
 	scriptPath: string;
 	provenance: "genome" | "root";
 }
@@ -1597,9 +1601,14 @@ function arraysEqual(a: string[], b: string[]): boolean {
 }
 
 /** Parse YAML frontmatter from a tool file (delimited by ---). */
-function parseToolFrontmatter(
-	content: string,
-): { name: string; displayName?: string; description: string; interpreter: string } | null {
+function parseToolFrontmatter(content: string): {
+	name: string;
+	displayName?: string;
+	description: string;
+	interpreter: string;
+	timeoutMs?: number;
+	parameters?: Record<string, unknown>;
+} | null {
 	if (!content.startsWith("---\n")) return null;
 	const endIdx = content.indexOf("\n---\n", 4);
 	if (endIdx === -1) return null;
@@ -1613,5 +1622,17 @@ function parseToolFrontmatter(
 		displayName: typeof parsed.display_name === "string" ? parsed.display_name : undefined,
 		description: parsed.description,
 		interpreter: parsed.interpreter ?? "bash",
+		timeoutMs:
+			typeof parsed.timeout_ms === "number" &&
+			Number.isFinite(parsed.timeout_ms) &&
+			parsed.timeout_ms > 0
+				? parsed.timeout_ms
+				: undefined,
+		parameters:
+			parsed.parameters &&
+			typeof parsed.parameters === "object" &&
+			!Array.isArray(parsed.parameters)
+				? (parsed.parameters as Record<string, unknown>)
+				: undefined,
 	};
 }

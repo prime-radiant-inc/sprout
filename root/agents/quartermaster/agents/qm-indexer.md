@@ -50,7 +50,7 @@ You maintain a capability index file at:
 
 When the index exists, do quick staleness checks before returning it as-is:
 
-1. **Bootstrap agents**: Glob root/agents/**/*.md and compare the file list
+1. **Bootstrap agents**: Glob {{SPROUT_ROOT}}/agents/**/*.md and compare the file list
    to what's in the index. If files were added, removed, or modified
    (compare count + names), re-index that section.
 2. **Genome agents**: Glob ~/.local/share/sprout-genome/agents/*.md
@@ -98,7 +98,7 @@ Work at summary level — concise, not exhaustive:
 - **MCP Servers**: Delegate to the mcp agent: "List all servers, then for
   each server list its tools." Record: name, domain summary, tool count,
   3-5 representative tool names. Do NOT reproduce every tool's full schema.
-- **Root Agents**: Glob root/agents/**/*.md. For each, grep/read to extract
+- **Root Agents**: Glob {{SPROUT_ROOT}}/agents/**/*.md. For each, grep/read to extract
   name, description, model, tools, agents, constraints. One entry per agent.
 - **Genome Agents**: Glob ~/.local/share/sprout-genome/agents/*.md. Same
   approach as root agents.

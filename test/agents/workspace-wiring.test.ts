@@ -1,11 +1,16 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type AgentOptions, Agent as RawAgent } from "../../src/agents/agent.ts";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
+import { scanAgentTree } from "../../src/agents/loader.ts";
 import { Genome } from "../../src/genome/genome.ts";
-import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
+import {
+	type ExecOptions,
+	type ExecResult,
+	LocalExecutionEnvironment,
+} from "../../src/kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../../src/kernel/primitives.ts";
 import type { AgentSpec } from "../../src/kernel/types.ts";
 import { DEFAULT_CONSTRAINTS } from "../../src/kernel/types.ts";
@@ -39,6 +44,25 @@ function makeSpec(overrides: Partial<AgentSpec> = {}): AgentSpec {
 }
 
 const USAGE = { input_tokens: 100, output_tokens: 10, total_tokens: 110 };
+
+class RecordingEnvironment extends LocalExecutionEnvironment {
+	readonly addedPaths: string[] = [];
+
+	override addToPath(dir: string): void {
+		this.addedPaths.push(dir);
+	}
+
+	override exec_command(command: string, options?: ExecOptions): Promise<ExecResult> {
+		return super.exec_command(command, {
+			...options,
+			env_vars: {
+				...options?.env_vars,
+				SPROUT_SELF_EXECUTABLE: process.execPath,
+				SPROUT_SELF_ENTRYPOINT: join(import.meta.dir, "../../src/host/cli.ts"),
+			},
+		});
+	}
+}
 
 describe("workspace wiring", () => {
 	let tempDir: string;
@@ -356,4 +380,79 @@ describe("workspace wiring", () => {
 		expect(registry.names()).not.toContain("save_tool");
 		expect(registry.names()).not.toContain("save_file");
 	});
+
+	test("real mcp agent invokes sprout-mcp as a structured primitive without PATH wiring", async () => {
+		const rootDir = join(import.meta.dir, "../../root");
+		const tree = await scanAgentTree(rootDir);
+		const mcpEntry = tree.get("utility/mcp");
+		expect(mcpEntry).toBeDefined();
+
+		const genome = new Genome(join(tempDir, "real-mcp"));
+		await genome.init();
+		const configPath = join(tempDir, "empty-mcp.json");
+		await writeFile(configPath, '{"mcpServers":{}}');
+		const env = new RecordingEnvironment(tempDir);
+		const events = new AgentEventEmitter();
+		const requests: Request[] = [];
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (request: Request) => {
+				requests.push(request);
+				callCount++;
+				return {
+					message:
+						callCount === 1
+							? {
+									role: "assistant",
+									content: [
+										{
+											kind: ContentKind.TOOL_CALL,
+											tool_call: {
+												id: "call-mcp-1",
+												name: "sprout-mcp",
+												arguments: { args: `list-servers --config ${configPath}` },
+											},
+										},
+									],
+								}
+							: Msg.assistant("done"),
+					finish_reason: { reason: callCount === 1 ? "tool_calls" : "stop" },
+					usage: USAGE,
+				};
+			},
+		} as unknown as Client;
+		const agent = new Agent({
+			spec: mcpEntry!.spec,
+			env,
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [...tree.values()].map((entry) => entry.spec),
+			genome,
+			events,
+			rootDir,
+			agentTree: tree,
+			agentTreeChildren: mcpEntry!.children,
+			agentTreeSelfPath: "utility/mcp",
+		});
+
+		const result = await agent.run("list configured MCP servers");
+		const tools = requests[0]?.tools ?? [];
+		const sproutMcp = tools.find((tool) => tool.name === "sprout-mcp");
+		expect(result.success).toBe(true);
+		const sproutMcpProperties = sproutMcp?.parameters.properties as
+			| Record<string, { type?: string }>
+			| undefined;
+		expect(sproutMcpProperties?.args?.type).toBe("string");
+		expect(tools.map((tool) => tool.name)).toContain("read_file");
+		expect(tools.map((tool) => tool.name)).not.toContain("exec");
+		expect(env.addedPaths).toEqual([]);
+
+		const primitiveEnd = events
+			.collected()
+			.find((event) => event.kind === "primitive_end" && event.data.name === "sprout-mcp");
+		expect(primitiveEnd?.data.success).toBe(true);
+		expect(String(primitiveEnd?.data.error ?? "")).not.toContain("frontmatter");
+		expect(String(primitiveEnd?.data.output ?? "")).not.toContain("command not found");
+	}, 15_000);
 });

@@ -2,6 +2,12 @@
 name: register-agent
 description: "Register a new agent spec into the genome using the proper Genome API. Pass the full agent spec as YAML-fronted markdown in the 'spec' argument."
 interpreter: sprout-internal
+parameters:
+  type: object
+  properties:
+    spec:
+      type: string
+  required: [spec]
 ---
 export default async function(ctx) {
   const specContent = ctx.args.spec;
