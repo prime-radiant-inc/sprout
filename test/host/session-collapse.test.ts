@@ -20,6 +20,7 @@ import type { Client } from "../../src/llm/client.ts";
 import type { EmbeddingProvider } from "../../src/llm/embeddings.ts";
 import type { FinishReason, ProviderModel, Request, Response } from "../../src/llm/types.ts";
 import { Msg, messageText } from "../../src/llm/types.ts";
+import { seedMemories } from "../helpers/genome-seed.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
 
 function event(
@@ -428,7 +429,7 @@ abc123
 		const genome = createTestGenome(genomeDir, rootDir);
 		await genome.init();
 		await genome.initFromRoot();
-		await genome.addMemory({
+		await seedMemories(genome, {
 			id: "stale-auth-collapse",
 			content: "streamlinear uses Authorization: token header format.",
 			tags: ["streamlinear"],
@@ -499,7 +500,7 @@ abc123
 		const genome = createTestGenome(genomeDir, rootDir);
 		await genome.init();
 		await genome.initFromRoot();
-		await genome.addMemory({
+		await seedMemories(genome, {
 			id: "stale-auth-fail",
 			content: "streamlinear uses Authorization: token header format.",
 			tags: ["streamlinear"],

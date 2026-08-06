@@ -67,7 +67,6 @@ describe("Learn Integration", () => {
 			events,
 			client: vcr.client,
 			modelsByProvider: resolverContext.modelsByProvider,
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 		});
 
@@ -156,7 +155,6 @@ describe("Learn Integration", () => {
 			events,
 			client: vcr.client,
 			modelsByProvider: resolverContext.modelsByProvider,
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 		});
 

@@ -39,8 +39,15 @@ export async function compactHistory(opts: {
 	model: string;
 	provider: string;
 	logPath: string;
+	/**
+	 * Bound value names in the agent's store scope. Older turns carry the
+	 * delivered manifests (⟦name⟧ lines); compaction replaces them with an LLM
+	 * summary, so the manifest is re-stated here or the agent loses its handles
+	 * on still-bound values.
+	 */
+	scopeNames?: readonly string[];
 }): Promise<{ summary: string; beforeCount: number; afterCount: number }> {
-	const { history, client, model, provider, logPath } = opts;
+	const { history, client, model, provider, logPath, scopeNames } = opts;
 	const beforeCount = history.length;
 
 	if (beforeCount <= PRESERVE_RECENT_TURNS) {
@@ -68,11 +75,16 @@ export async function compactHistory(opts: {
 		provider,
 		messages: summarizationMessages,
 		tools: [],
-		system: "",
 	});
 
 	const summary = messageText(response.message);
-	const fullSummary = `${summaryPrefix(logPath)}\n\n${summary}`;
+	const manifestSuffix =
+		scopeNames && scopeNames.length > 0
+			? `\n\nValues still bound in your store scope (reference with ⟦name⟧): ${scopeNames
+					.map((name) => `⟦${name}⟧`)
+					.join(", ")}`
+			: "";
+	const fullSummary = `${summaryPrefix(logPath)}\n\n${summary}${manifestSuffix}`;
 	const summaryMessage = Msg.user(fullSummary);
 
 	// Mutate history in place

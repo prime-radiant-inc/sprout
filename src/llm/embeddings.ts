@@ -126,9 +126,15 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
 	}
 
 	private load(): Promise<{ extractor: LocalFeatureExtractor; denseLayer?: DenseLayer }> {
+		// Single-flight, but a REJECTED load must not stay cached — a transient
+		// cold-start fetch failure would otherwise disable embedding for the
+		// whole process. Clear the slot on rejection so the next call retries.
 		this.loaded ??= this.loader(this.model, {
 			dtype: this.dtype,
 			denseLayerPath: this.denseLayerPath,
+		}).catch((err) => {
+			this.loaded = undefined;
+			throw err;
 		});
 		return this.loaded;
 	}

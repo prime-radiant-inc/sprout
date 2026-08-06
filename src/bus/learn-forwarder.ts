@@ -28,12 +28,4 @@ export class BusLearnForwarder implements LearnSink {
 	recordAction(_agentName: string): void {
 		// No-op: action tracking is handled by the host-side LearnProcess
 	}
-
-	startBackground(): void {
-		// No-op: no background processing needed for forwarding
-	}
-
-	async stopBackground(): Promise<void> {
-		// No-op: nothing to drain
-	}
 }

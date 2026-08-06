@@ -20,7 +20,7 @@ function makeSpec(name: string, overrides: Partial<AgentSpec> = {}): AgentSpec {
 		},
 		tags: [],
 		version: 1,
-		tools: [],
+		tools: ["read_file"],
 		agents: [],
 		...overrides,
 	};

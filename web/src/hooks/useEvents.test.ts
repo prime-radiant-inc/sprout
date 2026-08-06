@@ -374,6 +374,43 @@ describe("EventStore", () => {
 			expect(store.activeWorkEvents).toContain(activeStart);
 		});
 
+		test("keeps capping live events after older history is loaded", () => {
+			const store = new EventStore();
+			const snapshotEvents = Array.from({ length: EVENT_CAP }, (_, index) =>
+				makeEvent("warning", { message: `snap-${index}` }, { timestamp: index + 1000 }),
+			);
+			store.processMessage(snapshotMessage(snapshotEvents));
+
+			const older = Array.from({ length: 5 }, (_, index) =>
+				makeEvent("warning", { message: `old-${index}` }, { timestamp: index + 1 }),
+			);
+			store.prependHistory(older);
+			expect(store.events).toHaveLength(EVENT_CAP + 5);
+
+			// Live events displace the oldest instead of growing the store unboundedly.
+			for (let index = 0; index < 10; index++) {
+				store.processMessage(
+					eventMessage(
+						makeEvent("warning", { message: `live-${index}` }, { timestamp: 50_000 + index }),
+					),
+				);
+			}
+			expect(store.events).toHaveLength(EVENT_CAP + 5);
+			expect(store.events[store.events.length - 1]!.data.message).toBe("live-9");
+
+			// A fresh snapshot resets the cap to EVENT_CAP.
+			store.processMessage(snapshotMessage(snapshotEvents));
+			for (let index = 0; index < 3; index++) {
+				store.processMessage(
+					eventMessage(
+						makeEvent("warning", { message: `post-${index}` }, { timestamp: 60_000 + index }),
+					),
+				);
+			}
+			expect(store.events).toHaveLength(EVENT_CAP);
+			expect(store.events[store.events.length - 1]!.data.message).toBe("post-2");
+		});
+
 		test("prepends older history without changing current status", () => {
 			const store = new EventStore();
 			store.processMessage(

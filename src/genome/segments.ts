@@ -115,11 +115,6 @@ export class SegmentStore {
 		this.entries = (await this.jsonl.load()).map((record) => normalizeSegment(record));
 	}
 
-	async add(segment: MemorySegment): Promise<void> {
-		const normalized = this.stage(segment);
-		await this.jsonl.append(normalized);
-	}
-
 	stage(segment: MemorySegment): MemorySegment {
 		const normalized = normalizeSegment(segment);
 		if (this.entries.some((entry) => entry.id === normalized.id)) {

@@ -8,11 +8,6 @@ import type { SessionSelectionRequest } from "../shared/session-selection.ts";
 import { replayEventLog } from "./resume.ts";
 import type { SessionMemorySurfaceSnapshot } from "./session-metadata.ts";
 import { loadSessionMetadata, type SessionMetadataSnapshot } from "./session-metadata.ts";
-import {
-	resolveSessionSelectionRequest,
-	type SessionSelectionContext,
-	type SessionSelectionSnapshot,
-} from "./session-selection.ts";
 import { loadAllEventLogs } from "./session-state.ts";
 
 export interface ResumeCommand {
@@ -111,13 +106,6 @@ export async function loadResumeState(
 		memorySurface,
 		completedHandles,
 	};
-}
-
-export function resolveResumeSelection(
-	selection: SessionSelectionRequest,
-	context: SessionSelectionContext,
-): SessionSelectionSnapshot {
-	return resolveSessionSelectionRequest(selection, context);
 }
 
 function metadataSnapshotToSelectionRequest(

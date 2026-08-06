@@ -111,6 +111,29 @@ describe("Genome workspace", () => {
 		});
 	});
 
+	describe("workspace name traversal", () => {
+		test("rejects a tool name that escapes the agent's tools directory", async () => {
+			const { root, genome } = await setupGenome("save-tool-traversal");
+			await expect(
+				genome.saveAgentTool("reader", {
+					name: "../../pwned",
+					description: "x",
+					script: "echo pwned",
+				}),
+			).rejects.toThrow(/invalid.*name|path/i);
+			// Nothing was written outside the tools directory.
+			await expect(stat(join(root, "agents", "pwned"))).rejects.toThrow();
+		});
+
+		test("rejects a file name containing a path separator", async () => {
+			const { root, genome } = await setupGenome("save-file-traversal");
+			await expect(
+				genome.saveAgentFile("reader", { name: "sub/dir/escape", content: "x" }),
+			).rejects.toThrow(/invalid.*name|path/i);
+			await expect(stat(join(root, "agents", "reader", "files", "sub"))).rejects.toThrow();
+		});
+	});
+
 	describe("saveAgentFile", () => {
 		test("writes file to agent files directory", async () => {
 			const { root, genome } = await setupGenome("save-file");

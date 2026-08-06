@@ -1,4 +1,4 @@
-import type { Command, CommandKind } from "../kernel/types.ts";
+import type { CommandKind } from "../kernel/types.ts";
 import type { SessionSelectionRequest } from "../shared/session-selection.ts";
 
 export interface SessionCommandActions {
@@ -39,13 +39,4 @@ export function createSessionCommandHandlers(
 			actions.quit();
 		},
 	};
-}
-
-export function dispatchSessionCommand(cmd: Command, actions: SessionCommandActions): void {
-	const handlers = createSessionCommandHandlers(actions);
-	const handler = (handlers as Record<string, (data: Record<string, unknown>) => void>)[cmd.kind];
-	if (!handler) {
-		throw new Error(`Unknown command kind: ${String((cmd as { kind: unknown }).kind)}`);
-	}
-	handler(cmd.data);
 }

@@ -5,6 +5,7 @@ import {
 	ContentKind,
 	messageText,
 	type ProviderAdapter,
+	type ProviderModel,
 	type Request,
 	type Response,
 	type StreamEvent,
@@ -62,6 +63,7 @@ interface VcrRealClient {
 	complete(request: Request): Promise<Response>;
 	stream?: (request: Request) => AsyncIterable<StreamEvent>;
 	providers(): string[];
+	listModelsByProvider?: () => Promise<Map<string, ProviderModel[]>>;
 }
 
 interface VcrOptions {
@@ -254,6 +256,13 @@ function createClientRecorder(
 		{
 			__sproutVcrMode: "record" as const,
 			complete: async (request: Request): Promise<Response> => {
+				// Symmetric with replay: subcortical recall calls are synthesized
+				// there and never consume a cassette entry, so recording one here
+				// would shift every subsequent sequential replay entry off by one.
+				if (isSubcorticalRecallRequest(request)) {
+					return subcorticalRecallReplayResponse(request);
+				}
+
 				const response = await realClient.complete(request);
 				const cleanResponse = stripRaw(response);
 
@@ -270,20 +279,41 @@ function createClientRecorder(
 					throw new Error("VCR record mode: realClient does not support stream()");
 				}
 				const events: StreamEvent[] = [];
-				for await (const event of realClient.stream(request)) {
-					events.push(event);
-					yield event;
+				let streamErrored = false;
+				try {
+					for await (const event of realClient.stream(request)) {
+						events.push(event);
+						yield event;
+					}
+				} catch (err) {
+					// A mid-stream provider error must NOT be enshrined as a
+					// truncated-but-successful recording — replay would serve the
+					// partial stream as truth. Drop the entry and rethrow so the
+					// record run fails loudly.
+					streamErrored = true;
+					throw err;
+				} finally {
+					// Consumers may stop iterating at the finish event without
+					// draining the generator; push in finally so the recording is
+					// captured on early return too (otherwise the cassette records
+					// zero entries and replay exhausts immediately).
+					if (!streamErrored) {
+						entries.push({
+							type: "stream",
+							request: substituteForRecording(request, subs) as Request,
+							events: substituteForRecording(events, subs) as StreamEvent[],
+						});
+					}
 				}
-
-				entries.push({
-					type: "stream",
-					request: substituteForRecording(request, subs) as Request,
-					events: substituteForRecording(events, subs) as StreamEvent[],
-				});
 			},
 			providers: () => realClient.providers(),
+			// Record mode must resolve REAL model ids (a stubbed catalog pins the
+			// resolver to "test-model" and every live call 404s). Replay keeps the
+			// empty stub — recorded responses match sequentially, not by model.
 			listModelsByProvider: async () =>
-				new Map(realClient.providers().map((providerId) => [providerId, []])),
+				realClient.listModelsByProvider
+					? realClient.listModelsByProvider()
+					: new Map(realClient.providers().map((providerId) => [providerId, []])),
 		},
 		"record",
 	);

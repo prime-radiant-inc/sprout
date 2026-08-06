@@ -12,7 +12,8 @@ import type {
 import { createEmptySettings } from "../../src/host/settings/types.ts";
 import { EVENT_CAP, WEB_HISTORY_PAGE_SIZE } from "../../src/kernel/constants.ts";
 import type { SessionEvent } from "../../src/kernel/types.ts";
-import { WebServer } from "../../src/web/server.ts";
+import { HISTORY_CACHE_CAP, WebServer } from "../../src/web/server.ts";
+import { waitFor } from "../helpers/wait-for.ts";
 import {
 	collectMessages,
 	connect,
@@ -261,6 +262,153 @@ describe("WebServer", () => {
 			const body = (await resp.json()) as { id: string; status: string };
 			expect(body.id).toBe("test-session");
 			expect(body.status).toBe("idle");
+		});
+
+		function writeProjectSessionMeta(
+			projectsRoot: string,
+			project: string,
+			id: string,
+			status = "idle",
+		): void {
+			mkdirSync(join(projectsRoot, project, "sessions"), { recursive: true });
+			writeFileSync(
+				join(projectsRoot, project, "sessions", `${id}.meta.json`),
+				JSON.stringify({
+					sessionId: id,
+					agentSpec: "root",
+					status,
+					turns: 2,
+					contextTokens: 10,
+					contextWindowSize: 100,
+					createdAt: "2026-07-21T00:00:00.000Z",
+					updatedAt: "2026-07-21T00:00:00.000Z",
+					selection: { kind: "tier", tier: "fast" },
+				}),
+			);
+		}
+
+		test("GET /api/sessions aggregates across all projects and flags the current/live one", async () => {
+			const projectsRoot = mkdtempSync(join(tmpdir(), "sprout-web-projects-"));
+			writeProjectSessionMeta(projectsRoot, "-home-jesse-alpha", "01AAAAAAAAAAAAAAAAAAAAAAAA");
+			writeProjectSessionMeta(projectsRoot, "-home-jesse-alpha", "01BBBBBBBBBBBBBBBBBBBBBBBB");
+			writeProjectSessionMeta(projectsRoot, "-home-jesse-beta", "01CCCCCCCCCCCCCCCCCCCCCCCC");
+			const s = new WebServer({
+				bus,
+				port: 0,
+				staticDir,
+				sessionId: "01BBBBBBBBBBBBBBBBBBBBBBBB",
+				projectDataDir: join(projectsRoot, "-home-jesse-alpha"),
+			});
+			await s.start();
+			try {
+				const resp = await fetch(`http://localhost:${s.getPort()}/api/sessions`);
+				expect(resp.status).toBe(200);
+				const body = (await resp.json()) as {
+					sessions: Array<{ sessionId: string; project: string }>;
+					liveSessionId: string;
+					currentProject: string;
+				};
+				expect(body.sessions.map((x) => x.sessionId).sort()).toEqual([
+					"01AAAAAAAAAAAAAAAAAAAAAAAA",
+					"01BBBBBBBBBBBBBBBBBBBBBBBB",
+					"01CCCCCCCCCCCCCCCCCCCCCCCC",
+				]);
+				const beta = body.sessions.find((x) => x.sessionId === "01CCCCCCCCCCCCCCCCCCCCCCCC");
+				expect(beta?.project).toBe("-home-jesse-beta");
+				expect(body.liveSessionId).toBe("01BBBBBBBBBBBBBBBBBBBBBBBB");
+				expect(body.currentProject).toBe("-home-jesse-alpha");
+			} finally {
+				await s.stop();
+			}
+		});
+
+		test("GET /api/sessions returns an empty list when no project data dir is set", async () => {
+			await startServer();
+			const resp = await fetch(`http://localhost:${port}/api/sessions`);
+			expect(resp.status).toBe(200);
+			const body = (await resp.json()) as { sessions: unknown[] };
+			expect(body.sessions).toEqual([]);
+		});
+
+		test("GET /api/sessions requires a valid token when one is configured", async () => {
+			const projectsRoot = mkdtempSync(join(tmpdir(), "sprout-web-sessions-auth-"));
+			writeProjectSessionMeta(projectsRoot, "-home-jesse-alpha", "01AAAAAAAAAAAAAAAAAAAAAAAA");
+			const s = new WebServer({
+				bus,
+				port: 0,
+				staticDir,
+				sessionId: "01AAAAAAAAAAAAAAAAAAAAAAAA",
+				projectDataDir: join(projectsRoot, "-home-jesse-alpha"),
+				webToken: "secret-token",
+			});
+			await s.start();
+			try {
+				const denied = await fetch(`http://localhost:${s.getPort()}/api/sessions`);
+				expect(denied.status).toBe(401);
+				const ok = await fetch(`http://localhost:${s.getPort()}/api/sessions?token=secret-token`);
+				expect(ok.status).toBe(200);
+			} finally {
+				await s.stop();
+			}
+		});
+
+		test("GET /api/session enforces the same token checks as /api/events", async () => {
+			const tokenServer = new WebServer({
+				bus,
+				port: 0,
+				staticDir,
+				sessionId: "session-auth",
+				webToken: "secret-token",
+			});
+			await tokenServer.start();
+			const tokenPort = tokenServer.getPort();
+			try {
+				const missing = await fetch(`http://localhost:${tokenPort}/api/session`);
+				expect(missing.status).toBe(401);
+				const wrong = await fetch(`http://localhost:${tokenPort}/api/session?token=wrong-token`);
+				expect(wrong.status).toBe(401);
+				const ok = await fetch(`http://localhost:${tokenPort}/api/session?token=secret-token`);
+				expect(ok.status).toBe(200);
+				const body = (await ok.json()) as { id: string; status: string };
+				expect(body.id).toBe("session-auth");
+			} finally {
+				await tokenServer.stop();
+			}
+		});
+
+		test("GET /api/models enforces the same token checks as /api/events", async () => {
+			const tokenServer = new WebServer({
+				bus,
+				port: 0,
+				staticDir,
+				sessionId: "models-auth",
+				webToken: "secret-token",
+				availableModels: ["model-a", "model-b"],
+			});
+			await tokenServer.start();
+			const tokenPort = tokenServer.getPort();
+			try {
+				const missing = await fetch(`http://localhost:${tokenPort}/api/models`);
+				expect(missing.status).toBe(401);
+				const wrong = await fetch(`http://localhost:${tokenPort}/api/models?token=wrong-token`);
+				expect(wrong.status).toBe(401);
+				const ok = await fetch(`http://localhost:${tokenPort}/api/models?token=secret-token`);
+				expect(ok.status).toBe(200);
+				const body = (await ok.json()) as { models: string[] };
+				expect(body.models).toEqual(["model-a", "model-b"]);
+			} finally {
+				await tokenServer.stop();
+			}
+		});
+
+		test("GET /api/session and /api/models reject cross-origin requests", async () => {
+			await startServer();
+			for (const path of ["/api/session", "/api/models"]) {
+				const resp = await fetch(`http://localhost:${port}${path}`, {
+					headers: { origin: "https://evil.example.com" },
+				});
+				expect(resp.status).toBe(403);
+			}
 		});
 
 		test("session status reflects session_start event", async () => {
@@ -517,6 +665,60 @@ describe("WebServer", () => {
 			expect(body.hasMore).toBe(true);
 			expect(body.nextBefore).toBe(EVENT_CAP + 5);
 			expect(body.total).toBe(EVENT_CAP + 8);
+		});
+
+		test("history cache is bounded for resumed sessions and live events", async () => {
+			const projectDataDir = mkdtempSync(join(tmpdir(), "sprout-web-history-cap-"));
+			const initialEvents = Array.from({ length: HISTORY_CACHE_CAP + 50 }, (_, index) => ({
+				kind: "warning" as const,
+				timestamp: index + 1,
+				agent_id: "cli",
+				depth: 0,
+				data: {},
+			}));
+			server = new WebServer({
+				bus,
+				port,
+				staticDir,
+				sessionId: "test-session",
+				projectDataDir,
+				initialEvents,
+			});
+			await startServer();
+
+			// The resumed cache keeps only the newest HISTORY_CACHE_CAP events.
+			let resp = await fetch(`http://localhost:${port}/api/events?before=0&limit=5`);
+			expect(resp.status).toBe(200);
+			let body = (await resp.json()) as {
+				events: SessionEvent[];
+				hasMore: boolean;
+				total: number;
+			};
+			expect(body.total).toBe(HISTORY_CACHE_CAP);
+			expect(body.events.map((event) => event.timestamp)).toEqual([
+				HISTORY_CACHE_CAP + 46,
+				HISTORY_CACHE_CAP + 47,
+				HISTORY_CACHE_CAP + 48,
+				HISTORY_CACHE_CAP + 49,
+				HISTORY_CACHE_CAP + 50,
+			]);
+
+			// Live events keep appending, but the cache stays bounded.
+			const liveCount = HISTORY_CACHE_CAP + 100;
+			for (let index = 1; index <= liveCount; index++) {
+				bus.emitEvent("warning", "root", 0, { n: index });
+			}
+			resp = await fetch(`http://localhost:${port}/api/events?before=0&limit=5`);
+			expect(resp.status).toBe(200);
+			body = (await resp.json()) as {
+				events: SessionEvent[];
+				hasMore: boolean;
+				total: number;
+			};
+			expect(body.total).toBeLessThanOrEqual(HISTORY_CACHE_CAP * 2);
+			expect(body.total).toBeGreaterThanOrEqual(HISTORY_CACHE_CAP);
+			// The newest live event is still the tail of the history.
+			expect(body.events[body.events.length - 1]!.data.n).toBe(liveCount);
 		});
 	});
 
@@ -1343,9 +1545,13 @@ describe("WebServer", () => {
 			const ws = await connect(`ws://localhost:${port2}/ws`);
 			clients.push(ws);
 			const messages = collectMessages(ws);
+			const countTaskUpdates = () =>
+				messages.filter((m) => m.type === "event" && m.event.kind === "task_update").length;
 
-			// Wait for snapshot (and possible seed task_update) to arrive
-			await delay(200);
+			// Wait for the seed task_update that follows the snapshot on connect
+			// (tasks.json exists, so the seed is always sent)
+			await waitFor(() => countTaskUpdates() >= 1);
+			const seedCount = countTaskUpdates();
 
 			// Simulate task-cli exec: primitive_start then primitive_end
 			bus.emitEvent("primitive_start", "agent-1", 1, {
@@ -1358,8 +1564,8 @@ describe("WebServer", () => {
 				args: { command: "task-cli update 1 --status done" },
 			});
 
-			// Wait for the async emitTaskUpdate to complete
-			await delay(500);
+			// Wait for the async emitTaskUpdate triggered by the exec completion
+			await waitFor(() => countTaskUpdates() > seedCount);
 
 			// Find task_update events among all received messages
 			const taskUpdateMsgs = messages.filter(
@@ -1367,8 +1573,7 @@ describe("WebServer", () => {
 					m.type === "event" && m.event.kind === "task_update",
 			);
 
-			// Should have at least one task_update from the exec completion
-			// (may also have the seed task_update from initial connect)
+			// Should have the exec-completion task_update beyond the seed
 			expect(taskUpdateMsgs.length).toBeGreaterThanOrEqual(1);
 
 			const lastTaskUpdate = taskUpdateMsgs[taskUpdateMsgs.length - 1]!;
@@ -1406,9 +1611,13 @@ describe("WebServer", () => {
 			const ws = await connect(`ws://localhost:${port2}/ws`);
 			clients.push(ws);
 			const messages = collectMessages(ws);
+			const countTaskUpdates = () =>
+				messages.filter((m) => m.type === "event" && m.event.kind === "task_update").length;
 
-			// Wait for snapshot (and possible seed task_update) to arrive
-			await delay(200);
+			// Wait for the seed task_update that follows the snapshot on connect
+			// (tasks.json exists, so the seed is always sent)
+			await waitFor(() => countTaskUpdates() >= 1);
+			const seedCount = countTaskUpdates();
 
 			// Simulate direct task-cli primitive: name is "task-cli", not "exec"
 			bus.emitEvent("primitive_start", "agent-1", 1, {
@@ -1421,8 +1630,8 @@ describe("WebServer", () => {
 				args: { command: "update", id: "1", status: "done" },
 			});
 
-			// Wait for the async emitTaskUpdate to complete
-			await delay(500);
+			// Wait for the async emitTaskUpdate triggered by the primitive completion
+			await waitFor(() => countTaskUpdates() > seedCount);
 
 			// Find task_update events among all received messages
 			const taskUpdateMsgs = messages.filter(
@@ -1430,7 +1639,7 @@ describe("WebServer", () => {
 					m.type === "event" && m.event.kind === "task_update",
 			);
 
-			// Should have at least one task_update from the primitive completion
+			// Should have the primitive-completion task_update beyond the seed
 			expect(taskUpdateMsgs.length).toBeGreaterThanOrEqual(1);
 
 			const lastTaskUpdate = taskUpdateMsgs[taskUpdateMsgs.length - 1]!;
@@ -1581,7 +1790,7 @@ describe("WebServer", () => {
 			await server2.stop();
 		});
 
-		test("seedTasksForClient sends synthetic task_update on connect when tasks.json exists", async () => {
+		test("connecting seeds a synthetic task_update when tasks.json exists", async () => {
 			const dataDir = mkdtempSync(join(tmpdir(), "sprout-seed-tasks-"));
 			const logsDir = join(dataDir, "logs", "seed-session");
 			mkdirSync(logsDir, { recursive: true });
@@ -1621,7 +1830,62 @@ describe("WebServer", () => {
 			await server2.stop();
 		});
 
-		test("seedTasksForClient does not send synthetic event when task_update already in buffer", async () => {
+		test("synthetic task_update seed does not skew /api/events pagination (A-F15)", async () => {
+			const dataDir = mkdtempSync(join(tmpdir(), "sprout-seed-paging-"));
+			const logsDir = join(dataDir, "logs");
+			mkdirSync(join(logsDir, "seed-page-session"), { recursive: true });
+			writeFileSync(
+				join(logsDir, "seed-page-session.jsonl"),
+				Array.from({ length: 30 }, (_, index) => eventLine("warning", index + 1)).join("\n"),
+			);
+			writeFileSync(
+				join(logsDir, "seed-page-session", "tasks.json"),
+				JSON.stringify({
+					tasks: [{ id: "1", description: "Seeded task", status: "new" }],
+				}),
+			);
+
+			const server2 = new WebServer({
+				bus,
+				port: 0,
+				staticDir,
+				sessionId: "seed-page-session",
+				projectDataDir: dataDir,
+			});
+			await server2.start();
+			try {
+				const ws = await connect(`ws://localhost:${server2.getPort()}/ws`);
+				clients.push(ws);
+				const snapshot = await nextMessage(ws);
+				expect(snapshot.type).toBe("snapshot");
+				if (snapshot.type !== "snapshot") throw new Error("Expected snapshot");
+				const seedMsg = await nextMessage(ws);
+				expect(seedMsg.type).toBe("event");
+				if (seedMsg.type !== "event") throw new Error("Expected event");
+				expect(seedMsg.event.kind).toBe("task_update");
+
+				// The client now holds the snapshot events plus the seed, and uses
+				// that count as its first loadOlderEvents cursor. Every history
+				// event it does not hold must come back — none skipped.
+				const held = snapshot.events.length + 1;
+				const resp = await fetch(
+					`http://localhost:${server2.getPort()}/api/events?before=${held}&limit=1000`,
+				);
+				expect(resp.status).toBe(200);
+				const body = (await resp.json()) as {
+					events: SessionEvent[];
+					hasMore: boolean;
+				};
+				expect(body.events.map((event) => event.timestamp)).toEqual(
+					Array.from({ length: 30 }, (_, index) => index + 1),
+				);
+				expect(body.hasMore).toBe(false);
+			} finally {
+				await server2.stop();
+			}
+		});
+
+		test("connecting does not seed a synthetic event when task_update already in buffer", async () => {
 			const dataDir = mkdtempSync(join(tmpdir(), "sprout-seed-exists-"));
 			const logsDir = join(dataDir, "logs", "seed-exists-session");
 			mkdirSync(logsDir, { recursive: true });

@@ -70,8 +70,8 @@ export async function recall(
 }
 
 /**
- * Render memories as an XML block for injection into the system prompt.
- * Spec Section 5.4: <memories>...</memories>
+ * Render memories as an XML block for injection into the system prompt,
+ * wrapped in <memory_context>...</memory_context> (see render-memory-block).
  */
 export function renderMemories(memories: Memory[]): string {
 	return renderMemoryBlock(memories);

@@ -30,8 +30,10 @@ export interface StatusBarProps {
 	activeWork?: ActiveAgentWork | null;
 	onInterrupt?: () => void;
 	onSwitchModel?: (selection: SessionModelSelection) => void;
+	onOpenSessions?: () => void;
 	onOpenSettings?: () => void;
 	onToggleTheme?: () => void;
+	onToggleSidebar?: () => void;
 	theme?: string;
 }
 
@@ -237,8 +239,10 @@ export function StatusBar({
 	activeWork,
 	onInterrupt,
 	onSwitchModel,
+	onOpenSessions,
 	onOpenSettings,
 	onToggleTheme,
+	onToggleSidebar,
 	theme,
 }: StatusBarProps) {
 	const {
@@ -271,6 +275,20 @@ export function StatusBar({
 
 	return (
 		<div className={styles.statusBar}>
+			{/* Sidebar toggle — only shown on narrow viewports where the sidebar is an overlay */}
+			{onToggleSidebar && (
+				<button
+					type="button"
+					className={styles.menuButton}
+					data-action="toggle-sidebar"
+					onClick={onToggleSidebar}
+					aria-label="Toggle sidebar"
+					title="Toggle sidebar"
+				>
+					{"☰"}
+				</button>
+			)}
+
 			{/* Connection + status */}
 			<div className={styles.group}>
 				<span className={styles.connectionDot} data-connected={String(connected)} />
@@ -385,6 +403,17 @@ export function StatusBar({
 					title="Interrupt (Esc)"
 				>
 					Stop
+				</button>
+			)}
+
+			{onOpenSessions && (
+				<button
+					type="button"
+					className={styles.settingsButton}
+					data-action="open-sessions"
+					onClick={onOpenSessions}
+				>
+					Sessions
 				</button>
 			)}
 

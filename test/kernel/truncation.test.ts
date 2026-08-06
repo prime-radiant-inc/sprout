@@ -5,6 +5,7 @@ import {
 	truncateLines,
 	truncateOutput,
 	truncateToolOutput,
+	truncateToolOutputDetailed,
 } from "../../src/kernel/truncation.ts";
 
 describe("truncateOutput (character-based)", () => {
@@ -131,5 +132,46 @@ describe("truncateToolOutput (combined pipeline)", () => {
 		// Verify it actually truncated (original was 500 chars of content)
 		const xCount = (result.match(/x/g) || []).length;
 		expect(xCount).toBe(100);
+	});
+});
+
+describe("truncateToolOutputDetailed", () => {
+	test("untruncated output reports truncated: false and identical text", () => {
+		const output = "short\noutput";
+		const detailed = truncateToolOutputDetailed(output, "exec");
+		expect(detailed).toEqual({ text: output, truncated: false, droppedLines: 0, droppedChars: 0 });
+	});
+
+	test("line-pass truncation reports exact dropped lines and matches truncateToolOutput", () => {
+		const output = Array.from({ length: 300 }, (_, i) => `line ${i + 1}`).join("\n");
+		const detailed = truncateToolOutputDetailed(output, "exec");
+		expect(detailed.truncated).toBe(true);
+		expect(detailed.droppedLines).toBe(44);
+		expect(detailed.text).toBe(truncateToolOutput(output, "exec"));
+	});
+
+	test("char-pass truncation of a single mega line reports dropped chars", () => {
+		const output = "x".repeat(60_000);
+		const detailed = truncateToolOutputDetailed(output, "read_file");
+		expect(detailed.truncated).toBe(true);
+		expect(detailed.droppedChars).toBe(10_000);
+		expect(detailed.text).toBe(truncateToolOutput(output, "read_file"));
+	});
+
+	test("a custom marker replaces the default omission markers", () => {
+		const output = Array.from({ length: 300 }, (_, i) => `line ${i + 1}`).join("\n");
+		const detailed = truncateToolOutputDetailed(output, "exec", undefined, "[CUSTOM MARKER]");
+		expect(detailed.text).toContain("[CUSTOM MARKER]");
+		expect(detailed.text).not.toContain("lines omitted");
+	});
+
+	test("a custom marker appears exactly once when both passes trip", () => {
+		// grep: 20k char limit (tail mode puts the char marker at the TOP, where
+		// the 200-line pass keeps it) and both passes trip.
+		const output = Array.from({ length: 3_000 }, (_, i) => `l ${i + 1} xxxx`).join("\n");
+		const marker = "[MARKER ⟦grep_output⟧]";
+		const detailed = truncateToolOutputDetailed(output, "grep", undefined, marker);
+		expect(detailed.truncated).toBe(true);
+		expect(detailed.text.split(marker).length - 1).toBe(1);
 	});
 });

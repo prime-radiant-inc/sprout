@@ -9,10 +9,19 @@ export type Middleware = (
 	next: (request: Request) => Promise<Response>,
 ) => Promise<Response>;
 
+/**
+ * Observes the outgoing request at the moment it is dispatched to the adapter —
+ * on BOTH the complete() and stream() paths, unlike middleware which only wraps
+ * complete(). Purely read-only: the return value is ignored and the request/
+ * response are never altered, so observers cannot change production behavior.
+ */
+export type RequestObserver = (request: Request) => void;
+
 export interface ClientOptions {
 	providers?: Record<string, ProviderAdapter>;
 	defaultProvider?: string;
 	middleware?: Middleware[];
+	requestObservers?: RequestObserver[];
 	/** Max time (ms) between consecutive stream chunks. 0 to disable. */
 	streamReadTimeoutMs?: number;
 }
@@ -38,12 +47,14 @@ export class Client {
 	private adapters: Map<string, ProviderAdapter>;
 	private defaultProvider: string | undefined;
 	private middlewareChain: Middleware[];
+	private requestObservers: RequestObserver[];
 	private streamReadTimeoutMs: number;
 
 	constructor(options: ClientOptions = {}) {
 		this.adapters = new Map(Object.entries(options.providers ?? {}));
 		this.defaultProvider = options.defaultProvider;
 		this.middlewareChain = options.middleware ?? [];
+		this.requestObservers = options.requestObservers ?? [];
 		this.streamReadTimeoutMs = options.streamReadTimeoutMs ?? DEFAULT_STREAM_READ_TIMEOUT_MS;
 		if (
 			this.streamReadTimeoutMs !== 0 &&
@@ -115,6 +126,23 @@ export class Client {
 		});
 	}
 
+	/**
+	 * Register a request observer invoked with the request as it is dispatched to
+	 * the adapter, on both the complete() and stream() paths. Returns a function
+	 * that removes the observer.
+	 */
+	onRequest(observer: RequestObserver): () => void {
+		this.requestObservers.push(observer);
+		return () => {
+			const i = this.requestObservers.indexOf(observer);
+			if (i !== -1) this.requestObservers.splice(i, 1);
+		};
+	}
+
+	private notifyRequestObservers(request: Request): void {
+		for (const observer of this.requestObservers) observer(request);
+	}
+
 	/** List registered provider names */
 	providers(): string[] {
 		return [...this.adapters.keys()];
@@ -170,8 +198,13 @@ export class Client {
 	async complete(request: Request): Promise<Response> {
 		const adapter = this.resolveAdapter(request);
 
-		// Build the middleware chain
-		const baseCall = (req: Request) => adapter.complete(req);
+		// Build the middleware chain. The observer fires at the adapter-dispatch
+		// seam so it sees the exact request bytes handed to the provider, after any
+		// middleware transform.
+		const baseCall = (req: Request) => {
+			this.notifyRequestObservers(req);
+			return adapter.complete(req);
+		};
 		const chain = this.middlewareChain.reduceRight<(req: Request) => Promise<Response>>(
 			(next, mw) => (req) => mw(req, next),
 			baseCall,
@@ -183,6 +216,7 @@ export class Client {
 	/** Send a request and return an async iterator of stream events. */
 	async *stream(request: Request): AsyncIterable<StreamEvent> {
 		const adapter = this.resolveAdapter(request);
+		this.notifyRequestObservers(request);
 		const rawStream = adapter.stream(request);
 
 		if (this.streamReadTimeoutMs > 0) {

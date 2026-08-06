@@ -1,6 +1,8 @@
 import type { EntityLinkEntry } from "../kernel/types.ts";
 import type { Client } from "../llm/client.ts";
 import { Msg, messageText } from "../llm/types.ts";
+import { repairJson, stripCodeFence } from "./llm-json.ts";
+import { isEntityType } from "./memory-schema.ts";
 
 export interface SubcorticalEntityHint {
 	name: string;
@@ -98,30 +100,6 @@ function parseJsonObject(text: string): Record<string, unknown> {
 	return parsed;
 }
 
-function stripCodeFence(text: string): string {
-	const match = text.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/);
-	return match?.[1]?.trim() ?? text;
-}
-
-function repairJson(text: string): string {
-	return text
-		.replace(/[“”]/g, '"')
-		.replace(/[‘’]/g, "'")
-		.replace(/,\s*([}\]])/g, "$1");
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isEntityType(value: unknown): value is EntityLinkEntry["type"] {
-	return (
-		value === "PROJECT" ||
-		value === "LIBRARY" ||
-		value === "FILE_PATH" ||
-		value === "COMMAND" ||
-		value === "ERROR_TYPE" ||
-		value === "TECHNOLOGY" ||
-		value === "PERSON"
-	);
 }

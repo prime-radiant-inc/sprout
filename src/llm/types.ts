@@ -11,6 +11,8 @@ export enum ContentKind {
 	TOOL_RESULT = "tool_result",
 	THINKING = "thinking",
 	REDACTED_THINKING = "redacted_thinking",
+	/** Opaque, provider-owned reasoning state (e.g. an OpenAI encrypted reasoning item). */
+	PROVIDER_STATE = "provider_state",
 }
 
 export interface ContentPart {
@@ -20,6 +22,25 @@ export interface ContentPart {
 	tool_call?: ToolCallData;
 	tool_result?: ToolResultData;
 	thinking?: ThinkingData;
+	/**
+	 * Opaque provider-owned state carried on this part as a standalone block
+	 * (OpenAI Responses reasoning items). Persisted and replayed verbatim — never
+	 * parsed, re-rendered, or passed through transcript redaction.
+	 */
+	provider_state?: ProviderState;
+	/**
+	 * Gemini thought signature attached to this part. Opaque base64 that must be
+	 * replayed on the same part in the next request or the provider rejects the
+	 * turn. Persisted and replayed verbatim.
+	 */
+	thought_signature?: string;
+}
+
+/** Opaque provider state, keyed by provider + block type, stored byte-exact. */
+export interface ProviderState {
+	provider: string;
+	block_type: string;
+	data: Record<string, unknown>;
 }
 
 export interface ImageData {
@@ -147,7 +168,6 @@ export interface Request {
 	model: string;
 	messages: Message[];
 	provider?: string;
-	system?: string;
 	tools?: ToolDefinition[];
 	tool_choice?: "auto" | "none" | "required" | { name: string };
 	temperature?: number;

@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
 	bootstrapSessionRuntime,
 	buildOpenExternalUrlCommand,
@@ -239,6 +242,53 @@ describe("bootstrapSessionRuntime", () => {
 		);
 
 		expect((created.loggerOpts as any).stderrLevel).toBeUndefined();
+	});
+
+	test("uses the provided settingsPath to construct the real SettingsStore", async () => {
+		const tempDir = await mkdtemp(join(tmpdir(), "sprout-bootstrap-settings-"));
+		const settingsPath = join(tempDir, "settings.json");
+		try {
+			await writeFile(
+				settingsPath,
+				JSON.stringify({ ...createEmptySettings(), memoryMaintenance: "manual" }),
+				"utf-8",
+			);
+			const created: Record<string, unknown> = {};
+
+			await bootstrapSessionRuntime(
+				{
+					genomePath: "/tmp/genome",
+					projectDataDir: "/tmp/project",
+					rootDir: "/tmp/root",
+					sessionId: "01BOOT",
+					settingsPath,
+					infra: {
+						spawner: { id: "spawner" } as any,
+						genome: { id: "genome" } as any,
+					},
+				},
+				{
+					createBus: () => ({ id: "bus" }),
+					createSecretStore: () => keychainSecretStore(),
+					createProviderRegistry: () => emptyRegistry(),
+					createLogger: () => ({ info: () => {} }),
+					createClient: async () => ({ id: "client" }),
+					createSettingsControlPlane: (options) => {
+						created.initialSettings = options.initialSettings;
+						return { id: "control-plane" };
+					},
+					createController: () => ({ sessionId: "01BOOT" }),
+					loadAvailableModels: async () => [],
+				},
+			);
+
+			// Only observable if bootstrap's default createSettingsStore actually
+			// pointed the real SettingsStore at settingsPath instead of the
+			// host-global default location.
+			expect((created.initialSettings as any).memoryMaintenance).toBe("manual");
+		} finally {
+			await rm(tempDir, { recursive: true, force: true });
+		}
 	});
 
 	test("imports env-backed settings only when the settings file is absent", async () => {
@@ -1069,6 +1119,87 @@ describe("bootstrapSessionRuntime", () => {
 			},
 			agentModelOverrides: {},
 		});
+	});
+
+	test("passes memory maintenance setting from the control plane into the controller", async () => {
+		const created: Record<string, unknown> = {};
+		const settings = { ...createEmptySettings(), memoryMaintenance: "manual" as const };
+
+		await bootstrapSessionRuntime(
+			{
+				genomePath: "/tmp/genome",
+				projectDataDir: "/tmp/project",
+				rootDir: "/tmp/root",
+				sessionId: "01BOOT",
+				infra: { spawner: { id: "spawner" } as any, genome: { id: "genome" } as any },
+			},
+			{
+				createBus: () => ({ id: "bus" }),
+				createLogger: () => ({ info: () => {} }),
+				createSettingsStore: () => ({
+					load: async () => ({
+						settings,
+						skipEnvImport: false,
+						source: "loaded" as const,
+					}),
+					save: async () => {},
+				}),
+				createSecretStore: () => memorySecretStore(),
+				createProviderRegistry: () => emptyRegistry(),
+				createClient: async () => ({ id: "client" }),
+				createSettingsControlPlane: () => ({
+					getSelectionContext: () => ({
+						settings: { providers: [], defaults: {}, memoryModels: {} },
+						catalog: [],
+					}),
+					getMemoryMaintenanceSetting: () => settings.memoryMaintenance,
+				}),
+				createController: (opts) => {
+					created.memoryMaintenance = opts.getMemoryMaintenanceSetting?.();
+					return { sessionId: "01BOOT" };
+				},
+				loadAvailableModels: async () => [],
+			},
+		);
+
+		expect(created.memoryMaintenance).toBe("manual");
+	});
+
+	test("defaults memory maintenance to auto when the control plane exposes no getter", async () => {
+		const created: Record<string, unknown> = {};
+
+		await bootstrapSessionRuntime(
+			{
+				genomePath: "/tmp/genome",
+				projectDataDir: "/tmp/project",
+				rootDir: "/tmp/root",
+				sessionId: "01BOOT",
+				infra: { spawner: { id: "spawner" } as any, genome: { id: "genome" } as any },
+			},
+			{
+				createBus: () => ({ id: "bus" }),
+				createLogger: () => ({ info: () => {} }),
+				createSettingsStore: () => ({
+					load: async () => ({
+						settings: createEmptySettings(),
+						skipEnvImport: false,
+						source: "loaded" as const,
+					}),
+					save: async () => {},
+				}),
+				createSecretStore: () => memorySecretStore(),
+				createProviderRegistry: () => emptyRegistry(),
+				createClient: async () => ({ id: "client" }),
+				createSettingsControlPlane: () => ({ id: "control-plane" }),
+				createController: (opts) => {
+					created.memoryMaintenance = opts.getMemoryMaintenanceSetting?.();
+					return { sessionId: "01BOOT" };
+				},
+				loadAvailableModels: async () => [],
+			},
+		);
+
+		expect(created.memoryMaintenance).toBe("auto");
 	});
 
 	test("rebuilds the runtime registry after provider settings change", async () => {

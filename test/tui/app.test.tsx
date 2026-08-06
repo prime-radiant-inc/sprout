@@ -108,6 +108,35 @@ async function flush() {
 	await sleep(15);
 }
 
+/**
+ * Deterministically move the picker highlight onto the row whose label matches
+ * `target`, pressing arrow-down until the frame shows it highlighted ("> "
+ * prefix). Blind fixed-count arrow sequences flake under parallel-suite load
+ * (a dropped/coalesced keypress selects the WRONG row and the test fails with
+ * a mismatched providerId); waiting on the rendered highlight cannot.
+ */
+async function pressDownUntilHighlighted(
+	stdin: { write(data: string): void },
+	lastFrame: () => string | undefined,
+	target: string,
+	maxPresses = 12,
+) {
+	// Exact row match: the picker can render the same model name in several
+	// rows (a tier row like "Fast · LM Studio · Qwen 2.5 Coder" AND the plain
+	// model row) — substring matching would stop on the wrong one.
+	const highlighted = () =>
+		(lastFrame() ?? "")
+			.split("\n")
+			.some((line) => line.trimStart() === `> ${target}` || line.trim() === `> ${target}`);
+	for (let i = 0; i < maxPresses; i++) {
+		if (highlighted()) return;
+		stdin.write("\x1B[B");
+		await waitFor(() => true);
+		await flush();
+	}
+	await waitFor(highlighted);
+}
+
 describe("App", () => {
 	afterEach(() => {
 		currentInstance?.unmount();
@@ -854,16 +883,7 @@ describe("App", () => {
 			return frame.includes("Select model") && frame.includes("Qwen 2.5 Coder");
 		});
 
-		stdin.write("\x1B[B");
-		await flush();
-		stdin.write("\x1B[B");
-		await flush();
-		stdin.write("\x1B[B");
-		await flush();
-		stdin.write("\x1B[B");
-		await flush();
-		stdin.write("\x1B[B");
-		await flush();
+		await pressDownUntilHighlighted(stdin, lastFrame, "Qwen 2.5 Coder");
 		stdin.write("\r");
 		await waitFor(() => commands.some((c) => c.kind === "switch_model"));
 
@@ -924,16 +944,7 @@ describe("App", () => {
 			return frame.includes("Select model") && frame.includes("Qwen 2.5 Coder");
 		});
 
-		stdin.write("\x1B[B");
-		await flush();
-		stdin.write("\x1B[B");
-		await flush();
-		stdin.write("\x1B[B");
-		await flush();
-		stdin.write("\x1B[B");
-		await flush();
-		stdin.write("\x1B[B");
-		await flush();
+		await pressDownUntilHighlighted(stdin, lastFrame, "Qwen 2.5 Coder");
 		stdin.write("\r");
 		await waitFor(() => commands.some((command) => command.kind === "switch_model"));
 

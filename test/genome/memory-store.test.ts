@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { memoryShortId } from "../../src/genome/memory-schema.ts";
@@ -37,13 +37,14 @@ describe("MemoryStore", () => {
 		expect(store.all()).toEqual([]);
 	});
 
-	test("add() appends memory and writes to JSONL file", async () => {
+	test("stage() adds memory in memory and save() writes it to JSONL file", async () => {
 		const filePath = join(tempDir, "add-test.jsonl");
 		const store = new MemoryStore(filePath);
 		await store.load();
 
 		const mem = makeMemory({ id: "mem-add-1", content: "first memory" });
-		await store.add(mem);
+		store.stage(mem);
+		await store.save();
 
 		// Verify in-memory
 		const all = store.all();
@@ -55,17 +56,6 @@ describe("MemoryStore", () => {
 		const parsed = JSON.parse(raw.trim());
 		expect(parsed.id).toBe("mem-add-1");
 		expect(parsed.content).toBe("first memory");
-	});
-
-	test("add() rolls back in-memory state when append fails", async () => {
-		const directoryPath = join(tempDir, "append-failure-directory");
-		await mkdir(directoryPath, { recursive: true });
-		const store = new MemoryStore(directoryPath);
-
-		await expect(store.add(makeMemory({ id: "phantom-memory" }))).rejects.toThrow();
-
-		expect(store.getById("phantom-memory")).toBeUndefined();
-		expect(store.all()).toEqual([]);
 	});
 
 	test("load() reads existing JSONL file", async () => {
@@ -101,9 +91,9 @@ describe("MemoryStore", () => {
 	test("search() finds by keyword in content", async () => {
 		const store = new MemoryStore(join(tempDir, "search-content.jsonl"));
 		await store.load();
-		await store.add(makeMemory({ id: "s1", content: "typescript compiler error" }));
-		await store.add(makeMemory({ id: "s2", content: "python runtime crash" }));
-		await store.add(makeMemory({ id: "s3", content: "typescript type inference" }));
+		store.stage(makeMemory({ id: "s1", content: "typescript compiler error" }));
+		store.stage(makeMemory({ id: "s2", content: "python runtime crash" }));
+		store.stage(makeMemory({ id: "s3", content: "typescript type inference" }));
 
 		const results = store.search("typescript");
 		expect(results.length).toBeGreaterThanOrEqual(2);
@@ -115,8 +105,8 @@ describe("MemoryStore", () => {
 	test("search() finds by keyword in tags", async () => {
 		const store = new MemoryStore(join(tempDir, "search-tags.jsonl"));
 		await store.load();
-		await store.add(makeMemory({ id: "t1", content: "some fact", tags: ["debugging", "nodejs"] }));
-		await store.add(makeMemory({ id: "t2", content: "another fact", tags: ["deployment"] }));
+		store.stage(makeMemory({ id: "t1", content: "some fact", tags: ["debugging", "nodejs"] }));
+		store.stage(makeMemory({ id: "t2", content: "another fact", tags: ["deployment"] }));
 
 		const results = store.search("debugging");
 		expect(results).toHaveLength(1);
@@ -128,11 +118,11 @@ describe("MemoryStore", () => {
 		await store.load();
 
 		// Recent memory, high confidence
-		await store.add(makeMemory({ id: "c1", content: "fresh knowledge", confidence: 1.0 }));
+		store.stage(makeMemory({ id: "c1", content: "fresh knowledge", confidence: 1.0 }));
 
 		// Old memory, should have decayed below 0.3
 		const sixtyDaysAgo = Date.now() - 60 * 24 * 60 * 60 * 1000;
-		await store.add(
+		store.stage(
 			makeMemory({
 				id: "c2",
 				content: "stale knowledge",
@@ -152,22 +142,22 @@ describe("MemoryStore", () => {
 		const store = new MemoryStore(join(tempDir, "search-inactive.jsonl"));
 		await store.load();
 
-		await store.add(makeMemory({ id: "active", content: "durable sqlite memory" }));
-		await store.add(
+		store.stage(makeMemory({ id: "active", content: "durable sqlite memory" }));
+		store.stage(
 			makeMemory({
 				id: "archived",
 				content: "durable sqlite memory",
 				archived_at: 123,
 			}),
 		);
-		await store.add(
+		store.stage(
 			makeMemory({
 				id: "superseded-field",
 				content: "durable sqlite memory",
 				superseded_by: "active",
 			}),
 		);
-		await store.add(
+		store.stage(
 			makeMemory({
 				id: "superseded-inbound",
 				content: "durable sqlite memory",
@@ -184,7 +174,7 @@ describe("MemoryStore", () => {
 		const store = new MemoryStore(join(tempDir, "search-limit.jsonl"));
 		await store.load();
 		for (let i = 0; i < 10; i++) {
-			await store.add(makeMemory({ id: `lim-${i}`, content: "common keyword here" }));
+			store.stage(makeMemory({ id: `lim-${i}`, content: "common keyword here" }));
 		}
 
 		const results = store.search("common keyword", 3);
@@ -194,7 +184,7 @@ describe("MemoryStore", () => {
 	test("search() returns empty for empty/whitespace query", async () => {
 		const store = new MemoryStore(join(tempDir, "search-empty.jsonl"));
 		await store.load();
-		await store.add(makeMemory({ content: "something" }));
+		store.stage(makeMemory({ content: "something" }));
 
 		expect(store.search("")).toEqual([]);
 		expect(store.search("   ")).toEqual([]);
@@ -206,7 +196,7 @@ describe("MemoryStore", () => {
 		await store.load();
 		const before = Date.now();
 		const mem = makeMemory({ id: "mu-1", use_count: 3, last_used: before - 10000 });
-		await store.add(mem);
+		store.stage(mem);
 
 		store.markUsed("mu-1");
 
@@ -218,7 +208,7 @@ describe("MemoryStore", () => {
 	test("markMentioned() increments mention count by short id", async () => {
 		const store = new MemoryStore(join(tempDir, "mentions.jsonl"));
 		await store.load();
-		await store.add(makeMemory({ id: "mention-target", content: "cited memory" }));
+		store.stage(makeMemory({ id: "mention-target", content: "cited memory" }));
 
 		const mentioned = store.markMentioned(
 			[memoryShortId("mention-target"), "mem_missing0"],
@@ -234,7 +224,7 @@ describe("MemoryStore", () => {
 	test("markMentioned() deduplicates repeated short ids per response", async () => {
 		const store = new MemoryStore(join(tempDir, "mentions-dedupe.jsonl"));
 		await store.load();
-		await store.add(makeMemory({ id: "repeat-target", content: "cited memory" }));
+		store.stage(makeMemory({ id: "repeat-target", content: "cited memory" }));
 
 		const shortId = memoryShortId("repeat-target");
 		store.markMentioned([shortId, shortId]);
@@ -245,7 +235,7 @@ describe("MemoryStore", () => {
 	test("markMentioned() falls back to derived short id when short_id is missing", async () => {
 		const store = new MemoryStore(join(tempDir, "mentions-derived-short-id.jsonl"));
 		await store.load();
-		await store.add(makeMemory({ id: "derived-target", content: "cited memory" }));
+		store.stage(makeMemory({ id: "derived-target", content: "cited memory" }));
 		const memory = store.getById("derived-target")!;
 		delete memory.short_id;
 
@@ -256,12 +246,12 @@ describe("MemoryStore", () => {
 		expect(memory.updated_at).toBe(1700000000000);
 	});
 
-	test("add() rejects short id collisions", async () => {
+	test("stage() rejects short id collisions", async () => {
 		const store = new MemoryStore(join(tempDir, "short-id-collision.jsonl"));
 		await store.load();
-		await store.add(makeMemory({ id: "first", short_id: "mem_deadbeef" }));
+		store.stage(makeMemory({ id: "first", short_id: "mem_deadbeef" }));
 
-		await expect(store.add(makeMemory({ id: "second", short_id: "mem_deadbeef" }))).rejects.toThrow(
+		expect(() => store.stage(makeMemory({ id: "second", short_id: "mem_deadbeef" }))).toThrow(
 			"short id collision",
 		);
 	});
@@ -287,7 +277,7 @@ describe("MemoryStore", () => {
 	test("getById() returns specific memory or undefined", async () => {
 		const store = new MemoryStore(join(tempDir, "getbyid.jsonl"));
 		await store.load();
-		await store.add(makeMemory({ id: "find-me" }));
+		store.stage(makeMemory({ id: "find-me" }));
 
 		expect(store.getById("find-me")).toBeDefined();
 		expect(store.getById("find-me")!.id).toBe("find-me");
@@ -298,8 +288,8 @@ describe("MemoryStore", () => {
 		const filePath = join(tempDir, "save-test.jsonl");
 		const store = new MemoryStore(filePath);
 		await store.load();
-		await store.add(makeMemory({ id: "save-1", content: "original" }));
-		await store.add(makeMemory({ id: "save-2", content: "also original" }));
+		store.stage(makeMemory({ id: "save-1", content: "original" }));
+		store.stage(makeMemory({ id: "save-2", content: "also original" }));
 
 		// Mutate in memory via markUsed
 		store.markUsed("save-1");
@@ -317,10 +307,12 @@ describe("MemoryStore", () => {
 		const filePath = join(tempDir, "merge-removed.jsonl");
 		const staleStore = new MemoryStore(filePath);
 		await staleStore.load();
-		await staleStore.add(makeMemory({ id: "removed-memory", confidence: 0.1 }));
+		staleStore.stage(makeMemory({ id: "removed-memory" }));
+		await staleStore.save();
 		const deletingStore = new MemoryStore(filePath);
 		await deletingStore.load();
-		const removed = deletingStore.pruneByConfidence(0.2);
+		deletingStore.getById("removed-memory")!.archived_at = Date.now();
+		const removed = deletingStore.removeArchivedOrSuperseded();
 		await deletingStore.save();
 		staleStore.getById("removed-memory")!.archived_at = Date.now();
 
@@ -328,12 +320,12 @@ describe("MemoryStore", () => {
 		await expect(staleStore.mergeLatestFromDisk()).rejects.toThrow("removed on disk");
 	});
 
-	test("add() throws on duplicate id", async () => {
+	test("stage() throws on duplicate id", async () => {
 		const filePath = join(tempDir, `memories-${Date.now()}.jsonl`);
 		const store = new MemoryStore(filePath);
 		await store.load();
-		await store.add(makeMemory({ id: "dup-1", content: "first" }));
-		await expect(store.add(makeMemory({ id: "dup-1", content: "second" }))).rejects.toThrow(
+		store.stage(makeMemory({ id: "dup-1", content: "first" }));
+		expect(() => store.stage(makeMemory({ id: "dup-1", content: "second" }))).toThrow(
 			/already exists/,
 		);
 	});

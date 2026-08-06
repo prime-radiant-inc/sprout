@@ -12,6 +12,7 @@ import { filterDuplicateDrafts } from "../genome/dedup.ts";
 import { extractMemoryDrafts, memoryFromDraft } from "../genome/extraction.ts";
 import type { Genome } from "../genome/genome.ts";
 import { incorporateExtractedMemories } from "../genome/memory-incorporation.ts";
+import type { Program } from "../genome/program.ts";
 import type { LearnSignal } from "../kernel/types.ts";
 import { DEFAULT_CONSTRAINTS, validateAgentName } from "../kernel/types.ts";
 import type { Client } from "../llm/client.ts";
@@ -22,6 +23,16 @@ import {
 	memoryReferenceIdsFromExtractionMessages,
 } from "./extraction-evidence.ts";
 import type { MetricsStore } from "./metrics-store.ts";
+import type { MutationIntent } from "./mutation-gate.ts";
+import {
+	type CellObservation,
+	curateAgents,
+	curateMemories,
+	curatePrograms,
+	detectRecurringPatterns,
+	detectRepairCandidates,
+	proposeProgramFromCandidate,
+} from "./quartermaster.ts";
 import { shouldLearn } from "./should-learn.ts";
 
 /**
@@ -45,11 +56,120 @@ export type LearnMutation =
 			agents: string[];
 			tags: string[];
 	  }
-	| { type: "create_routing_rule"; condition: string; preference: string; strength: number };
+	| { type: "create_routing_rule"; condition: string; preference: string; strength: number }
+	| { type: "create_program"; program: Program }
+	| { type: "retire_program"; program_name: string }
+	| { type: "retire_agent"; agent_name: string }
+	| { type: "retire_memory"; memory_id: string };
 
-type ReasonedLearnMutation = LearnMutation;
+/**
+ * A mutation's adoption INTENT (mutation-gate.ts): retirements are `curation`
+ * (rot removal — adopt on non-regression), everything else is `improvement`
+ * (must be significantly better). This is the single source of truth for the
+ * classification; the gate reads it to pick the A/B acceptance direction.
+ */
+export function mutationIntent(mutation: LearnMutation): MutationIntent {
+	switch (mutation.type) {
+		case "retire_program":
+		case "retire_agent":
+		case "retire_memory":
+			return "curation";
+		default:
+			return "improvement";
+	}
+}
+
+/**
+ * The verdict of the frozen adoption chokepoint (mutation-gate.ts) for one
+ * proposed genome mutation. `adopt:false` means it failed the multi-run A/B
+ * and/or the hidden canary suite and must NOT reach the genome.
+ */
+export interface MutationGateDecision {
+	adopt: boolean;
+	reason: string;
+}
+
+/**
+ * The single adoption authority the Learn loop consults BEFORE any genome
+ * mutation is applied. Production wires an implementation that snapshots the
+ * genome, applies the candidate mutation to the snapshot, runs the N-run eval
+ * arms + canary suite (evaluateMutationForAdoption in mutation-gate.ts), and
+ * returns the verdict. Offline tests inject a deterministic gate. When no gate
+ * is injected the loop takes the legacy direct-apply path for AGENT mutations
+ * only — the quartermaster (fabrication/repair/curation) path never runs
+ * ungated (see runQuartermaster).
+ */
+export interface MutationGate {
+	evaluate(mutation: LearnMutation): Promise<MutationGateDecision>;
+}
 
 const MEMORY_EXTRACTION_MUTATION_TYPE = "memory_extraction";
+
+/**
+ * Apply a structured mutation's genome operations to the given genome. Shared
+ * between the live adoption path (LearnProcess.applyMutation, which adds
+ * bookkeeping) and the snapshot mutation gate (live-mutation-gate.ts, which
+ * applies the candidate mutation to an isolated snapshot copy).
+ */
+export async function applyMutationToGenome(
+	genome: Genome,
+	mutation: LearnMutation,
+): Promise<void> {
+	switch (mutation.type) {
+		case "update_agent": {
+			const existing = genome.getAgent(mutation.agent_name);
+			if (!existing) {
+				throw new Error(`Cannot update agent '${mutation.agent_name}': not found`);
+			}
+			await genome.updateAgent({
+				...existing,
+				system_prompt: mutation.system_prompt,
+			});
+			break;
+		}
+		case "create_agent": {
+			validateAgentName(mutation.name);
+			await genome.addAgent({
+				name: mutation.name,
+				description: mutation.description,
+				system_prompt: mutation.system_prompt,
+				model: mutation.model,
+				tools: mutation.tools,
+				agents: mutation.agents,
+				constraints: { ...DEFAULT_CONSTRAINTS, can_spawn: false },
+				tags: mutation.tags,
+				version: 1,
+			});
+			break;
+		}
+		case "create_routing_rule": {
+			await genome.addRoutingRule({
+				id: `learn-rule-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+				condition: mutation.condition,
+				preference: mutation.preference,
+				strength: mutation.strength,
+				source: "learn",
+			});
+			break;
+		}
+		case "create_program": {
+			await genome.addProgram(mutation.program);
+			break;
+		}
+		case "retire_program": {
+			await genome.removeProgram(mutation.program_name);
+			break;
+		}
+		case "retire_agent": {
+			await genome.removeAgent(mutation.agent_name);
+			break;
+		}
+		case "retire_memory": {
+			await genome.retireMemory(mutation.memory_id, "curator-retired");
+			break;
+		}
+	}
+}
 
 export interface PendingEvaluation {
 	agentName: string;
@@ -66,10 +186,14 @@ export interface LearnProcessOptions {
 	client?: Client;
 	pendingEvaluationsPath?: string;
 	modelsByProvider?: Map<string, ProviderModel[]>;
-	providerIdOverride?: string;
 	resolverSettings?: ResolverSettings;
-	/** Structured logger for LLM call logging and diagnostics. */
-	logger?: import("../host/logger.ts").Logger;
+	/**
+	 * The frozen adoption chokepoint. When present, EVERY genome mutation (agent
+	 * or quartermaster proposal) must pass it before `applyMutation`. When absent,
+	 * agent mutations take the legacy direct-apply path and the quartermaster is
+	 * inert (never adopts ungated).
+	 */
+	mutationGate?: MutationGate;
 }
 
 export interface EvaluationResult {
@@ -95,6 +219,7 @@ export class LearnProcess {
 	private readonly queue: LearnSignal[] = [];
 	private readonly recentImprovements = new Set<string>();
 	private readonly pendingEvaluationsPath?: string;
+	private readonly mutationGate?: MutationGate;
 	private _pendingEvaluations: PendingEvaluation[] = [];
 
 	private processing = false;
@@ -107,6 +232,7 @@ export class LearnProcess {
 		this.events = options.events;
 		this.client = options.client;
 		this.pendingEvaluationsPath = options.pendingEvaluationsPath;
+		this.mutationGate = options.mutationGate;
 		if (this.client) {
 			const modelMap = options.modelsByProvider ?? new Map<string, ProviderModel[]>();
 			for (const providerId of this.client.providers()) {
@@ -129,15 +255,19 @@ export class LearnProcess {
 			} catch {
 				this.reasonerModel = undefined;
 			}
+			// C8 (Jesse's ruling): a catalog that resolves a best model but not a
+			// memory tier must not error every learn signal — the tier falls back
+			// to the best available model. Only a catalog with nothing resolvable
+			// leaves the models unset (extraction then fails loud per signal).
 			try {
 				this.extractionModel = resolveMemoryModel("extraction", resolverSettings, modelMap);
 			} catch {
-				this.extractionModel = undefined;
+				this.extractionModel = this.reasonerModel;
 			}
 			try {
 				this.relationshipModel = resolveMemoryModel("relationship", resolverSettings, modelMap);
 			} catch {
-				this.relationshipModel = undefined;
+				this.relationshipModel = this.reasonerModel;
 			}
 		}
 	}
@@ -162,6 +292,11 @@ export class LearnProcess {
 				error: String(err),
 			});
 		});
+	}
+
+	/** Whether the frozen adoption chokepoint is wired (gated adoption active). */
+	hasMutationGate(): boolean {
+		return this.mutationGate !== undefined;
 	}
 
 	/** Return a copy of all pending evaluations. */
@@ -235,7 +370,25 @@ export class LearnProcess {
 		await this.savePendingEvaluations();
 	}
 
-	/** Evaluate whether an improvement helped by comparing stumble rates before and after. */
+	/**
+	 * Evaluate whether an improvement helped by comparing stumble rates before and after.
+	 *
+	 * INTEGRATION POINT (sap spec §10, non-negotiable multi-run A/B): this
+	 * single before/after delta is exactly the noise the multi-run A/B gate
+	 * replaces — one sample per period cannot separate a real genome
+	 * improvement from RLM variance. When the eval harness can run each arm N
+	 * times (pinned eval-mode snapshots, same genome both arms), collect the
+	 * per-run stumble rates into two `ArmResult`s and gate acceptance on
+	 * `shouldAcceptMutation(treatment, baseline)` from ./multi-run-ab.ts instead
+	 * of the `delta` threshold below.
+	 *
+	 * Phase 5 status: the frozen two-gate adoption decision now lives in
+	 * `mutation-gate.ts` (evaluateMutationForAdoption) and is consulted BEFORE
+	 * apply via `adoptMutation` whenever a `MutationGate` is wired — that is the
+	 * sole path a mutation reaches the genome under integrity. This single-delta
+	 * method survives only as the LEGACY post-hoc rollback safety net for the
+	 * un-gated path (evaluatePendingImprovements); it is NOT the frozen gate.
+	 */
 	async evaluateImprovement(
 		agentName: string,
 		improvementTimestamp: number,
@@ -346,11 +499,14 @@ export class LearnProcess {
 			const mutation = await this.reasonAboutImprovement(signal);
 			let mutationApplied = false;
 			if (mutation) {
-				await this.applyMutation(mutation);
-				mutationApplied = true;
+				mutationApplied = await this.adoptMutation(mutation);
 			}
 
-			if (!memoryApplied && !mutationApplied) {
+			// Quartermaster fabrication/repair/curation — gated identically. Only
+			// runs when a chokepoint is wired (it must never adopt ungated).
+			const fabricated = await this.runQuartermaster();
+
+			if (!memoryApplied && !mutationApplied && !fabricated) {
 				this.events.emit("learn_end", signal.agent_name, 0, { result: "skipped" });
 				return "skipped";
 			}
@@ -358,9 +514,12 @@ export class LearnProcess {
 			// Mark this agent+kind as recently addressed to prevent redundant improvements
 			this.recentImprovements.add(`${signal.agent_name}:${signal.kind}`);
 
+			// Label the cycle by what actually applied: the reasoned mutation, a
+			// memory extraction, or (neither) a quartermaster adoption.
 			this.events.emit("learn_end", signal.agent_name, 0, {
 				result: "applied",
-				mutation_type: mutation?.type ?? MEMORY_EXTRACTION_MUTATION_TYPE,
+				mutation_type:
+					mutation?.type ?? (memoryApplied ? MEMORY_EXTRACTION_MUTATION_TYPE : "quartermaster"),
 				extracted_memories: memoryApplied,
 			});
 			return "applied";
@@ -373,8 +532,152 @@ export class LearnProcess {
 		}
 	}
 
+	/**
+	 * The SOLE gated adoption path (sap spec Phase 5). Route every proposed genome
+	 * mutation through the frozen chokepoint before it touches the genome: apply
+	 * ONLY on `adopt:true`. When no chokepoint is wired, AGENT mutations fall back
+	 * to legacy direct-apply (the post-hoc single-delta evaluatePendingImprovements
+	 * remains their rollback safety net); the quartermaster path never reaches
+	 * here without a gate. Returns whether the mutation was applied.
+	 */
+	async adoptMutation(mutation: LearnMutation): Promise<boolean> {
+		if (!this.mutationGate) {
+			await this.applyMutation(mutation);
+			return true;
+		}
+		const decision = await this.mutationGate.evaluate(mutation);
+		this.events.emit("learn_mutation", "learn", 0, {
+			mutation_type: "adoption_gate",
+			proposed: mutation.type,
+			adopt: decision.adopt,
+			reason: decision.reason,
+		});
+		if (!decision.adopt) return false;
+		await this.applyMutation(mutation);
+		return true;
+	}
+
+	/**
+	 * Derive `CellObservation[]` from the recorded cell_end events (spec §8): the
+	 * redacted cell code, the program it invoked (if any), and whether it
+	 * stumbled. This is the raw material the quartermaster reasons over.
+	 */
+	private cellObservations(): CellObservation[] {
+		const observations: CellObservation[] = [];
+		for (const event of this.events.collected()) {
+			if (event.kind !== "cell_end") continue;
+			const code = typeof event.data.code === "string" ? event.data.code : "";
+			if (code === "") continue;
+			const programs = event.data.programs as { name: string; version: number }[] | undefined;
+			observations.push({
+				code,
+				program: programs && programs.length > 0 ? programs[0] : undefined,
+				stumbled: event.data.success === false,
+			});
+		}
+		return observations;
+	}
+
+	/**
+	 * Wire the quartermaster (sap spec Phase 5): fabricate programs from recurring
+	 * cell shapes, flag stumbling programs for retirement, and curate library rot
+	 * — turning EACH proposal into a candidate mutation routed through the SAME
+	 * chokepoint (`adoptMutation`) as any other mutation. Fabrication/repair/
+	 * curation are ordinary gated mutations, never a bypass: this method is inert
+	 * unless a chokepoint is wired. Returns whether any proposal was adopted.
+	 */
+	async runQuartermaster(): Promise<boolean> {
+		if (!this.mutationGate) return false;
+		const observations = this.cellObservations();
+		let adopted = false;
+		// Programs fabricated in THIS pass have zero window invocations, so the
+		// curator (step 3) would immediately propose retiring them — and under the
+		// non-regression curation verdict that retirement could adopt, undoing the
+		// fabrication in the same cycle. Guard against that self-churn.
+		const fabricatedThisPass = new Set<string>();
+
+		// 1. Fabrication: recurring, non-program cell shapes → new programs.
+		for (const candidate of detectRecurringPatterns(observations)) {
+			if (this.genome.getProgram(candidate.proposedName)) continue;
+			let program: Program;
+			try {
+				program = proposeProgramFromCandidate(candidate);
+			} catch {
+				// A redaction-scrubbed body may carry an import token; skip it. The
+				// gate would reject it too, but never fabricating it is cheaper.
+				continue;
+			}
+			if (await this.adoptMutation({ type: "create_program", program })) {
+				adopted = true;
+				fabricatedThisPass.add(program.name);
+			}
+		}
+
+		// 2. Repair: programs stumbling at a high rate → propose retirement.
+		for (const repair of detectRepairCandidates(observations)) {
+			if (!this.genome.getProgram(repair.programName)) continue;
+			if (await this.adoptMutation({ type: "retire_program", program_name: repair.programName }))
+				adopted = true;
+		}
+
+		// 3. Curator: never-invoked programs + near-duplicates → retire. A
+		// consolidation keeps the first target and retires the rest.
+		for (const proposal of curatePrograms(this.genome.allPrograms(), observations)) {
+			const targets =
+				proposal.action === "consolidate" ? proposal.targets.slice(1) : proposal.targets;
+			for (const name of targets) {
+				if (fabricatedThisPass.has(name)) continue;
+				if (!this.genome.getProgram(name)) continue;
+				if (await this.adoptMutation({ type: "retire_program", program_name: name }))
+					adopted = true;
+			}
+		}
+
+		// 4. Agent curation: never-delegated overlay agents + near-duplicates →
+		// retire. Scoped to the OVERLAY: root agents are immutable (removeAgent
+		// rejects them) and only genome-evolved agents can rot. The usage signal
+		// is the collected act_end delegation targets — the genome keeps no
+		// per-agent use counter, so the event window is the honest signal.
+		const delegated = this.delegatedAgentNames();
+		for (const proposal of curateAgents(this.genome.overlayAgents(), {
+			delegatedAgentNames: delegated,
+		})) {
+			const targets =
+				proposal.action === "consolidate" ? proposal.targets.slice(1) : proposal.targets;
+			for (const name of targets) {
+				if (!this.genome.isOverlay(name)) continue;
+				if (await this.adoptMutation({ type: "retire_agent", agent_name: name })) adopted = true;
+			}
+		}
+
+		// 5. Memory curation: stale never-used low-confidence memories + content
+		// near-duplicates → retire (archived, not deleted — the memory lifecycle's
+		// retirement idiom, keeping the audit trail until log compaction).
+		for (const proposal of curateMemories(this.genome.memories.all())) {
+			const targets =
+				proposal.action === "consolidate" ? proposal.targets.slice(1) : proposal.targets;
+			for (const id of targets) {
+				const memory = this.genome.memories.getById(id);
+				if (!memory || memory.archived_at !== undefined) continue;
+				if (await this.adoptMutation({ type: "retire_memory", memory_id: id })) adopted = true;
+			}
+		}
+
+		return adopted;
+	}
+
+	/** Agent names seen as delegation targets in the collected act_end events. */
+	private delegatedAgentNames(): Set<string> {
+		const names = new Set<string>();
+		for (const event of this.events.collected()) {
+			if (event.kind !== "act_end") continue;
+			if (typeof event.data.agent_name === "string") names.add(event.data.agent_name);
+		}
+		return names;
+	}
+
 	/** Ask the LLM to reason about what mutation to make given a stumble signal. */
-	private async reasonAboutImprovement(signal: LearnSignal): Promise<ReasonedLearnMutation | null> {
+	private async reasonAboutImprovement(signal: LearnSignal): Promise<LearnMutation | null> {
 		if (!this.client || !this.reasonerModel) return null;
 
 		// Gather genome context for the LLM
@@ -483,7 +786,7 @@ Choose the most appropriate non-memory improvement. Use skip for factual learnin
 			} else {
 				return null; // unknown type
 			}
-			return parsed as ReasonedLearnMutation;
+			return parsed as LearnMutation;
 		} catch {
 			return null;
 		}
@@ -492,46 +795,8 @@ Choose the most appropriate non-memory improvement. Use skip for factual learnin
 	/** Apply a structured mutation to the genome. */
 	async applyMutation(mutation: LearnMutation): Promise<void> {
 		const now = Date.now();
-		const random = Math.random().toString(36).slice(2, 8);
 
-		switch (mutation.type) {
-			case "update_agent": {
-				const existing = this.genome.getAgent(mutation.agent_name);
-				if (!existing) {
-					throw new Error(`Cannot update agent '${mutation.agent_name}': not found`);
-				}
-				await this.genome.updateAgent({
-					...existing,
-					system_prompt: mutation.system_prompt,
-				});
-				break;
-			}
-			case "create_agent": {
-				validateAgentName(mutation.name);
-				await this.genome.addAgent({
-					name: mutation.name,
-					description: mutation.description,
-					system_prompt: mutation.system_prompt,
-					model: mutation.model,
-					tools: mutation.tools,
-					agents: mutation.agents,
-					constraints: { ...DEFAULT_CONSTRAINTS, can_spawn: false },
-					tags: mutation.tags,
-					version: 1,
-				});
-				break;
-			}
-			case "create_routing_rule": {
-				await this.genome.addRoutingRule({
-					id: `learn-rule-${now}-${random}`,
-					condition: mutation.condition,
-					preference: mutation.preference,
-					strength: mutation.strength,
-					source: "learn",
-				});
-				break;
-			}
-		}
+		await applyMutationToGenome(this.genome, mutation);
 
 		const commitHash = await this.genome.lastCommitHash();
 
@@ -546,16 +811,41 @@ Choose the most appropriate non-memory improvement. Use skip for factual learnin
 			description = `Created agent ${mutation.name}`;
 		} else if (mutation.type === "create_routing_rule") {
 			description = `Created routing rule: ${mutation.condition}`;
+		} else if (mutation.type === "create_program") {
+			agentName = mutation.program.name;
+			description = `Created program ${mutation.program.name}`;
+		} else if (mutation.type === "retire_program") {
+			agentName = mutation.program_name;
+			description = `Retired program ${mutation.program_name}`;
+		} else if (mutation.type === "retire_agent") {
+			agentName = mutation.agent_name;
+			description = `Retired agent ${mutation.agent_name}`;
+		} else if (mutation.type === "retire_memory") {
+			description = `Retired memory ${mutation.memory_id}`;
 		}
 
-		this._pendingEvaluations.push({
-			agentName,
-			mutationType: mutation.type,
-			timestamp: now,
-			commitHash,
-			description,
-		});
-		await this.savePendingEvaluations();
+		// The legacy single-delta rollback ledger (evaluatePendingImprovements) is
+		// valid ONLY for an un-gated AGENT mutation: the agent then acts under its
+		// name so the post-hoc stumble-rate delta has data. Enqueue exactly that
+		// and nothing else —
+		//  - gated mutations already passed the frozen N-run A/B + canary gate; the
+		//    noisy single delta must never override that verdict;
+		//  - non-agent mutations (programs, routing rules, retirements) accrue no
+		//    actions, so an entry could never reach the ≥5-action threshold and
+		//    would pile up in the ledger forever.
+		const evaluable =
+			this.mutationGate === undefined &&
+			(mutation.type === "update_agent" || mutation.type === "create_agent");
+		if (evaluable) {
+			this._pendingEvaluations.push({
+				agentName,
+				mutationType: mutation.type,
+				timestamp: now,
+				commitHash,
+				description,
+			});
+			await this.savePendingEvaluations();
+		}
 
 		this.events.emit("learn_mutation", "learn", 0, { mutation_type: mutation.type });
 	}
@@ -610,15 +900,11 @@ Choose the most appropriate non-memory improvement. Use skip for factual learnin
 		});
 		if (result.memories.length === 0) return false;
 
-		const commitHash = await this.genome.lastCommitHash();
-		this._pendingEvaluations.push({
-			agentName: "learn",
-			mutationType: MEMORY_EXTRACTION_MUTATION_TYPE,
-			timestamp: now,
-			commitHash,
-			description: `Extracted ${result.memories.length} memories from learn signal`,
-		});
-		await this.savePendingEvaluations();
+		// Memory extraction is not enqueued for post-hoc rollback: it has no agent
+		// that accrues actions, so the single-delta ledger could never evaluate it
+		// (an entry would accumulate forever). It is committed to the genome
+		// directly; a rollback net for memory extraction, if ever needed, is a
+		// separate mechanism, not this agent-stumble ledger.
 		this.events.emit("learn_mutation", "learn", 0, {
 			mutation_type: MEMORY_EXTRACTION_MUTATION_TYPE,
 			extracted_count: result.memories.length,

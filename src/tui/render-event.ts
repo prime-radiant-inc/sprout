@@ -173,6 +173,7 @@ export function renderEvent(event: SessionEvent): string | null {
 			return `${ind}\u276F ${data.goal}`;
 
 		case "recall":
+		case "cell_end":
 		case "plan_delta":
 		case "verify":
 		case "learn_signal":

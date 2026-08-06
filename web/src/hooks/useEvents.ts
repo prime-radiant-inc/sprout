@@ -18,6 +18,7 @@ import {
 	appendActiveWorkEvent,
 	initialActiveWorkEvents,
 } from "@shared/agent-display.ts";
+import { sessionScopedEventApplies } from "@shared/session-event-scope.ts";
 import { setPricingTable } from "../utils/pricing.ts";
 
 function eventKey(event: SessionEvent): string {
@@ -85,26 +86,6 @@ function cleanString(value: unknown): string | undefined {
 	return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-function memoryCollapseLifecycleApplies(
-	event: SessionEvent,
-	currentSessionId: string | undefined,
-	requireSessionId = false,
-): boolean {
-	const eventSessionId = cleanString(event.data.session_id);
-	if (requireSessionId && !eventSessionId) return false;
-	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
-}
-
-function sessionLifecycleApplies(
-	event: SessionEvent,
-	currentSessionId: string | undefined,
-	requireSessionId = false,
-): boolean {
-	const eventSessionId = cleanString(event.data.session_id);
-	if (requireSessionId && !eventSessionId) return false;
-	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
-}
-
 function memoryCollapseIsActive(
 	events: readonly SessionEvent[],
 	providedCurrentSessionId?: string,
@@ -120,7 +101,7 @@ function memoryCollapseIsActive(
 		) {
 			if (
 				(event.kind === "session_start" || event.kind === "interrupted") &&
-				!sessionLifecycleApplies(event, currentSessionId, sessionWasCleared)
+				!sessionScopedEventApplies(event, currentSessionId, sessionWasCleared)
 			) {
 				continue;
 			}
@@ -134,7 +115,7 @@ function memoryCollapseIsActive(
 			active = false;
 		}
 		if (event.kind !== "context_update") continue;
-		if (!memoryCollapseLifecycleApplies(event, currentSessionId, sessionWasCleared)) continue;
+		if (!sessionScopedEventApplies(event, currentSessionId, sessionWasCleared)) continue;
 		if (event.data.memory_collapse === "started") {
 			active = true;
 		}
@@ -159,7 +140,12 @@ export class EventStore {
 	status: SessionStatus = { ...INITIAL_STATUS };
 	settings: SettingsSnapshot | null = null;
 	lastSettingsResult: SettingsCommandResult | null = null;
-	private historyExtended = false;
+	/**
+	 * Retained-event cap. Loading older history on purpose raises it so the
+	 * loaded events are not immediately trimmed away; snapshots and
+	 * session_clear reset it to EVENT_CAP so live events stay bounded.
+	 */
+	private retainedEventCap = EVENT_CAP;
 	private eventKeys = new Set<string>();
 	private sessionScopedEventsRequireIds = false;
 
@@ -187,7 +173,7 @@ export class EventStore {
 					? deriveAvailableModels(snapshotSettings.catalog)
 					: (msg.session.availableModels ?? []);
 
-				this.historyExtended = false;
+				this.retainedEventCap = EVENT_CAP;
 				this.sessionScopedEventsRequireIds = msg.events.some(
 					(event) => event.kind === "session_clear",
 				);
@@ -232,12 +218,12 @@ export class EventStore {
 			case "event":
 				this.activeWorkEvents = appendActiveWorkEvent(this.activeWorkEvents, msg.event);
 				this.appendEvent(msg.event);
-				if (!this.historyExtended && this.events.length > EVENT_CAP) {
-					this.replaceEvents(this.events.slice(-EVENT_CAP));
+				if (this.events.length > this.retainedEventCap) {
+					this.replaceEvents(this.events.slice(-this.retainedEventCap));
 				}
 				this.applyEventToStatus(msg.event);
 				if (msg.event.kind === "session_clear") {
-					this.historyExtended = false;
+					this.retainedEventCap = EVENT_CAP;
 					// Clear prior events but keep the session_clear event itself
 					// so the UI can render a "New session started" message.
 					this.replaceEvents([msg.event]);
@@ -269,8 +255,8 @@ export class EventStore {
 
 	prependHistory(events: SessionEvent[]): void {
 		if (events.length === 0) return;
-		this.historyExtended = true;
 		this.replaceEvents(dedupeEvents([...events, ...this.events]));
+		this.retainedEventCap = Math.max(this.retainedEventCap, this.events.length);
 		this.notify();
 	}
 
@@ -296,7 +282,7 @@ export class EventStore {
 			case "session_start":
 				if (event.depth !== 0) break;
 				if (
-					!sessionLifecycleApplies(
+					!sessionScopedEventApplies(
 						event,
 						this.status.sessionId,
 						this.sessionScopedEventsRequireIds,
@@ -316,7 +302,7 @@ export class EventStore {
 			case "session_end":
 				if (event.depth !== 0) break;
 				if (
-					!sessionLifecycleApplies(
+					!sessionScopedEventApplies(
 						event,
 						this.status.sessionId,
 						this.sessionScopedEventsRequireIds,
@@ -335,7 +321,7 @@ export class EventStore {
 			case "interrupted":
 				if (event.depth !== 0) break;
 				if (
-					!sessionLifecycleApplies(
+					!sessionScopedEventApplies(
 						event,
 						this.status.sessionId,
 						this.sessionScopedEventsRequireIds,
@@ -359,7 +345,7 @@ export class EventStore {
 			case "context_update":
 				if (event.depth !== 0) break;
 				if (
-					!memoryCollapseLifecycleApplies(
+					!sessionScopedEventApplies(
 						event,
 						this.status.sessionId,
 						this.sessionScopedEventsRequireIds,

@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createResolverSettings } from "../../src/agents/model-resolver.ts";
@@ -11,10 +11,13 @@ import { AgentSpawner } from "../../src/bus/spawner.ts";
 import { agentInbox, agentReady } from "../../src/bus/topics.ts";
 import type { AgentMessageMessage, EventMessage, ResultMessage } from "../../src/bus/types.ts";
 import { Genome } from "../../src/genome/genome.ts";
+import type { HandleRegistrar, RegisterChildInput } from "../../src/host/handle-registrar.ts";
+import { hashToken } from "../../src/host/handle-registry.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { Request, Response } from "../../src/llm/types.ts";
 import { ContentKind, Msg, messageText } from "../../src/llm/types.ts";
 import { addr } from "../helpers/agent-address.ts";
+import { waitFor } from "../helpers/wait-for.ts";
 
 const AGENT_SPEC = {
 	name: "test-leaf",
@@ -97,6 +100,9 @@ function createInProcessSpawnFn(client: Client) {
 			genomePath: env.SPROUT_GENOME_PATH!,
 			client,
 			workDir: env.SPROUT_WORK_DIR!,
+			...(env.SPROUT_AUTH_URL && env.SPROUT_HANDLE_TOKEN
+				? { authChannel: { url: env.SPROUT_AUTH_URL, token: env.SPROUT_HANDLE_TOKEN } }
+				: {}),
 			signal: controller.signal,
 		});
 		return {
@@ -135,19 +141,33 @@ function delay(ms = 50): Promise<void> {
 describe("AgentSpawner", () => {
 	let server: BusServer;
 	let bus: BusClient;
+	let suiteTempDir: string;
+	let genomeTemplateDir: string;
 	let tempDir: string;
 	let genomeDir: string;
 	let spawner: AgentSpawner;
 
 	const SESSION_ID = "spawner-test-session";
 
-	beforeEach(async () => {
-		tempDir = await mkdtemp(join(tmpdir(), "sprout-spawner-"));
-		genomeDir = join(tempDir, "genome");
-		const genome = new Genome(genomeDir);
+	beforeAll(async () => {
+		// Build the genome once and copy it per test: init + addAgent run git
+		// commits, which are too slow to repeat for every test.
+		suiteTempDir = await mkdtemp(join(tmpdir(), "sprout-spawner-"));
+		genomeTemplateDir = join(suiteTempDir, "__genome-template");
+		const genome = new Genome(genomeTemplateDir);
 		await genome.init();
 		await genome.addAgent(AGENT_SPEC as any);
 		await genome.addAgent(OBSERVER_AGENT_SPEC as any);
+	});
+
+	afterAll(async () => {
+		await rm(suiteTempDir, { recursive: true, force: true });
+	});
+
+	beforeEach(async () => {
+		tempDir = await mkdtemp(join(suiteTempDir, "case-"));
+		genomeDir = join(tempDir, "genome");
+		await cp(genomeTemplateDir, genomeDir, { recursive: true });
 
 		server = new BusServer({ port: 0 });
 		await server.start();
@@ -159,7 +179,6 @@ describe("AgentSpawner", () => {
 	function spawnWithResolver(opts: SpawnAgentOptions) {
 		return spawner.spawnAgent({
 			...opts,
-			providerIdOverride: TEST_PROVIDER_ID,
 			resolverSettings: TEST_RESOLVER_SETTINGS,
 		});
 	}
@@ -298,7 +317,6 @@ describe("AgentSpawner", () => {
 					workDir: tempDir,
 					handleId,
 					evalMode: true,
-					providerIdOverride: TEST_PROVIDER_ID,
 					resolverSettings: TEST_RESOLVER_SETTINGS,
 				});
 
@@ -314,6 +332,91 @@ describe("AgentSpawner", () => {
 				await childBus.disconnect();
 			}
 		});
+
+		test("per-spawn model override travels on the StartMessage", async () => {
+			const handleId = "01SPAWNERMODELOVERRIDE0000";
+			const childBus = new BusClient(server.url);
+			const observerBus = new BusClient(server.url);
+			await childBus.connect();
+			await observerBus.connect();
+			let readyTimer: ReturnType<typeof setInterval> | undefined;
+			let resolveExit: ((code: number) => void) | undefined;
+			try {
+				spawner = new AgentSpawner(bus, server.url, SESSION_ID, () => {
+					readyTimer = setInterval(() => {
+						void childBus.publish(agentReady(SESSION_ID, handleId), JSON.stringify({ ok: true }));
+					}, 10);
+					return {
+						kill: () => {
+							if (readyTimer) clearInterval(readyTimer);
+							resolveExit?.(0);
+						},
+						exited: new Promise<number>((resolve) => {
+							resolveExit = resolve;
+						}),
+					};
+				});
+
+				const inboxPromise = observerBus.waitForMessage(agentInbox(SESSION_ID, handleId), 5_000);
+				const spawnPromise = spawner.spawnAgent({
+					agentName: "test-leaf",
+					genomePath: genomeDir,
+					caller: addr("root", 0),
+					goal: "Use fast tier",
+					blocking: false,
+					shared: false,
+					workDir: tempDir,
+					handleId,
+					model: "fast",
+					resolverSettings: TEST_RESOLVER_SETTINGS,
+				});
+				await expect(spawnPromise).resolves.toBe(handleId);
+
+				const startMessage = JSON.parse(await inboxPromise);
+				if (readyTimer) clearInterval(readyTimer);
+				expect(startMessage.model).toBe("fast");
+				expect(spawner.getHandle(handleId)?.model).toBe("fast");
+			} finally {
+				if (readyTimer) clearInterval(readyTimer);
+				await observerBus.disconnect();
+				await childBus.disconnect();
+			}
+		});
+
+		test("respawn re-applies the recorded model override", async () => {
+			const mockClient = createMockClient("Respawn result.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+			const handleId = "01SPAWNERMODELRESPAWN00000";
+
+			await spawnWithResolver({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: addr("root", 0),
+				goal: "First run",
+				blocking: true,
+				shared: false,
+				workDir: tempDir,
+				handleId,
+				model: "fast",
+			});
+
+			// Force the handle to the "exited/completed" state so message_agent respawns.
+			const handle = spawner.getHandle(handleId)!;
+			await handle.process.exited;
+			await waitFor(() => spawner.getHandle(handleId)?.status === "completed");
+
+			const observerBus = new BusClient(server.url);
+			await observerBus.connect();
+			try {
+				const inboxPromise = observerBus.waitForMessage(agentInbox(SESSION_ID, handleId), 5_000);
+				await spawner.messageAgent(handleId, "Second run", addr("root", 0), false);
+				const startMessage = JSON.parse(await inboxPromise);
+				expect(startMessage.kind).toBe("start");
+				expect(startMessage.model).toBe("fast");
+			} finally {
+				await observerBus.disconnect();
+			}
+		}, 15_000);
 
 		test("generates unique handle IDs for each spawn", async () => {
 			const mockClient = createMockClient("Done.");
@@ -502,6 +605,50 @@ describe("AgentSpawner", () => {
 			// afterEach cleanup doesn't race with its internal bus client
 			await spawner.shutdown();
 			await spawner.getHandle(handleId)!.process.exited;
+		}, 15_000);
+
+		test("untimed waitAgent (ambient handle.wait path) survives past waitTimeoutMs", async () => {
+			let releaseChild: (() => void) | undefined;
+			const mockClient = buildMockClient(async (_request: Request): Promise<Response> => {
+				await new Promise<void>((resolve) => {
+					releaseChild = resolve;
+				});
+				return {
+					id: "mock-untimed-wait-1",
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("Untimed wait result."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+				};
+			});
+
+			spawner = new AgentSpawner(
+				bus,
+				server.url,
+				SESSION_ID,
+				createInProcessSpawnFn(mockClient),
+				50,
+			);
+
+			const handleId = (await spawnWithResolver({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: addr("root", 0),
+				goal: "Slow background task",
+				blocking: false,
+				shared: false,
+				workDir: tempDir,
+			})) as string;
+
+			const waitPromise = spawner.waitAgent(handleId, undefined, { untimed: true });
+			while (!releaseChild) await delay(10);
+			await delay(120);
+			releaseChild();
+
+			const result = await waitPromise;
+			expect(result.output).toBe("Untimed wait result.");
+			expect(result.success).toBe(true);
 		}, 15_000);
 
 		test("blocking spawn waits past waitTimeoutMs for the child result", async () => {
@@ -882,8 +1029,7 @@ describe("AgentSpawner", () => {
 				"You wrote: start coding too early.",
 				addr("metacognitive", 1),
 				false,
-				undefined,
-				addr("root", 0),
+				{ callerTarget: addr("root", 0) },
 			);
 
 			expect(result).toBeUndefined();
@@ -916,8 +1062,7 @@ describe("AgentSpawner", () => {
 					"You wrote: start coding too early.",
 					addr("metacognitive", 1),
 					false,
-					undefined,
-					addr("root", 0),
+					{ callerTarget: addr("root", 0) },
 				),
 			).rejects.toThrow("could not be delivered");
 
@@ -945,8 +1090,7 @@ describe("AgentSpawner", () => {
 					"You wrote: start coding too early.",
 					addr("metacognitive", 1),
 					false,
-					undefined,
-					addr("root", 0),
+					{ callerTarget: addr("root", 0) },
 				),
 			).rejects.toThrow("could not be delivered");
 
@@ -1012,7 +1156,7 @@ describe("AgentSpawner", () => {
 				"Search memory only",
 				addr("root", 0),
 				true,
-				"Search memory only; do not mutate anything",
+				{ trustedUserInstruction: "Search memory only; do not mutate anything" },
 			);
 
 			expect(continueResult!.output).toBe("Continued.");
@@ -1141,7 +1285,7 @@ describe("AgentSpawner", () => {
 				"Search memory only",
 				addr("root", 0),
 				false,
-				"Search memory only; do not mutate anything",
+				{ trustedUserInstruction: "Search memory only; do not mutate anything" },
 			);
 			expect(messageResult).toBeUndefined();
 			await delay(25);
@@ -1820,7 +1964,6 @@ describe("AgentSpawner", () => {
 				genomePath: genomeDir,
 				caller: addr("root", 0),
 				workDir: tempDir,
-				providerIdOverride: TEST_PROVIDER_ID,
 				resolverSettings: TEST_RESOLVER_SETTINGS,
 			});
 
@@ -2053,7 +2196,6 @@ describe("AgentSpawner", () => {
 					shared: false,
 					workDir: tempDir,
 					handleId,
-					providerIdOverride: TEST_PROVIDER_ID,
 					resolverSettings: TEST_RESOLVER_SETTINGS,
 				});
 
@@ -2064,6 +2206,421 @@ describe("AgentSpawner", () => {
 			} finally {
 				if (readyTimer) clearInterval(readyTimer);
 				await childBus.disconnect();
+			}
+		}, 15_000);
+	});
+
+	describe("authenticated handle registration", () => {
+		/** Registrar test double that records every registration in order. */
+		class RecordingRegistrar implements HandleRegistrar {
+			calls: RegisterChildInput[] = [];
+			async registerChild(input: RegisterChildInput): Promise<void> {
+				this.calls.push(input);
+			}
+		}
+
+		/**
+		 * In-process spawn that records the env but runs the child without its
+		 * auth credentials — these unit tests use a fake channel URL that the
+		 * child could never actually connect to.
+		 */
+		function captureEnvSpawnFn(client: Client, envs: Record<string, string>[]) {
+			const inner = createInProcessSpawnFn(client);
+			return (handleId: string, env: Record<string, string>) => {
+				envs.push(env);
+				const { SPROUT_AUTH_URL: _url, SPROUT_HANDLE_TOKEN: _token, ...rest } = env;
+				return inner(handleId, rest);
+			};
+		}
+
+		test("registers the child before launch and injects auth env", async () => {
+			const registrar = new RecordingRegistrar();
+			const envs: Record<string, string>[] = [];
+			const mockClient = createMockClient("Done.");
+			let registeredBeforeSpawn = false;
+			const inner = captureEnvSpawnFn(mockClient, envs);
+			const spawnFn = (handleId: string, env: Record<string, string>) => {
+				registeredBeforeSpawn = registrar.calls.length === 1;
+				return inner(handleId, env);
+			};
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, spawnFn, undefined, undefined, {
+				url: "ws://127.0.0.1:9999",
+				registrar,
+			});
+
+			const result = (await spawnWithResolver({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: addr("root", 0),
+				goal: "Do the thing",
+				blocking: true,
+				shared: false,
+				workDir: tempDir,
+			})) as ResultMessage;
+			expect(result.success).toBe(true);
+
+			expect(registrar.calls).toHaveLength(1);
+			expect(registeredBeforeSpawn).toBe(true);
+			const call = registrar.calls[0]!;
+			expect(call.ownerId).toBe("root");
+			expect(call.depth).toBe(1);
+			expect(call.observerRemit).toBeUndefined();
+
+			const env = envs[0]!;
+			expect(env.SPROUT_AUTH_URL).toBe("ws://127.0.0.1:9999");
+			expect(env.SPROUT_HANDLE_TOKEN).toBeDefined();
+			expect(hashToken(env.SPROUT_HANDLE_TOKEN!)).toBe(call.tokenHash);
+			expect(call.handleId).toBe(env.SPROUT_HANDLE_ID!);
+		}, 15_000);
+
+		test("spawn without an auth channel injects no auth env", async () => {
+			const envs: Record<string, string>[] = [];
+			const mockClient = createMockClient("Done.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, captureEnvSpawnFn(mockClient, envs));
+
+			await spawnWithResolver({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: addr("root", 0),
+				goal: "Do the thing",
+				blocking: true,
+				shared: false,
+				workDir: tempDir,
+			});
+
+			expect(envs[0]!.SPROUT_AUTH_URL).toBeUndefined();
+			expect(envs[0]!.SPROUT_HANDLE_TOKEN).toBeUndefined();
+		}, 15_000);
+
+		test("a registrar rejection aborts the spawn before the process launches", async () => {
+			const registrar: HandleRegistrar = {
+				async registerChild() {
+					throw new Error("handle registration failed: duplicate");
+				},
+			};
+			let spawned = false;
+			const mockClient = createMockClient("Done.");
+			const spawnFn = (handleId: string, env: Record<string, string>) => {
+				spawned = true;
+				return createInProcessSpawnFn(mockClient)(handleId, env);
+			};
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, spawnFn, undefined, undefined, {
+				url: "ws://127.0.0.1:9999",
+				registrar,
+			});
+
+			await expect(
+				spawnWithResolver({
+					agentName: "test-leaf",
+					genomePath: genomeDir,
+					caller: addr("root", 0),
+					goal: "Do the thing",
+					blocking: true,
+					shared: false,
+					workDir: tempDir,
+				}),
+			).rejects.toThrow("handle registration failed: duplicate");
+			expect(spawned).toBe(false);
+			expect(spawner.getHandles()).toHaveLength(0);
+		}, 15_000);
+
+		test("observer spawned by root registers with a session remit", async () => {
+			const registrar = new RecordingRegistrar();
+			const mockClient = createMockClient("Observed.");
+			spawner = new AgentSpawner(
+				bus,
+				server.url,
+				SESSION_ID,
+				captureEnvSpawnFn(mockClient, []),
+				undefined,
+				undefined,
+				{ url: "ws://127.0.0.1:9999", registrar },
+			);
+
+			await spawnWithResolver({
+				agentName: "test-observer",
+				genomePath: genomeDir,
+				caller: addr("root", 0),
+				goal: "Observe",
+				blocking: true,
+				shared: false,
+				keepAlive: true,
+				isObserver: true,
+				workDir: tempDir,
+			});
+
+			expect(registrar.calls[0]!.observerRemit).toEqual({ kind: "session" });
+		}, 15_000);
+
+		test("observer spawned by a delegate registers with a delegate remit", async () => {
+			const registrar = new RecordingRegistrar();
+			const mockClient = createMockClient("Observed.");
+			spawner = new AgentSpawner(
+				bus,
+				server.url,
+				SESSION_ID,
+				captureEnvSpawnFn(mockClient, []),
+				undefined,
+				undefined,
+				{ url: "ws://127.0.0.1:9999", registrar },
+			);
+
+			await spawnWithResolver({
+				agentName: "test-observer",
+				genomePath: genomeDir,
+				caller: addr("test-parent", 1, undefined, "h-parent"),
+				goal: "Observe",
+				blocking: true,
+				shared: false,
+				keepAlive: true,
+				isObserver: true,
+				workDir: tempDir,
+			});
+
+			expect(registrar.calls[0]!.observerRemit).toEqual({
+				kind: "delegate",
+				ownerId: "h-parent",
+			});
+		}, 15_000);
+
+		test("re-spawning a completed handle re-registers it with a fresh token", async () => {
+			const registrar = new RecordingRegistrar();
+			const envs: Record<string, string>[] = [];
+			const mockClient = createMockClient("Done.");
+			spawner = new AgentSpawner(
+				bus,
+				server.url,
+				SESSION_ID,
+				captureEnvSpawnFn(mockClient, envs),
+				undefined,
+				undefined,
+				{ url: "ws://127.0.0.1:9999", registrar },
+			);
+
+			const handleId = (await spawnWithResolver({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: addr("root", 0),
+				goal: "First task",
+				blocking: false,
+				shared: false,
+				workDir: tempDir,
+			})) as string;
+			await spawner.waitAgent(handleId);
+			// Wait for the process exit to settle the handle as completed
+			await waitFor(() => spawner.getHandle(handleId)?.status === "completed");
+
+			const result = await spawner.messageAgent(handleId, "Second task", addr("root", 0), true);
+			expect(result!.success).toBe(true);
+
+			expect(registrar.calls).toHaveLength(2);
+			expect(registrar.calls[1]!.handleId).toBe(handleId);
+			expect(registrar.calls[1]!.tokenHash).not.toBe(registrar.calls[0]!.tokenHash);
+			expect(hashToken(envs[1]!.SPROUT_HANDLE_TOKEN!)).toBe(registrar.calls[1]!.tokenHash);
+		}, 15_000);
+
+		test("spawnAgent with env registers grants before launch and the StartMessage carries alias→ulid", async () => {
+			const registrar = new RecordingRegistrar();
+			const grantCalls: { recipientHandle: string; alias: string; ref: string }[] = [];
+			let grantsBeforeSpawn = -1;
+			const store = {
+				registerEnvGrant: async (recipientHandle: string, alias: string, ref: string) => {
+					grantCalls.push({ recipientHandle, alias, ref });
+					return { ulid: `ULID-${ref}` };
+				},
+			} as unknown as import("../../src/store/store-access.ts").StoreAccess;
+			const mockClient = createMockClient("Done.");
+			const inner = captureEnvSpawnFn(mockClient, []);
+			const spawnFn = (handleId: string, env: Record<string, string>) => {
+				grantsBeforeSpawn = grantCalls.length;
+				return inner(handleId, env);
+			};
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, spawnFn, undefined, undefined, {
+				url: "ws://127.0.0.1:9999",
+				registrar,
+				store,
+			});
+
+			const inbox: string[] = [];
+			const watcher = new BusClient(server.url);
+			await watcher.connect();
+			await watcher.subscribe(agentInbox(SESSION_ID, "env-child-1"), (payload) => {
+				inbox.push(payload);
+			});
+
+			const result = (await spawnWithResolver({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: addr("root", 0),
+				goal: "Use the schema",
+				blocking: true,
+				shared: false,
+				workDir: tempDir,
+				handleId: "env-child-1",
+				env: { api_schema: "schema", extra_notes: "notes" },
+			})) as ResultMessage;
+			expect(result.success).toBe(true);
+
+			expect(grantCalls).toEqual([
+				{ recipientHandle: "env-child-1", alias: "api_schema", ref: "schema" },
+				{ recipientHandle: "env-child-1", alias: "extra_notes", ref: "notes" },
+			]);
+			expect(grantsBeforeSpawn).toBe(2);
+
+			const start = inbox
+				.map((p) => JSON.parse(p) as { kind: string; env?: Record<string, string> })
+				.find((m) => m.kind === "start");
+			expect(start?.env).toEqual({ api_schema: "ULID-schema", extra_notes: "ULID-notes" });
+			await watcher.disconnect();
+		}, 15_000);
+
+		test("a rejected env grant fails the spawn before the process launches", async () => {
+			const registrar = new RecordingRegistrar();
+			const store = {
+				registerEnvGrant: async () => {
+					throw new Error('alias already bound in the recipient\'s scope: "api_schema"');
+				},
+			} as unknown as import("../../src/store/store-access.ts").StoreAccess;
+			let spawned = false;
+			const mockClient = createMockClient("Done.");
+			const inner = captureEnvSpawnFn(mockClient, []);
+			const spawnFn = (handleId: string, env: Record<string, string>) => {
+				spawned = true;
+				return inner(handleId, env);
+			};
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, spawnFn, undefined, undefined, {
+				url: "ws://127.0.0.1:9999",
+				registrar,
+				store,
+			});
+
+			await expect(
+				spawnWithResolver({
+					agentName: "test-leaf",
+					genomePath: genomeDir,
+					caller: addr("root", 0),
+					goal: "Use the schema",
+					blocking: true,
+					shared: false,
+					workDir: tempDir,
+					env: { api_schema: "schema" },
+				}),
+			).rejects.toThrow(/alias already bound/);
+			expect(spawned).toBe(false);
+		}, 15_000);
+
+		test("messageAgent with env registers grants and the ContinueMessage carries alias→ulid", async () => {
+			const registrar = new RecordingRegistrar();
+			const grantCalls: { recipientHandle: string; alias: string; ref: string }[] = [];
+			const store = {
+				registerEnvGrant: async (recipientHandle: string, alias: string, ref: string) => {
+					grantCalls.push({ recipientHandle, alias, ref });
+					return { ulid: `ULID-${ref}` };
+				},
+			} as unknown as import("../../src/store/store-access.ts").StoreAccess;
+			const mockClient = createMockClient("Done.");
+			spawner = new AgentSpawner(
+				bus,
+				server.url,
+				SESSION_ID,
+				captureEnvSpawnFn(mockClient, []),
+				undefined,
+				undefined,
+				{ url: "ws://127.0.0.1:9999", registrar, store },
+			);
+
+			const handleId = (await spawnWithResolver({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: addr("root", 0),
+				goal: "First task",
+				blocking: false,
+				shared: true,
+				workDir: tempDir,
+			})) as string;
+			await spawner.waitAgent(handleId);
+			await waitFor(() => spawner.getHandle(handleId)?.status === "idle");
+
+			const inbox: string[] = [];
+			const watcher = new BusClient(server.url);
+			await watcher.connect();
+			await watcher.subscribe(agentInbox(SESSION_ID, handleId), (payload) => {
+				inbox.push(payload);
+			});
+			await spawner.messageAgent(handleId, "Continue with this", addr("root", 0), false, {
+				envGrants: { follow_up: "notes" },
+			});
+			expect(grantCalls).toEqual([{ recipientHandle: handleId, alias: "follow_up", ref: "notes" }]);
+			await waitFor(() =>
+				inbox.some((p) => (JSON.parse(p) as { kind: string }).kind === "continue"),
+			);
+			const cont = inbox
+				.map((p) => JSON.parse(p) as { kind: string; env?: Record<string, string> })
+				.find((m) => m.kind === "continue");
+			expect(cont?.env).toEqual({ follow_up: "ULID-notes" });
+			await watcher.disconnect();
+		}, 15_000);
+
+		test("env without an authenticated store fails loudly", async () => {
+			const mockClient = createMockClient("Done.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+			await expect(
+				spawnWithResolver({
+					agentName: "test-leaf",
+					genomePath: genomeDir,
+					caller: addr("root", 0),
+					goal: "Use the schema",
+					blocking: true,
+					shared: false,
+					workDir: tempDir,
+					env: { api_schema: "schema" },
+				}),
+			).rejects.toThrow(/env grants require the authenticated store/);
+		}, 15_000);
+
+		test("end-to-end: a spawned child authenticates against the real host channel", async () => {
+			// Real registry + channel server + trusted registrar, in-process child
+			// that connects with the credentials from its spawn env.
+			const { HandleRegistry } = await import("../../src/host/handle-registry.ts");
+			const { AuthChannelServer } = await import("../../src/host/auth-channel.ts");
+			const { HostHandleRegistrar } = await import("../../src/host/handle-registrar.ts");
+
+			const registry = new HandleRegistry({ trustedRegistrarId: "sprout:host" });
+			const authServer = new AuthChannelServer({ port: 0, hostname: "127.0.0.1", registry });
+			await authServer.start();
+			try {
+				const registrar = new HostHandleRegistrar(registry, "sprout:host");
+				const mockClient = createMockClient("Done.");
+				spawner = new AgentSpawner(
+					bus,
+					server.url,
+					SESSION_ID,
+					createInProcessSpawnFn(mockClient),
+					undefined,
+					undefined,
+					{ url: authServer.url, registrar },
+				);
+
+				const handleId = (await spawnWithResolver({
+					agentName: "test-leaf",
+					genomePath: genomeDir,
+					caller: addr("root", 0),
+					goal: "Do the thing",
+					blocking: false,
+					shared: true,
+					workDir: tempDir,
+				})) as string;
+
+				// The child process holds an authenticated connection while alive.
+				await waitFor(() => registry.isLive(handleId));
+				await spawner.waitAgent(handleId);
+				expect(registry.get(handleId)?.ownerId).toBe("root");
+
+				// Shutdown drops the connection and clears liveness.
+				await spawner.shutdown();
+				await waitFor(() => !registry.isLive(handleId));
+			} finally {
+				await authServer.stop();
 			}
 		}, 15_000);
 	});

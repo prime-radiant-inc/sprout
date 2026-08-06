@@ -262,12 +262,19 @@ export function normalizeAgentConstraints(
 	return { ...DEFAULT_CONSTRAINTS, ...constraints } as AgentConstraints;
 }
 
+/** How an agent Acts: `tools` emits delegate/primitive tool calls (default,
+ * today's behavior); `code` emits one `cell` tool call per Act — the cell is
+ * the plan, and it reaches the world only through spawn() inside cells. */
+export type AgentActMode = "tools" | "code";
+
 /** Complete specification for an agent in the genome */
 export interface AgentSpec {
 	name: string;
 	description: string;
 	system_prompt: string;
 	model: string;
+	/** Act mode (sap spec §6). Absent means `tools` (today's behavior). */
+	act?: AgentActMode;
 	constraints: AgentConstraints;
 	tags: string[];
 	version: number;
@@ -293,6 +300,52 @@ export interface AgentSpec {
 	agents: string[];
 	/** Bag for unknown frontmatter fields that survive parse→serialize round-trips. */
 	_extra?: Record<string, unknown>;
+}
+
+/**
+ * Whether an agent spec is allowed to run with zero tools. Ordinary tool-less
+ * agents hallucinate tool calls, so the run loop rejects them — except two shapes:
+ *
+ * - Observer watchers: a tagged observer whose only job is to watch a frame and
+ *   optionally comment (no tools, no delegatable agents).
+ * - Pure single-turn completion agents: `tools: []` with `max_turns: 1`. One turn
+ *   with no tools cannot hallucinate a tool call into anything — it simply
+ *   completes with its reply (the utility/llm-call shape, spec §5).
+ */
+export function canRunWithoutTools(spec: AgentSpec): boolean {
+	const observerWatcher =
+		spec.tags.includes("observer") && spec.tools.length === 0 && spec.agents.length === 0;
+	const singleTurnCompletion = spec.tools.length === 0 && spec.constraints.max_turns === 1;
+	return observerWatcher || singleTurnCompletion;
+}
+
+/**
+ * Whether an agent spec may run in the owning agent's process instead of a
+ * subprocess (spec §5 featherweight placement). Restricted to single-turn,
+ * no-tool, no-spawn leaves — exactly the utility/llm-call shape — so a fan-out
+ * of many such calls avoids paying a subprocess + bus handshake per call.
+ * A spec wanting subcortical recall is ineligible: the in-process executor runs
+ * without the genome, so recall would silently vanish — breaking §5's
+ * identical-semantics guarantee. Such specs take the subprocess path.
+ */
+export function isFeatherweightEligible(spec: AgentSpec): boolean {
+	return (
+		spec.tools.length === 0 &&
+		spec.agents.length === 0 &&
+		spec.constraints.can_spawn === false &&
+		spec.constraints.max_turns === 1 &&
+		!isSubcorticalRecallEnabled(spec.subcortical_recall)
+	);
+}
+
+/** True when a spec's subcortical_recall config requests any recall. */
+function isSubcorticalRecallEnabled(
+	config: boolean | AgentSubcorticalRecallConfig | undefined,
+): boolean {
+	if (config === undefined || config === false) return false;
+	if (config === true) return true;
+	// A config object present means recall is configured on (its fields tune it).
+	return true;
 }
 
 /** Input collected during the Perceive phase */
@@ -330,6 +383,10 @@ export interface Delegation {
 	blocking?: boolean;
 	/** If true, the agent stays alive after completion and can receive follow-up messages. Default: false */
 	shared?: boolean;
+	/** Per-spawn model override (spec §5): a tier or "provider:model" selection string. */
+	model?: string;
+	/** Env grants for the child: alias → a value name or ulid in the caller's scope. */
+	env?: Record<string, string>;
 }
 
 /** Wait for a non-blocking agent to finish and collect its result */
@@ -347,6 +404,8 @@ export interface MessageAgentCommand {
 	message: string;
 	/** If false, returns immediately with an ack. Default: true */
 	blocking?: boolean;
+	/** Env grants for the target: alias → a value name or ulid in the caller's scope. */
+	env?: Record<string, string>;
 }
 
 export type AgentCommand = WaitAgentCommand | MessageAgentCommand;
@@ -377,6 +436,9 @@ export interface LearnSignal {
 	details: ActResult;
 	session_id: string;
 	timestamp: number;
+	/** Set for cell-originated spawns (sap spec §4 deviation #4): tags the
+	 * signal with the owning cell so cell-level verify never re-signals it. */
+	cell_id?: string;
 }
 
 export type LearnSignalKind = "error" | "retry" | "inefficiency" | "timeout" | "failure";
@@ -486,6 +548,36 @@ export interface PrimitiveResult {
 	output: string;
 	success: boolean;
 	error?: string;
+	/** Values this call bound into the sap store (capture, sap spec §2). */
+	boundValues?: Array<{ name: string; ulid: string; size: number }>;
+	/**
+	 * The call's RAW source content (sap spec §2: capture stores source bytes,
+	 * never renderings). Capture-capable primitives populate this — exec's raw
+	 * stdout (stderr separately), read_file's raw slice, grep's structured
+	 * matches as JSON, fetch's raw body. Capture layers (explicit bind and
+	 * registry auto-capture) bind from here; when absent, nothing is captured.
+	 */
+	captureSource?: {
+		content: string;
+		type: "text" | "json";
+		/** exec only: raw stderr, when non-empty. */
+		stderr?: string;
+	};
+	/**
+	 * Execution metrics for telemetry consumers (cell: computeTimeMs/totalMs).
+	 * Never rendered into the transcript.
+	 */
+	metrics?: Record<string, number>;
+	/**
+	 * Cell accounting (sap spec §4): failed-child count + own-error count.
+	 * When present, it replaces the at-most-1 boolean stumble in run counters.
+	 */
+	stumbleCount?: number;
+	/**
+	 * The failure was infrastructure (store restart, worker death, spawn
+	 * transport), not model error: zero stumbles, a warning event instead.
+	 */
+	infrastructure?: boolean;
 }
 
 export const EVENT_KINDS = [
@@ -503,6 +595,7 @@ export const EVENT_KINDS = [
 	"act_end",
 	"primitive_start",
 	"primitive_end",
+	"cell_end",
 	"verify",
 	"learn_signal",
 	"learn_start",
@@ -550,6 +643,7 @@ export interface Command {
 	data: Record<string, unknown>;
 }
 
+export type { ProjectSessionEntry, SessionListEntry } from "../host/session-metadata.ts";
 export type { SessionSelectionSnapshot } from "../host/session-selection.ts";
 export type {
 	SettingsCommand,

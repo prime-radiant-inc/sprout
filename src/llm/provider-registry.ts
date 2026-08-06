@@ -61,7 +61,16 @@ export class ProviderRegistry {
 		const provider = this.settings.providers.find((candidate) => candidate.id === providerId);
 		if (!provider) return undefined;
 		if (!this.cache.has(providerId)) {
-			this.cache.set(providerId, this.buildEntry(provider));
+			// Single-flight, but a REJECTED build (e.g. a transient locked-keychain
+			// secret read) must not poison the entry for the registry's lifetime —
+			// evict the slot on rejection so the next lookup retries.
+			this.cache.set(
+				providerId,
+				this.buildEntry(provider).catch((err) => {
+					this.cache.delete(providerId);
+					throw err;
+				}),
+			);
 		}
 		return this.cache.get(providerId);
 	}

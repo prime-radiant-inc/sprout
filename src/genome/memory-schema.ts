@@ -1,6 +1,23 @@
-import type { Memory } from "../kernel/types.ts";
+import type { EntityLinkEntry, Memory } from "../kernel/types.ts";
 
 export const MEMORY_SCHEMA_VERSION = 2;
+
+/** The canonical entity-link types (mirrors EntityLinkEntry["type"]). */
+export const ENTITY_TYPES = [
+	"PROJECT",
+	"LIBRARY",
+	"FILE_PATH",
+	"COMMAND",
+	"ERROR_TYPE",
+	"TECHNOLOGY",
+	"PERSON",
+] as const satisfies readonly EntityLinkEntry["type"][];
+
+const ENTITY_TYPE_SET: ReadonlySet<string> = new Set(ENTITY_TYPES);
+
+export function isEntityType(value: unknown): value is EntityLinkEntry["type"] {
+	return typeof value === "string" && ENTITY_TYPE_SET.has(value);
+}
 
 type RawRecord = Record<string, unknown>;
 

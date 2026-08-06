@@ -1,6 +1,6 @@
 ---
 name: tech-lead
-description: "Manage the full implementation cycle for a single task: dispatch engineer, run two-stage review, iterate until approved"
+description: "Implement changes that must actually touch files — from a one-line config edit to a multi-file feature. Manages the full cycle for a single task: dispatch engineer, run two-stage review, iterate until approved. The agent to use when a task needs real file writes"
 model: balanced
 tools: []
 agents: []

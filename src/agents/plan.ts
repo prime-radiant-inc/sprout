@@ -1,5 +1,5 @@
 import type { AgentAddress } from "../bus/types.ts";
-import type { AgentFileInfo, AgentToolDefinition } from "../genome/genome.ts";
+import type { AgentToolDefinition } from "../genome/genome.ts";
 import { renderMemories, renderRoutingHints } from "../genome/recall.ts";
 import type {
 	AgentCommand,
@@ -17,6 +17,7 @@ import type { Message, Request, ToolCall, ToolDefinition } from "../llm/types.ts
 import { Msg } from "../llm/types.ts";
 import type { ProviderKind } from "../shared/provider-settings.ts";
 import { getToolDisplayName } from "../shared/tool-display.ts";
+import { asRecord } from "../util/record.ts";
 import { normalizeTaskPayload } from "./delegation-payload.ts";
 import type { Preambles } from "./loader.ts";
 
@@ -30,20 +31,22 @@ const DEFAULT_PLAN_MAX_TOKENS = 16_384;
  * Agent descriptions are listed in the system prompt; the tool accepts agent_name + goal + hints.
  * This keeps the tool list stable (preserving prompt cache) when agents are added/removed.
  */
-export function buildDelegateTool(agents: AgentSpec[]): ToolDefinition {
-	const nameList =
-		agents.length > 0 ? ` Known agents: ${agents.map((a) => a.name).join(", ")}.` : "";
+export function buildDelegateTool(): ToolDefinition {
+	// No embedded name list: the <agents> section already carries names AND
+	// descriptions, and repeating names here both costs tokens per turn and
+	// invalidates the prompt cache whenever the agent set changes.
 	return {
 		name: DELEGATE_TOOL_NAME,
 		displayName: getToolDisplayName(DELEGATE_TOOL_NAME),
 		description:
-			"Delegate a task to a specialist agent. See the <agents> section in your instructions for available agents and their descriptions.",
+			"Delegate a task to a specialist agent. When a task both reads AND writes files and you have no file tools yourself, hand the WHOLE job to ONE file-capable agent so the content stays in that agent's scope and never returns to you — do NOT read it into a value and try to relay it onward. Hand data you own BY REFERENCE: grant bound values via env (each binds into the child's scope); a value you RECEIVED from a child belongs to that child's scope and cannot be re-granted to another agent. Never paste file contents or credentials into goal text, and never read a value back to inspect or verify it — either one leaks it into the conversation. A large child result auto-binds into your scope as ⟦name⟧ for cells and splicing. See the <agents> section in your instructions for available agents and their descriptions.",
 		parameters: {
 			type: "object",
 			properties: {
 				agent_name: {
 					type: "string",
-					description: `Name or path of the agent to delegate to.${nameList}`,
+					description:
+						"Name or path of the agent to delegate to — see <agents> in your instructions.",
 				},
 				goal: {
 					type: "string",
@@ -73,6 +76,11 @@ export function buildDelegateTool(agents: AgentSpec[]): ToolDefinition {
 					type: "boolean",
 					description:
 						"If true, other agents (not just the spawning agent) can message_agent or wait_agent this handle. Default: false",
+				},
+				env: {
+					type: "object",
+					description:
+						"Grant the child bound values from your scope: alias → your bound value's NAME or ulid (not a file path). Each grant binds into the child's scope under the alias — the no-leak way to hand a child content or credentials.",
 				},
 			},
 			required: ["agent_name", "goal", "description"],
@@ -128,6 +136,11 @@ export function buildMessageAgentTool(): ToolDefinition {
 					type: "boolean",
 					description:
 						"If false, return immediately with an ack instead of waiting for a response. Default: true",
+				},
+				env: {
+					type: "object",
+					description:
+						"Give the target values from your scope: alias → your value name or ulid. Each granted value binds into the target's scope under the alias.",
 				},
 			},
 			required: ["handle", "message"],
@@ -396,11 +409,19 @@ function isAnthropicProvider(providerKind: ProviderKind | undefined, provider: s
 	return providerKind === "anthropic" || (providerKind === undefined && provider === "anthropic");
 }
 
-function asRecord(value: unknown): Record<string, unknown> {
-	if (value && typeof value === "object" && !Array.isArray(value)) {
-		return value as Record<string, unknown>;
+/** Narrow an untrusted `env` tool argument to a string → string map. */
+function parseEnvArgument(
+	raw: unknown,
+): { ok: true; env: Record<string, string> } | { ok: false; error: string } {
+	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+		return { ok: false, error: "'env' must be an object mapping alias → value name or ulid" };
 	}
-	return {};
+	for (const [alias, ref] of Object.entries(raw)) {
+		if (typeof ref !== "string" || ref.length === 0) {
+			return { ok: false, error: `'env.${alias}' must be a non-empty string value ref` };
+		}
+	}
+	return { ok: true, env: raw as Record<string, string> };
 }
 
 /** A delegation that failed validation (missing args, etc.) */
@@ -471,6 +492,18 @@ export function parsePlanResponse(
 				continue;
 			}
 			const hints = call.arguments.hints;
+			let env: Record<string, string> | undefined;
+			if (call.arguments.env !== undefined) {
+				const parsed = parseEnvArgument(call.arguments.env);
+				if (!parsed.ok) {
+					errors.push({
+						call_id: call.id,
+						error: `Agent delegation to '${agentName}': ${parsed.error}`,
+					});
+					continue;
+				}
+				env = parsed.env;
+			}
 			let payload: Record<string, unknown> | undefined;
 			if (call.arguments.payload !== undefined) {
 				try {
@@ -494,6 +527,7 @@ export function parsePlanResponse(
 					typeof call.arguments.description === "string" ? call.arguments.description : undefined,
 				hints: Array.isArray(hints) ? hints : undefined,
 				payload,
+				env,
 				blocking:
 					typeof call.arguments.blocking === "boolean" ? call.arguments.blocking : undefined,
 				shared: typeof call.arguments.shared === "boolean" ? call.arguments.shared : undefined,
@@ -525,6 +559,15 @@ export function parsePlanResponse(
 				});
 				continue;
 			}
+			let env: Record<string, string> | undefined;
+			if (call.arguments.env !== undefined) {
+				const parsed = parseEnvArgument(call.arguments.env);
+				if (!parsed.ok) {
+					errors.push({ call_id: call.id, error: `message_agent: ${parsed.error}` });
+					continue;
+				}
+				env = parsed.env;
+			}
 			agentCommands.push({
 				kind: "message_agent",
 				call_id: call.id,
@@ -532,6 +575,7 @@ export function parsePlanResponse(
 				message,
 				blocking:
 					typeof call.arguments.blocking === "boolean" ? call.arguments.blocking : undefined,
+				env,
 			});
 		} else {
 			primitiveCalls.push(call);
@@ -545,30 +589,11 @@ export function parsePlanResponse(
 // Workspace prompt sections
 // ---------------------------------------------------------------------------
 
-/** Format a byte count as a human-readable size string. */
-function formatSize(bytes: number): string {
-	if (bytes < 1024) return `${bytes}B`;
-	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-	return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-}
-
-/** Render an XML block listing the agent's workspace files. */
-export function renderWorkspaceFiles(files: AgentFileInfo[], filesDir: string): string {
-	if (files.length === 0) return "";
-	const entries = files.map((f) => `  - ${f.name}: ${formatSize(f.size)}`).join("\n");
-	return `\n\n<agent_files>\n${entries}\n  These files are in your workspace at ${filesDir}. Use read_file to access them.\n</agent_files>`;
-}
-
 /** Render an XML block listing the agent's workspace tools. */
 export function renderWorkspaceTools(tools: AgentToolDefinition[]): string {
 	if (tools.length === 0) return "";
 	const entries = tools.map((t) => `  - ${t.name}: ${t.description}`).join("\n");
 	return `\n\n<agent_tools>\n${entries}\n  These are tools you created. They are registered as primitives AND on your PATH for shell use.\n</agent_tools>`;
-}
-
-/** Return encouragement text for tool creation. */
-export function renderWorkspaceEncouragement(): string {
-	return `\n\nPrefer writing and saving tools over running ad-hoc commands. When you need to do something non-trivial, save a tool for it using save_tool — even if you'll only use it once this session. Tools persist across sessions and become part of your permanent capabilities. Your saved tools are on PATH and can be called directly from exec.`;
 }
 
 /**

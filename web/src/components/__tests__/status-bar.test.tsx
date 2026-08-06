@@ -336,4 +336,32 @@ describe("StatusBar", () => {
 		expect(html).toContain('data-action="open-settings"');
 		expect(html).toContain("Settings");
 	});
+
+	test("renders the sessions launcher only when its callback is provided", () => {
+		const withSessions = renderToStaticMarkup(
+			<StatusBar status={makeStatus()} connected={true} onOpenSessions={() => {}} />,
+		);
+		expect(withSessions).toContain('data-action="open-sessions"');
+		expect(withSessions).toContain("Sessions");
+		const without = renderToStaticMarkup(<StatusBar status={makeStatus()} connected={true} />);
+		expect(without).not.toContain('data-action="open-sessions"');
+	});
+
+	test("renders sidebar toggle when the callback is provided", () => {
+		const html = renderToStaticMarkup(
+			<StatusBar
+				status={makeStatus()}
+				connected={true}
+				onToggleSidebar={() => {}}
+			/>,
+		);
+		expect(html).toContain('data-action="toggle-sidebar"');
+	});
+
+	test("omits sidebar toggle when no callback is provided", () => {
+		const html = renderToStaticMarkup(
+			<StatusBar status={makeStatus()} connected={true} />,
+		);
+		expect(html).not.toContain('data-action="toggle-sidebar"');
+	});
 });

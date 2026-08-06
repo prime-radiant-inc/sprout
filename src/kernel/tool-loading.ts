@@ -198,14 +198,17 @@ export function buildAgentToolPrimitives(
 				const fileContent = await readFile(tool.scriptPath, "utf-8");
 				const script = extractScriptBody(fileContent);
 
-				// Execute via: echo script | SPROUT_TOOL_DIR=<dir> interpreter /dev/stdin args
-				// SPROUT_TOOL_DIR lets scripts find sibling files (since BASH_SOURCE/$0 = /dev/stdin)
+				// Write the script to a temp file inside the command and run: interpreter <file> args.
+				// The temp file is created shell-side so this works through any ExecutionEnvironment.
+				// Piping to `interpreter /dev/stdin` is not portable: node on Linux resolves
+				// /dev/stdin to a /proc pipe path it cannot open as a module (ENOENT).
+				// SPROUT_TOOL_DIR lets scripts find sibling files ($0 is the temp file, not the tool dir)
 				const escapedScript = script.replace(/'/g, "'\\''");
 				const toolDir = tool.scriptPath.replace(/\/[^/]+$/, "");
 				const envPrefix = `SPROUT_TOOL_DIR='${toolDir}'`;
-				const command = toolArgs
-					? `echo '${escapedScript}' | ${envPrefix} ${tool.interpreter} /dev/stdin ${toolArgs}`
-					: `echo '${escapedScript}' | ${envPrefix} ${tool.interpreter} /dev/stdin`;
+				const command =
+					`t=$(mktemp) && trap 'rm -f "$t"' EXIT && printf '%s\\n' '${escapedScript}' > "$t" && ` +
+					`${envPrefix} ${tool.interpreter} "$t"${toolArgs ? ` ${toolArgs}` : ""}`;
 
 				const result = await env.exec_command(command, { timeout_ms: 30_000 });
 				const output = [result.stdout, result.stderr ? `[stderr]\n${result.stderr}` : ""]

@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import type { ProviderKind } from "../shared/provider-settings.ts";
+import { asRecord } from "../util/record.ts";
 import { parseResponsesResponse, safeParseJSON } from "./openai/responses-parse.ts";
 import { buildResponsesInput, buildResponsesParams } from "./openai/responses-request.ts";
 import { streamResponsesEvents } from "./openai/responses-stream.ts";
@@ -100,6 +101,10 @@ export class OpenAIAdapter implements ProviderAdapter {
 		const stream = (await this.client.chat.completions.create({
 			...params,
 			stream: true,
+			// Spec-conforming servers (vLLM et al.) send no usage on streamed
+			// responses unless asked — without this, cost accounting and the
+			// compaction threshold read zero on streamed runs.
+			stream_options: { include_usage: true },
 		} as any)) as unknown as AsyncIterable<any>;
 
 		yield { type: "stream_start" };
@@ -150,7 +155,10 @@ export class OpenAIAdapter implements ProviderAdapter {
 			yield { type: "tool_call_end", tool_call: toolCall };
 		}
 
-		if (toolCalls.size > 0) {
+		// Tool calls present usually means a clean tool-call stop, but a
+		// truncated response can end mid-tool-call — keep "length" so the
+		// agent's length-recovery path fires instead of executing garbage args.
+		if (toolCalls.size > 0 && finalReason.reason !== "length") {
 			finalReason = { reason: "tool_calls" };
 		}
 		const finalResponse: Response = {
@@ -279,13 +287,6 @@ function textContent(content: import("./types.ts").ContentPart[]): string {
 		.join("\n");
 }
 
-function asRecord(value: unknown): Record<string, unknown> {
-	if (value && typeof value === "object" && !Array.isArray(value)) {
-		return value as Record<string, unknown>;
-	}
-	return {};
-}
-
 // ---------------------------------------------------------------------------
 // Response parsing
 // ---------------------------------------------------------------------------
@@ -307,11 +308,16 @@ function parseChatCompletionsResponse(raw: any, provider: ProviderKind): Respons
 			},
 		});
 	}
-	const finishReason =
+	const mappedReason = mapChatFinishReason(choice?.finish_reason ?? "stop");
+	const hasToolCalls =
 		contentParts.some((part) => part.kind === ContentKind.TOOL_CALL) ||
-		message.tool_calls?.length > 0
-			? ({ reason: "tool_calls", raw: choice?.finish_reason } as FinishReason)
-			: mapChatFinishReason(choice?.finish_reason ?? "stop");
+		(message.tool_calls?.length ?? 0) > 0;
+	// A truncated mid-tool-call response keeps "length" so the agent recovers
+	// instead of executing the half-parsed arguments.
+	const finishReason: FinishReason =
+		hasToolCalls && mappedReason.reason !== "length"
+			? { reason: "tool_calls", raw: choice?.finish_reason }
+			: mappedReason;
 
 	return {
 		id: raw.id ?? "",

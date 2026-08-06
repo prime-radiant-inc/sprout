@@ -1,7 +1,13 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { AgentSpawner } from "../bus/spawner.ts";
+import type {
+	AgentSpawner,
+	FeatherweightExecInput,
+	FeatherweightExecResult,
+} from "../bus/spawner.ts";
 import type { AgentAddress, ResultMessage } from "../bus/types.ts";
+import { CellHost, type CellSpawnRequest, type DelegationOutcome } from "../cell/cell-host.ts";
+import type { CellWorkerProcessHandle } from "../cell/worker-process.ts";
 import { compactHistory } from "../core/compaction.ts";
 import type { Logger } from "../core/logger.ts";
 import { NullLogger } from "../core/logger.ts";
@@ -10,8 +16,11 @@ import {
 	deriveTrustedMemoryWriteAuthorization,
 	type MemoryWriteAuthorization,
 } from "../genome/memory-write-authorization.ts";
+import { programsReferencedInCode } from "../genome/program.ts";
 import { type RecallOptions, recall } from "../genome/recall.ts";
 import { extractMemoryReferences } from "../genome/render-memory-block.ts";
+import { CAPTURE_PRIMITIVE_NAMES, withCapture } from "../kernel/capture.ts";
+import { buildCellPrimitive, type CellRunner } from "../kernel/cell-primitive.ts";
 import type { ExecutionEnvironment } from "../kernel/execution-env.ts";
 import { checkPathConstraint, validateConstraints } from "../kernel/path-constraints.js";
 import {
@@ -19,21 +28,31 @@ import {
 	type Primitive,
 	type PrimitiveRegistry,
 } from "../kernel/primitives.ts";
+import { redactSensitiveTranscriptContent } from "../kernel/redaction.ts";
+import {
+	argsMightContainRef,
+	REF_SPLICE_MAX_BYTES,
+	type SpliceResult,
+	spliceRefArgs,
+} from "../kernel/ref-splice.ts";
 import { buildAgentToolPrimitives } from "../kernel/tool-loading.ts";
-import { truncateToolOutput } from "../kernel/truncation.ts";
 import {
 	type ActResult,
 	type AgentCommand,
 	type AgentDelegateObserverConfig,
 	type AgentSpec,
+	canRunWithoutTools,
 	type Delegation,
 	type EventKind,
+	isFeatherweightEligible,
 	MAX_AGENT_DEPTH,
 	type Memory,
 	type ModelRef,
+	type PrimitiveResult,
 	type RoutingRule,
 	type SessionEvent,
 } from "../kernel/types.ts";
+import { buildValuePrimitives } from "../kernel/value-primitives.ts";
 import type { LearnSink } from "../learn/learn-process.ts";
 import type { Client } from "../llm/client.ts";
 import { type RetryOptions, retryLLMCall } from "../llm/retry.ts";
@@ -48,16 +67,15 @@ import type {
 } from "../llm/types.ts";
 import { Msg, messageText } from "../llm/types.ts";
 import { createReplayRecorder, type ReplayRecorder } from "../replay/recorder.ts";
+import { LIVENESS_LOST_AFTER_MS, PING_INTERVAL_MS } from "../shared/liveness.ts";
 import { shouldTagAgentEventWithSessionId } from "../shared/session-event-scope.ts";
 import { getToolDisplayName } from "../shared/tool-display.ts";
 import { ulid } from "../util/ulid.ts";
 import { getContextWindowSize } from "./context-window.ts";
-import {
-	formatDelegationGoal,
-	type NormalizedTaskPayload,
-	normalizeTaskPayload,
-} from "./delegation-payload.ts";
+import { type NormalizedTaskPayload, normalizeTaskPayload } from "./delegation-payload.ts";
+import { fetchManifestLines, renderDelegationResult } from "./delegation-render.ts";
 import { AgentEventEmitter } from "./events.ts";
+import { createInactivityTimer, type InactivityTimer } from "./inactivity-timer.ts";
 import type { AgentTreeEntry, Preambles } from "./loader.ts";
 import { findRootToolsDir, resolveRootToolsDir } from "./loader.ts";
 import { generateMnemonicName } from "./mnemonic.ts";
@@ -68,17 +86,24 @@ import {
 	resolveAgentModelSelection,
 	resolveMemoryModel,
 } from "./model-resolver.ts";
-import { buildObserverFrame, renderObserverFrame } from "./observers.ts";
+import {
+	buildObserverFrame,
+	escapeXml,
+	renderObserverFrame,
+	truncate as truncateForObserver,
+} from "./observers.ts";
 import type { Postscripts } from "./plan.ts";
 import {
 	buildDelegateTool,
 	buildMessageAgentTool,
 	buildSystemPrompt,
 	buildWaitAgentTool,
+	DELEGATE_TOOL_NAME,
 	MESSAGE_AGENT_TOOL_NAME,
 	parsePlanResponse,
 	primitivesForAgent,
 	renderAgentsForPrompt,
+	renderCallerIdentity,
 	renderToolBoundaries,
 	renderWorkspaceTools,
 } from "./plan.ts";
@@ -106,7 +131,6 @@ export interface AgentOptions {
 	/** Override the spec's model for this agent instance. */
 	modelOverride?: string | ModelRef;
 	/** Default provider context for exact-model resolution. */
-	providerIdOverride?: string;
 	/** Provider settings used for global tier and exact-model resolution. */
 	resolverSettings?: ResolverSettings;
 	/** Prompt preambles (global + role-specific) to prepend to system prompt. */
@@ -117,12 +141,32 @@ export interface AgentOptions {
 	genomePostscripts?: { global: string; orchestrator: string; observer: string; worker: string };
 	/** Bus-based spawner for running subagents as separate processes. */
 	spawner?: AgentSpawner;
+	/**
+	 * How often to check the awaited party's liveness while the inactivity
+	 * timer is suspended for a blocking wait. Defaults to the ping interval.
+	 */
+	livenessPollIntervalMs?: number;
+	/** Silence threshold before a suspended wait's timer resumes. Defaults to
+	 * two ping intervals. */
+	livenessLostAfterMs?: number;
 	/** Path to the genome directory (required when using a spawner). */
 	genomePath?: string;
 	/** Per-project data directory (sessions, logs, memory). */
 	projectDataDir?: string;
 	/** Disable learning and genome mutation for evaluation runs. */
 	evalMode?: boolean;
+	/** When false, the exec primitive is stripped for this agent (tree-wide when threaded). Defaults true. */
+	allowExec?: boolean;
+	/**
+	 * Data-plane session flag (sap spec §6). Default true — v1 is the data plane;
+	 * the flag exists for A/B and the off arm. When false the store values,
+	 * capture, cells, splicing, and env grants are unavailable: the value reads
+	 * and cell filter out of the offered tools, `act: "code"` degrades to
+	 * `"tools"`, and data-plane fields (bind/publish args, env, whole-arg refs)
+	 * are rejected with a loud tool error naming the flag. The auth channel and its
+	 * control-plane services are flag-independent.
+	 */
+	dataPlaneEnabled?: boolean;
 	/** Override the agent_id used for event emission (used by parent to assign unique child IDs). */
 	agentId?: string;
 	/** Trusted runtime address for this agent handle. */
@@ -155,7 +199,17 @@ export interface AgentOptions {
 	llmRetryOptions?: Omit<RetryOptions, "signal" | "onRetry">;
 	/** Override delegate observer wait timeout (tests/tuning). */
 	delegateObserverTimeoutMs?: number;
+	/**
+	 * Cell evaluator override (tests/tuning). Without one, an agent with store
+	 * access and can_spawn builds a real CellHost over its own StoreAccess.
+	 */
+	cellHost?: CellRunner;
+	/** Cell-worker process override for the internally-built CellHost (tests). */
+	cellWorkerSpawnFn?: () => CellWorkerProcessHandle;
 }
+
+/** Hard bound on one rendered agent message in the system prompt (chars). */
+const AGENT_MESSAGE_RENDER_CLAMP = 4_000;
 
 const DEFAULT_DELEGATE_OBSERVER_MAX_EVENTS = 12;
 const DEFAULT_DELEGATE_OBSERVER_MAX_CHARS = 3000;
@@ -227,9 +281,22 @@ export class Agent {
 		worker: string;
 	};
 	private readonly spawner?: AgentSpawner;
+	private readonly livenessPollIntervalMs: number;
+	private readonly livenessLostAfterMs: number;
+	/** The active run loop's inactivity timer, present only while a loop runs. */
+	private currentInactivityTimer?: InactivityTimer;
 	private readonly genomePath?: string;
 	private readonly projectDataDir?: string;
 	private readonly evalMode: boolean;
+	private readonly allowExec: boolean;
+	/** Data-plane session flag (spec §6); default true. */
+	private readonly dataPlaneEnabled: boolean;
+	/**
+	 * Whether this agent Acts in code mode: `act: "code"` AND the data plane is
+	 * enabled. Under flag-off, code mode degrades to a plain delegating tool-mode
+	 * agent, so this is false and the delegate tool returns.
+	 */
+	private readonly codeMode: boolean;
 	private readonly agentId?: string;
 	private readonly selfAddress: AgentAddress;
 	private readonly callerAddress: AgentAddress;
@@ -245,6 +312,7 @@ export class Agent {
 	private readonly llmRetryOptions?: Omit<RetryOptions, "signal" | "onRetry">;
 	private readonly logger: Logger;
 	private readonly resolverSettings: ResolverSettings;
+	private readonly modelsByProvider: Map<string, ProviderModel[]>;
 	private readonly planningModelMaxOutputTokens?: number;
 	private readonly subcorticalMemoryModel?: ResolvedModel;
 	private readonly delegateObserverConfigs: DelegateObserverRuntimeConfig[] = [];
@@ -264,12 +332,35 @@ export class Agent {
 	private renderedAgentMessages = new Set<{ from: AgentAddress; text: string }>();
 	private readonly callerPrimitivePrimitives: Primitive[] = [];
 	private workspaceToolPrimitives: Primitive[] = [];
+	private valuePrimitives: Primitive[] = [];
+	/** The `cell` evaluator tool (sap spec §4), when this agent is granted it. */
+	private cellPrimitive?: Primitive;
 	private workspaceToolDefinitions: ToolDefinition[] = [];
 	private compactionRequested = false;
 	private turnsSinceCompaction = Infinity;
 	private lastGenomeGeneration = 0;
 	private lastDelegateNames: Set<string> = new Set();
 	private readonly usedMnemonicNames = new Set<string>();
+	/**
+	 * Accumulated manifest rename maps per child handle (sourceName → bound-as).
+	 * A child keeps using its own names in later summaries, so rewrites must
+	 * persist across deliveries; a re-rename of the same sourceName updates the
+	 * entry (latest wins).
+	 */
+	private readonly manifestRenames = new Map<string, Map<string, string>>();
+	/** Cell-spawn state (spec §4): the running cell's id (learn-signal tag), a
+	 * per-cell counter for deterministic child names, and the per-spawn
+	 * summaries batched into ONE observer frame at cell end (deviation #2). */
+	private cellOrdinal = 0;
+	private currentCellId?: string;
+	private cellSpawnIndex = 0;
+	private cellSpawnDigest: Array<{
+		agentName: string;
+		goal: string;
+		handleId: string;
+		ok: boolean;
+		summary: string;
+	}> = [];
 
 	constructor(options: AgentOptions) {
 		this.spec = options.spec;
@@ -290,9 +381,14 @@ export class Agent {
 		this.projectDocs = options.projectDocs;
 		this.genomePostscripts = options.genomePostscripts;
 		this.spawner = options.spawner;
+		this.livenessPollIntervalMs = options.livenessPollIntervalMs ?? PING_INTERVAL_MS;
+		this.livenessLostAfterMs = options.livenessLostAfterMs ?? LIVENESS_LOST_AFTER_MS;
 		this.genomePath = options.genomePath;
 		this.projectDataDir = options.projectDataDir;
 		this.evalMode = options.evalMode === true;
+		this.allowExec = options.allowExec !== false;
+		this.dataPlaneEnabled = options.dataPlaneEnabled !== false;
+		this.codeMode = this.dataPlaneEnabled && this.spec.act === "code";
 		this.agentId = options.agentId;
 		this.selfAddress =
 			options.self ??
@@ -321,6 +417,56 @@ export class Agent {
 		this.callerPrimitivePrimitives = this.captureCallerPrimitivePrimitives(
 			options.primitiveRegistry,
 		);
+		// Value-read primitives over the sap store (spec §1): available exactly
+		// when this process has caller-scoped store access via its spawner AND the
+		// data plane is enabled (spec §6 — value_* filter out under flag-off).
+		this.valuePrimitives =
+			this.dataPlaneEnabled && options.spawner?.storeAccess
+				? buildValuePrimitives(options.spawner.storeAccess)
+				: [];
+		for (const prim of this.valuePrimitives) {
+			this.primitiveRegistry.register(prim);
+		}
+		this.armCaptureOnRegistry();
+		// The cell evaluator (sap spec §4): granted with can_spawn, backed by a
+		// per-agent-process cell worker over this agent's own StoreAccess. Off
+		// under flag-off (spec §6 — cell filters out of the registry).
+		if (this.dataPlaneEnabled && options.spawner?.storeAccess && this.spec.constraints.can_spawn) {
+			// The spawn callbacks (spec §4): plain functions into the cell layer,
+			// keeping the delegation core and spawner access on the agents side.
+			// Genome programs (spec §7): the fourth artifact, injected into the cell
+			// realm as `programs.<name>` and listed in the tool's <programs> block.
+			// Loaded + validated at genome load; passed here for exposure.
+			const genomePrograms = this.genome?.allPrograms() ?? [];
+			const cellHost =
+				options.cellHost ??
+				new CellHost(options.spawner.storeAccess, {
+					...(options.cellWorkerSpawnFn ? { spawnFn: options.cellWorkerSpawnFn } : {}),
+					delegate: (req) => this.serviceCellSpawn(req),
+					waitHandle: (id) => this.serviceCellHandleWait(id),
+					messageHandle: (id, text, opts) => this.serviceCellHandleMessage(id, text, opts),
+					...(genomePrograms.length > 0
+						? { programs: genomePrograms.map((p) => ({ name: p.name, body: p.body })) }
+						: {}),
+				});
+			// The typed surface (spec §6): the cell tool description carries a
+			// `.d.ts` block for the ambient API + this agent's spawnable agents, so
+			// cells reference a real SpawnableAgent union. Honest by construction —
+			// generated from the same allowlist cells actually spawn against.
+			const spawnableAgents = this.getDelegatableAgents().map((a) => ({
+				name: a.name,
+				description: a.description,
+			}));
+			const programInfos = genomePrograms.map((p) => ({
+				name: p.name,
+				description: p.description,
+				params: p.params,
+				spawns: p.spawns,
+				...(p.allowedTools ? { allowedTools: p.allowedTools } : {}),
+			}));
+			this.cellPrimitive = buildCellPrimitive(cellHost, spawnableAgents, programInfos);
+			this.primitiveRegistry.register(this.cellPrimitive);
+		}
 		this.logger = (options.logger ?? new NullLogger()).child({
 			component: "agent",
 			agentId: this.agentId ?? this.spec.name,
@@ -345,6 +491,7 @@ export class Agent {
 				modelMap.set(providerId, []);
 			}
 		}
+		this.modelsByProvider = modelMap;
 		const resolverSettings =
 			options.resolverSettings ??
 			createResolverSettings(
@@ -381,11 +528,14 @@ export class Agent {
 		// Build delegate tool (single tool for all agent delegations)
 		this.agentTools = [];
 
-		if (this.spec.constraints.can_spawn) {
+		// Code mode's tool surface is exactly `cell` (spec §6): no delegate, no
+		// wait/message tools. Cells delegate via the ambient spawn() against the
+		// same `agents` allowlist, so can_spawn stays true — only the tools hide.
+		if (this.spec.constraints.can_spawn && !this.codeMode) {
 			const delegatableAgents = this.getDelegatableAgents();
 
 			if (delegatableAgents.length > 0) {
-				this.agentTools.push(buildDelegateTool(delegatableAgents));
+				this.agentTools.push(buildDelegateTool());
 				if (this.spawner) {
 					this.agentTools.push(buildWaitAgentTool());
 					this.agentTools.push(buildMessageAgentTool());
@@ -394,7 +544,9 @@ export class Agent {
 
 			this.lastDelegateNames = new Set(delegatableAgents.map((a) => a.name));
 		}
-		this.addExplicitMessageAgentTool();
+		if (!this.codeMode) {
+			this.addExplicitMessageAgentTool();
+		}
 
 		if (this.genome) {
 			this.lastGenomeGeneration = this.genome.generation;
@@ -421,6 +573,81 @@ export class Agent {
 					`agent refs resolve (path-style refs like "utility/reader" require the agent tree).`,
 			);
 		}
+
+		// Featherweight placement (spec §5): give the spawner an in-process executor
+		// for single-turn no-tool leaves. The spawner holds no LLM client; this
+		// Agent does, so it wires the callback. Eligibility is gated per-spawn.
+		if (typeof this.spawner?.setFeatherweightExecutor === "function") {
+			this.spawner.setFeatherweightExecutor((input) => this.runFeatherweightChild(input));
+		}
+	}
+
+	/**
+	 * Run a featherweight-eligible child in this process (spec §5). Builds a
+	 * minimal single-turn Agent over this process's LLM client, runs one turn,
+	 * and returns the outcome. The spawner synthesizes the equivalent handle,
+	 * session events, and log. Placement-invisibility (spec §5): the child's
+	 * prompt composes from the same inputs a subprocess child gets — preambles,
+	 * genome postscripts, project docs, root-dir expansion, and the surfaced
+	 * memory block (the cached-recall path a subprocess child takes with a
+	 * surfaced block; no live recall runs when the block is present).
+	 */
+	private async runFeatherweightChild(
+		input: FeatherweightExecInput,
+	): Promise<FeatherweightExecResult> {
+		const childSpec = this.genome?.getAgent(input.agentName);
+		if (!childSpec) {
+			throw new Error(`Featherweight agent '${input.agentName}' not found in genome`);
+		}
+		// Bridge the child's llm_end onto the PARENT's emitter so the session
+		// token-budget feed meters featherweight usage: a subprocess parent's
+		// events publish to the session topic, so the forwarded llm_end reaches
+		// the host-side counter. Only usage events forward — the spawner already
+		// synthesizes the child's session/handle records.
+		const childEvents = new AgentEventEmitter();
+		childEvents.on((event) => {
+			if (event.kind === "llm_end") {
+				this.emitAndLog("llm_end", event.agent_id, event.depth, event.data);
+			}
+		});
+		const child = new Agent({
+			spec: {
+				...childSpec,
+				system_prompt: childSpec.system_prompt + renderCallerIdentity(input.caller),
+			},
+			env: this.env,
+			client: this.client,
+			primitiveRegistry: this.primitiveRegistry,
+			availableAgents: this.genome ? this.genome.allAgents() : [],
+			genome: this.genome,
+			preambles: this.preambles,
+			projectDocs: this.projectDocs,
+			genomePostscripts: this.genomePostscripts,
+			rootDir: this.rootDir,
+			surfacedMemoryBlock: input.surfacedMemoryBlock,
+			sessionId: this.sessionId,
+			depth: input.self.depth,
+			agentId: input.self.agentId,
+			self: input.self,
+			caller: input.caller,
+			evalMode: input.evalMode,
+			allowExec: this.allowExec,
+			...(input.model !== undefined ? { modelOverride: input.model } : {}),
+			resolverSettings: input.resolverSettings ?? this.resolverSettings,
+			modelsByProvider: this.modelsByProvider,
+			...(input.history !== undefined ? { initialHistory: input.history } : {}),
+			logger: this.logger,
+			dataPlaneEnabled: this.dataPlaneEnabled,
+			events: childEvents,
+		});
+		const result = await child.run(input.goal, this.signal);
+		return {
+			output: result.output,
+			success: result.success,
+			stumbles: result.stumbles,
+			turns: result.turns,
+			timed_out: result.timed_out,
+		};
 	}
 
 	/** Returns the resolved model and provider for this agent. */
@@ -429,11 +656,7 @@ export class Agent {
 	}
 
 	private canRunWithoutTools(): boolean {
-		return (
-			this.spec.tags.includes("observer") &&
-			this.spec.tools.length === 0 &&
-			this.spec.agents.length === 0
-		);
+		return canRunWithoutTools(this.spec);
 	}
 
 	private canCompleteWithEmptyOutput(): boolean {
@@ -475,8 +698,27 @@ export class Agent {
 	}
 
 	private refreshPrimitiveToolList(): void {
+		// `cell` is granted by can_spawn (spec §4 tool-surface rule), not by the
+		// spec's tools list — offered whenever the primitive was built.
+		const cellTools: ToolDefinition[] = this.cellPrimitive
+			? [
+					{
+						name: this.cellPrimitive.name,
+						description: this.cellPrimitive.description,
+						parameters: this.cellPrimitive.parameters,
+					},
+				]
+			: [];
+		// Code mode = the single `cell` tool (spec §6): value_* reads are implicit
+		// through the cell's ambient API, and no primitives or workspace tools are
+		// offered. One stable tool per provider preserves the cache decision.
+		if (this.codeMode) {
+			this.primitiveTools = uniqueToolDefinitions([...cellTools]);
+			return;
+		}
 		this.primitiveTools = uniqueToolDefinitions([
 			...this.specPrimitiveTools(),
+			...cellTools,
 			...this.workspaceToolDefinitions,
 		]);
 	}
@@ -510,7 +752,7 @@ export class Agent {
 				agentName: this.spec.name,
 				sessionId: this.sessionId,
 			},
-			{ evalMode: this.evalMode },
+			{ evalMode: this.evalMode, allowExec: this.allowExec },
 		).names();
 		const writeAuthorizedNames = createPrimitiveRegistry(
 			this.env,
@@ -532,7 +774,7 @@ export class Agent {
 					allowedOperations: ["annotate", "archive", "consolidate", "link", "supersede"],
 				},
 			},
-			{ evalMode: this.evalMode },
+			{ evalMode: this.evalMode, allowExec: this.allowExec },
 		).names();
 		return [...new Set([...readOnlyNames, ...writeAuthorizedNames])];
 	}
@@ -555,7 +797,7 @@ export class Agent {
 				sessionId: this.sessionId,
 				...(writeAuthorization ? { writeAuthorization } : {}),
 			},
-			{ evalMode: this.evalMode },
+			{ evalMode: this.evalMode, allowExec: this.allowExec },
 		);
 		for (const prim of this.callerPrimitivePrimitives) {
 			this.primitiveRegistry.register(prim);
@@ -563,7 +805,35 @@ export class Agent {
 		for (const prim of this.workspaceToolPrimitives) {
 			this.primitiveRegistry.register(prim);
 		}
+		for (const prim of this.valuePrimitives) {
+			this.primitiveRegistry.register(prim);
+		}
+		if (this.cellPrimitive) {
+			this.primitiveRegistry.register(this.cellPrimitive);
+		}
+		// Re-arm capture: a rebuilt registry comes back with PLAIN capture-capable
+		// primitives and no capture store — without this, every root run,
+		// continue(), and steering drain silently disarmed capture-all.
+		this.armCaptureOnRegistry();
 		this.refreshPrimitiveToolList();
+	}
+
+	/**
+	 * Capture (sap spec §2): wrap the capture-capable primitives with
+	 * bind/publish handling over the caller-scoped store, and enable
+	 * auto-capture in the registry. Off under flag-off (spec §6);
+	 * bind:/publish: fields are then rejected loudly at dispatch, not
+	 * stripped. The ONE assembly point — called from the constructor AND the
+	 * rebuild so the two paths can never drift again.
+	 */
+	private armCaptureOnRegistry(): void {
+		const storeAccess = this.spawner?.storeAccess;
+		if (!this.dataPlaneEnabled || !storeAccess) return;
+		for (const name of CAPTURE_PRIMITIVE_NAMES) {
+			const prim = this.primitiveRegistry.get(name);
+			if (prim) this.primitiveRegistry.register(withCapture(prim, storeAccess));
+		}
+		this.primitiveRegistry.setCaptureStore?.(storeAccess);
 	}
 
 	private updateTrustedUserInstruction(instruction: string | undefined): void {
@@ -655,6 +925,20 @@ export class Agent {
 		return queued;
 	}
 
+	/**
+	 * Message text is another agent's free text riding the recipient's system
+	 * prompt: redact it and clamp it (messages are transient — there is no
+	 * capture store guaranteed at this seam, so a ref cannot compensate; the
+	 * clamp is a hard bound, not a capture gate). Redact BEFORE clamping:
+	 * redaction can lengthen text.
+	 */
+	private static clampAgentMessageText(text: string): string {
+		const redacted = redactSensitiveTranscriptContent(text);
+		if (redacted.length <= AGENT_MESSAGE_RENDER_CLAMP) return redacted;
+		const dropped = redacted.length - AGENT_MESSAGE_RENDER_CLAMP;
+		return `${redacted.slice(0, AGENT_MESSAGE_RENDER_CLAMP)}\n[... ${dropped} chars truncated]`;
+	}
+
 	private renderAgentMessagesForPrompt(): string {
 		const queued = this.agentMessageQueue;
 		if (queued.length === 0) return "";
@@ -671,7 +955,7 @@ export class Agent {
 			.map((message) => {
 				const role = message.from.role ? ` role="${escapeXml(message.from.role)}"` : "";
 				return `<message from="${escapeXml(message.from.agentName)}"${role}>\n${escapeXml(
-					message.text,
+					Agent.clampAgentMessageText(message.text),
 				)}\n</message>`;
 			})
 			.join("\n");
@@ -830,7 +1114,9 @@ export class Agent {
 		name: string;
 		description: string;
 	}> | null> {
-		if (!this.genome || !this.spec.constraints.can_spawn) return null;
+		// Code mode offers no delegate tool (spec §6), so a genome change never
+		// rebuilds one; cells pick up new delegates through the shared tree.
+		if (!this.genome || !this.spec.constraints.can_spawn || this.codeMode) return null;
 		await this.genome.refreshIfDiskChanged();
 		if (this.genome.generation === this.lastGenomeGeneration) return null;
 		this.lastGenomeGeneration = this.genome.generation;
@@ -871,7 +1157,7 @@ export class Agent {
 		}
 
 		// Rebuild agent tools with updated delegate list
-		this.agentTools = [buildDelegateTool(newDelegates)];
+		this.agentTools = [buildDelegateTool()];
 		if (this.spawner) {
 			this.agentTools.push(buildWaitAgentTool());
 			this.agentTools.push(buildMessageAgentTool());
@@ -970,6 +1256,15 @@ export class Agent {
 		return { spec: match, allowedNames: [...allowedNames].sort() };
 	}
 
+	/**
+	 * Uniform loud error for a data-plane field emitted in a flag-off session
+	 * (spec §6). Never silently stripped — a stripped bind:/env/⟦name⟧ would fail
+	 * the task downstream in undiagnosable ways.
+	 */
+	private dataPlaneDisabledError(field: string): string {
+		return `the data plane is disabled for this session; ${field} is unavailable`;
+	}
+
 	private buildDelegationDeniedError(agentName: string, allowedNames: string[]): string {
 		const allowed = allowedNames.length > 0 ? allowedNames.join(", ") : "(none)";
 		return `Agent '${agentName}' is not delegatable by '${this.spec.name}'. Allowed delegates: ${allowed}`;
@@ -1035,247 +1330,9 @@ export class Agent {
 		return `Agent '${delegation.agent_name}' does not accept task_payload. Delegate without payload or choose an agent that declares task_payload: true.`;
 	}
 
-	/** Execute a single delegation to a subagent. Returns the tool result message and stumble count. */
-	private async executeDelegation(
-		delegation: Delegation,
-		agentId: string,
-	): Promise<{ toolResultMsg: Message; stumbles: number; output?: string }> {
-		const childId = ulid();
-		const descData = delegation.description ? { description: delegation.description } : {};
-		const target = this.resolveDelegationTarget(delegation.agent_name);
-		const subagentSpec = target.spec;
-		const effectiveDelegation = this.effectiveDelegationForExecution(delegation, subagentSpec);
-		const normalizedPayload = this.normalizeDelegationPayload(effectiveDelegation);
-		const payloadData = normalizedPayload ? { task_payload: normalizedPayload.metadata } : {};
-
-		// Generate mnemonic name for this child agent
-		const mnemonicName = await generateMnemonicName(
-			this.client,
-			this.resolved.model,
-			this.resolved.provider,
-			{
-				agentName: delegation.agent_name,
-				goal: effectiveDelegation.goal,
-				description: delegation.description,
-				usedNames: [...this.usedMnemonicNames],
-			},
-			this.signal,
-		);
-		if (mnemonicName) this.usedMnemonicNames.add(mnemonicName);
-
-		this.emitAndLog("act_start", agentId, this.depth, {
-			agent_name: delegation.agent_name,
-			goal: effectiveDelegation.goal,
-			...(delegation.description ? { description: delegation.description } : {}),
-			...payloadData,
-			child_id: childId,
-			...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-		});
-
-		const treeEntry =
-			target.treePath && this.agentTree ? this.agentTree.get(target.treePath) : undefined;
-
-		if (!subagentSpec) {
-			const errorMsg = this.buildDelegationDeniedError(delegation.agent_name, target.allowedNames);
-			const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
-			this.emitAndLog("act_end", agentId, this.depth, {
-				agent_name: delegation.agent_name,
-				success: false,
-				error: errorMsg,
-				child_id: childId,
-				...descData,
-				...payloadData,
-				tool_result_message: toolResultMsg,
-				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-			});
-			return { toolResultMsg, stumbles: 1 };
-		}
-
-		if (normalizedPayload && subagentSpec.task_payload !== true) {
-			const errorMsg = this.buildTaskPayloadNotAcceptedError(delegation);
-			const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
-			this.emitAndLog("act_end", agentId, this.depth, {
-				agent_name: delegation.agent_name,
-				success: false,
-				error: errorMsg,
-				child_id: childId,
-				...descData,
-				...payloadData,
-				tool_result_message: toolResultMsg,
-				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-			});
-			return { toolResultMsg, stumbles: 1 };
-		}
-
-		if (this.depth + 1 > MAX_AGENT_DEPTH) {
-			const errorMsg = this.buildDepthLimitError(delegation.agent_name);
-			const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
-			this.emitAndLog("act_end", agentId, this.depth, {
-				agent_name: delegation.agent_name,
-				success: false,
-				error: errorMsg,
-				child_id: childId,
-				...descData,
-				...payloadData,
-				tool_result_message: toolResultMsg,
-				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-			});
-			return { toolResultMsg, stumbles: 1 };
-		}
-
-		try {
-			const subGoal = formatDelegationGoal({
-				goal: effectiveDelegation.goal,
-				hints: effectiveDelegation.hints,
-				payload: normalizedPayload,
-			});
-
-			const subLogBasePath = this.logBasePath
-				? `${this.logBasePath}/subagents/${ulid()}`
-				: undefined;
-
-			// Resolve the subagent's tree context (selfPath and children)
-			let subTreeSelfPath: string | undefined;
-			let subTreeChildren: string[] | undefined;
-			if (treeEntry) {
-				subTreeSelfPath = treeEntry.path;
-				subTreeChildren = treeEntry.children;
-			}
-			const writeAuthorization = deriveTrustedMemoryWriteAuthorization({
-				agentName: subagentSpec.name,
-				userInstruction: this.trustedUserInstruction,
-			});
-
-			const subagent = new Agent({
-				spec: subagentSpec,
-				env: this.env,
-				client: this.client,
-				primitiveRegistry: this.primitiveRegistryForAgent(subagentSpec.name, writeAuthorization),
-				availableAgents: this.genome ? this.genome.allAgents() : this.availableAgents,
-				genome: this.genome,
-				depth: this.depth + 1,
-				events: this.events,
-				sessionId: this.sessionId,
-				learnProcess: this.learnProcess,
-				logBasePath: subLogBasePath,
-				preambles: this.preambles,
-				genomePostscripts: this.genomePostscripts,
-				projectDataDir: this.projectDataDir,
-				providerIdOverride: this.resolved.provider,
-				resolverSettings: this.resolverSettings,
-				evalMode: this.evalMode,
-				agentId: childId,
-				self: buildAgentAddress({
-					agentName: subagentSpec.name,
-					depth: this.depth + 1,
-					handleId: childId,
-					agentId: childId,
-					isObserver: subagentSpec.tags.includes("observer"),
-				}),
-				caller: this.selfAddress,
-				logger: this.logger,
-				rootDir: this.rootDir,
-				agentTree: this.agentTree,
-				agentTreeChildren: subTreeChildren,
-				agentTreeSelfPath: subTreeSelfPath,
-				enableStreaming: this.enableStreaming,
-				surfacedMemoryBlock: this.childSurfacedMemoryBlock(subagentSpec.name),
-				trustedUserInstruction: this.trustedUserInstruction,
-			});
-
-			const subResult = await subagent.run(subGoal, this.signal);
-
-			const actResult: ActResult = {
-				agent_name: delegation.agent_name,
-				goal: effectiveDelegation.goal,
-				output: subResult.output,
-				success: subResult.success,
-				stumbles: subResult.stumbles,
-				turns: subResult.turns,
-				timed_out: subResult.timed_out,
-			};
-
-			const { verify, learnSignal } = verifyActResult(actResult, this.sessionId);
-
-			this.emitAndLog("verify", agentId, this.depth, {
-				agent_name: delegation.agent_name,
-				success: verify.success,
-				stumbled: verify.stumbled,
-			});
-
-			if (learnSignal) {
-				this.emitAndLog("learn_signal", agentId, this.depth, {
-					signal: learnSignal,
-				});
-				if (this.learnProcess && this.spec.constraints.can_learn) {
-					this.learnProcess.push(learnSignal);
-				}
-			}
-
-			const resultContent = truncateToolOutput(subResult.output, delegation.agent_name);
-			const toolResultMsg = Msg.toolResult(delegation.call_id, resultContent);
-
-			this.emitAndLog("act_end", agentId, this.depth, {
-				agent_name: delegation.agent_name,
-				success: subResult.success,
-				turns: subResult.turns,
-				timed_out: subResult.timed_out,
-				child_id: childId,
-				...descData,
-				...payloadData,
-				tool_result_message: toolResultMsg,
-				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-			});
-
-			if (this.learnProcess) {
-				this.learnProcess.recordAction(agentId);
-			}
-
-			return {
-				toolResultMsg,
-				stumbles: verify.stumbled ? 1 : 0,
-				output: subResult.output,
-			};
-		} catch (err) {
-			const errorMsg = `Subagent '${delegation.agent_name}' failed: ${String(err)}`;
-			const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
-			this.emitAndLog("act_end", agentId, this.depth, {
-				agent_name: delegation.agent_name,
-				success: false,
-				error: errorMsg,
-				child_id: childId,
-				...descData,
-				tool_result_message: toolResultMsg,
-				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-			});
-			return { toolResultMsg, stumbles: 1 };
-		}
-	}
-
 	private childSurfacedMemoryBlock(agentName: string): string | undefined {
 		if (agentName === "archivist") return "";
 		return this.surfacedMemoryBlock ?? this.initialSurfacedMemoryBlock;
-	}
-
-	private primitiveRegistryForAgent(
-		agentName: string,
-		writeAuthorization?: MemoryWriteAuthorization,
-	): PrimitiveRegistry {
-		if (!this.genome) return this.primitiveRegistry;
-		const registry = createPrimitiveRegistry(
-			this.env,
-			{
-				genome: this.genome,
-				agentName,
-				sessionId: this.sessionId,
-				...(writeAuthorization ? { writeAuthorization } : {}),
-			},
-			{ evalMode: this.evalMode },
-		);
-		for (const prim of this.callerPrimitivePrimitives) {
-			registry.register(prim);
-		}
-		return registry;
 	}
 
 	private async beginDelegateObserverCapture(childId: string): Promise<boolean> {
@@ -1372,6 +1429,17 @@ export class Agent {
 		context: DelegateObserverContext,
 		events: SessionEvent[],
 	): Promise<void> {
+		await this.deliverObserverFrameMessage(
+			runtime,
+			this.buildDelegateObserverFrameMessage(runtime, context, events),
+		);
+	}
+
+	/** Deliver one already-built frame message to an observer runtime. */
+	private async deliverObserverFrameMessage(
+		runtime: DelegateObserverRuntimeConfig,
+		message: string,
+	): Promise<void> {
 		if (!this.spawner) return;
 
 		if (!this.startedDelegateObserverHandles.has(runtime.handleId)) {
@@ -1388,7 +1456,6 @@ export class Agent {
 			this.startedDelegateObserverHandles.add(runtime.handleId);
 		}
 
-		const message = this.buildDelegateObserverFrameMessage(runtime, context, events);
 		const delivery = this.spawner.deliverObserverFrame({
 			agentName: runtime.agentName,
 			genomePath: this.genomePath ?? "",
@@ -1400,6 +1467,8 @@ export class Agent {
 			workDir: this.env.working_directory(),
 			rootDir: this.rootDir,
 			evalMode: this.evalMode,
+			allowExec: this.allowExec,
+			dataPlaneEnabled: this.dataPlaneEnabled,
 			resolverSettings: this.resolverSettings,
 			surfacedMemoryBlock: "",
 		});
@@ -1496,42 +1565,320 @@ export class Agent {
 	}
 
 	/**
+	 * Run a blocking wait on another agent with the inactivity timer suspended
+	 * (sap spec §4): a parent blocked on a child is not "inactive", so today's
+	 * timer would mark it timed-out and stumbled even when the child succeeds.
+	 * Liveness pings are the net that makes suspension safe — while suspended,
+	 * the awaited party's pings are checked on an interval, and if it goes
+	 * silent past the threshold the timer resumes and times out normally
+	 * instead of hanging forever. No timer running (in-process subagent path)
+	 * or no probe (test/spawnerless) degrades gracefully: waits still suspend
+	 * where a timer exists, and process death already settles spawner waits.
+	 */
+	private async withInactivitySuspendedFor<T>(
+		awaitedHandleId: string,
+		fn: () => Promise<T>,
+	): Promise<T> {
+		const timer = this.currentInactivityTimer;
+		if (!timer) return fn();
+		timer.pause();
+		// Exactly ONE resume per pause, whether the wait completes or the net
+		// fires — and never both. `settled` is set by whichever path resumes,
+		// so a probe result landing after the wait already resumed (or vice
+		// versa) cannot double-resume and unfreeze a sibling's suspension.
+		let settled = false;
+		const probe = this.spawner?.livenessProbe;
+		const waitStart = Date.now();
+		let watch: ReturnType<typeof setInterval> | undefined;
+		if (probe) {
+			watch = setInterval(() => {
+				void probe
+					.msSincePing(awaitedHandleId)
+					.then((ms) => {
+						if (settled) return;
+						// null = never pinged. A party that connected but wedged
+						// before its first ping must still trip the net, measured
+						// from when this wait began.
+						const silentForMs = ms ?? Date.now() - waitStart;
+						if (silentForMs > this.livenessLostAfterMs) {
+							settled = true;
+							if (watch) clearInterval(watch);
+							timer.resume();
+						}
+					})
+					.catch(() => {
+						// A failed probe is "no signal", not "dead" — keep waiting.
+					});
+			}, this.livenessPollIntervalMs);
+		}
+		try {
+			return await fn();
+		} finally {
+			if (watch) clearInterval(watch);
+			if (!settled) {
+				settled = true;
+				timer.resume();
+			}
+		}
+	}
+
+	/**
+	 * Suspend the inactivity timer for the duration of `fn`, with no liveness
+	 * probe. Used for cell runs: the cell host's own budget clock and RSS
+	 * watchdog bound a wedged cell more tightly than liveness pings would.
+	 */
+	private async withTimerSuspended<T>(fn: () => Promise<T>): Promise<T> {
+		const timer = this.currentInactivityTimer;
+		if (!timer) return fn();
+		timer.pause();
+		try {
+			return await fn();
+		} finally {
+			timer.resume();
+		}
+	}
+
+	/**
+	 * Run one cell tool call with the per-cell spawn state framed around it
+	 * (spec §4): the cell id tags learn signals, the deterministic-name counter
+	 * resets, and the spawn summaries collected during the cell deliver as ONE
+	 * observer frame at cell end (deviation #2).
+	 */
+	private async runCellCall(executeCall: () => Promise<PrimitiveResult>): Promise<PrimitiveResult> {
+		this.currentCellId = `cell-${++this.cellOrdinal}`;
+		this.cellSpawnIndex = 0;
+		this.cellSpawnDigest = [];
+		try {
+			// A pending cell is a blocking wait on the cell worker: the
+			// inactivity timer suspends for its duration. The parent's budget
+			// clock + RSS watchdog are the net for a wedged cell — tighter than
+			// liveness pings, so no probe watches this suspension.
+			return await this.withTimerSuspended(executeCall);
+		} finally {
+			const cellId = this.currentCellId;
+			const digest = this.cellSpawnDigest;
+			this.currentCellId = undefined;
+			this.cellSpawnDigest = [];
+			if (digest.length > 0) await this.deliverCellSpawnObserverFrame(cellId, digest);
+		}
+	}
+
+	/** One observer frame summarizing ALL of a cell's spawns (deviation #2). */
+	private async deliverCellSpawnObserverFrame(
+		cellId: string,
+		digest: Array<{
+			agentName: string;
+			goal: string;
+			handleId: string;
+			ok: boolean;
+			summary: string;
+		}>,
+	): Promise<void> {
+		if (!this.spawner || this.delegateObserverConfigs.length === 0) return;
+		const lines = [
+			"<sprout:cell-spawn-observer-frame>",
+			"<instructions>",
+			'Observe this batch of completed cell-originated delegations. If a short concrete nudge is likely to improve the caller\'s next turn, use message_agent with handle "caller" and blocking false.',
+			"If no intervention is warranted, produce no text at all.",
+			"</instructions>",
+			"<caller>",
+			`Agent: ${escapeXml(this.spec.name)}`,
+			`Handle: ${escapeXml(this.selfAddress.handleId)}`,
+			`Agent ID: ${escapeXml(this.selfAddress.agentId)}`,
+			`Cell: ${escapeXml(cellId)}`,
+			"</caller>",
+			"<cell-spawns>",
+			...digest.map(
+				(entry) =>
+					`- ${escapeXml(entry.agentName)} (${escapeXml(entry.handleId)}) ${
+						entry.ok ? "ok" : "FAILED"
+					}: ${escapeXml(truncateForObserver(entry.goal, 200))} — ${escapeXml(
+						truncateForObserver(entry.summary, 400),
+					)}`,
+			),
+			"</cell-spawns>",
+			"</sprout:cell-spawn-observer-frame>",
+		];
+		const message = lines.join("\n");
+		await Promise.all(
+			this.delegateObserverConfigs.map((runtime) =>
+				this.deliverObserverFrameMessage(runtime, message),
+			),
+		);
+	}
+
+	/**
+	 * Resolve $ref arguments against this agent's store scope (sap spec §2).
+	 * Without a store, or with no ref-shaped argument, this is a cheap no-op
+	 * returning the original arguments. Store failures surface as loud tool
+	 * errors — a $ref must never silently pass through as a literal.
+	 */
+	private async spliceCallArguments(
+		primitiveName: string,
+		args: Record<string, unknown>,
+	): Promise<SpliceResult> {
+		// Flag-off (spec §6): a whole-arg ⟦name⟧ is a data-plane field — reject it
+		// loudly naming the flag rather than splicing or passing it as a literal.
+		if (!this.dataPlaneEnabled) {
+			if (argsMightContainRef(args)) {
+				return {
+					ok: false,
+					error: this.dataPlaneDisabledError("value reference splicing (⟦name⟧)"),
+				};
+			}
+			return { ok: true, args, splicedNames: [] };
+		}
+		const store = this.spawner?.storeAccess;
+		if (!store || !argsMightContainRef(args)) {
+			return { ok: true, args, splicedNames: [] };
+		}
+		try {
+			const inScopeNames: ReadonlySet<string> = new Set(await store.names());
+			return await spliceRefArgs({
+				primitiveName,
+				args,
+				inScopeNames,
+				resolve: async (name) => {
+					// null means "unknown name" and nothing else — a read failure
+					// (budget, store restart) throws and is reported as a
+					// resolution failure, not a misleading unknown-name error.
+					if (!inScopeNames.has(name)) return null;
+					const bytes = await store.get(name, { maxBytes: REF_SPLICE_MAX_BYTES });
+					return new TextDecoder().decode(bytes);
+				},
+			});
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			return { ok: false, error: `$ref resolution failed: ${message}` };
+		}
+	}
+
+	/**
+	 * Pull the child's published-manifest delta at result receipt and render it
+	 * as `published: ⟦name⟧ (preview)` lines to append to the tool result (sap
+	 * spec §2: manifests are pulled from the store, never pushed on the bus).
+	 * Infrastructure failures (store worker mid-restart) retry briefly; then —
+	 * and for any other failure immediately — the result degrades to an honest
+	 * `[manifest unavailable: ...]` note. Never a hang, never a silent drop.
+	 */
+	/**
 	 * Execute a delegation via the bus-based spawner. Returns the tool result message and stumble count.
 	 *
-	 * For blocking spawns, calls verifyActResult() and pushes learn signals
-	 * (parity with the in-process executeDelegation() path).
+	 * Thin renderer over runSpawnerDelegation (the typed-outcome core, sap spec
+	 * §4 deviation #5): the tool path renders the outcome into a tool-result
+	 * exactly as before; the cell path consumes the outcome directly.
 	 */
 	private async executeSpawnerDelegation(
 		delegation: Delegation,
 		agentId: string,
 	): Promise<{ toolResultMsg: Message; stumbles: number; output?: string }> {
+		const outcome = await this.runSpawnerDelegation(delegation, agentId);
+		return this.renderDelegationOutcome(delegation, outcome);
+	}
+
+	/** Render a delegation outcome into the tool path's result shape. Pure. */
+	private renderDelegationOutcome(
+		delegation: Delegation,
+		outcome: DelegationOutcome,
+	): { toolResultMsg: Message; stumbles: number; output?: string } {
+		switch (outcome.kind) {
+			case "infrastructure_error":
+				return {
+					toolResultMsg: Msg.toolResult(delegation.call_id, outcome.reason, true),
+					stumbles: 1,
+				};
+			case "started":
+				return {
+					toolResultMsg: Msg.toolResult(
+						delegation.call_id,
+						`Agent started. Handle: ${outcome.handleId}`,
+					),
+					stumbles: 0,
+					output: outcome.handleId,
+				};
+			case "completed":
+				return {
+					toolResultMsg: Msg.toolResult(
+						delegation.call_id,
+						`${outcome.summary}\n\nHandle: ${outcome.handleId}`,
+					),
+					stumbles: outcome.stumbles,
+					...(outcome.rawOutput !== undefined ? { output: outcome.rawOutput } : {}),
+				};
+		}
+	}
+
+	/**
+	 * The delegation core (sap spec §4): resolve, verify, spawn, wait, and fold
+	 * the result into a typed outcome envelope. Never rejects for child failure
+	 * — a failed child is `completed` with ok: false; infrastructure problems
+	 * (unknown agent, allowlist denial, depth, payload rejection, spawn or
+	 * transport failure) are `infrastructure_error`. Cell spawns (deviations
+	 * #1–#4) skip the mnemonic LLM call in favor of deterministic names, skip
+	 * per-spawn observer frames (batched at cell end), mark their act events
+	 * `cell_spawn: true` (replay exclusion), and tag learn signals with the
+	 * owning cell id.
+	 */
+	private async runSpawnerDelegation(
+		delegation: Delegation,
+		agentId: string,
+		opts: { cellSpawn?: boolean } = {},
+	): Promise<DelegationOutcome> {
+		const cellSpawn = opts.cellSpawn === true;
 		const handleId = ulid();
 		const childId = ulid();
 		const descData = delegation.description ? { description: delegation.description } : {};
 		const caller = this.callerIdentity();
 		const blocking = delegation.blocking !== false; // default true
 		const shared = delegation.shared === true; // default false
-		const captureDelegateEvents = blocking
-			? await this.beginDelegateObserverCapture(childId)
-			: false;
+		const captureDelegateEvents =
+			blocking && !cellSpawn ? await this.beginDelegateObserverCapture(childId) : false;
 		const target = this.resolveDelegationTarget(delegation.agent_name);
 		const effectiveDelegation = this.effectiveDelegationForExecution(delegation, target.spec);
 		const normalizedPayload = this.normalizeDelegationPayload(effectiveDelegation);
 		const payloadData = normalizedPayload ? { task_payload: normalizedPayload.metadata } : {};
 
-		const mnemonicName = await generateMnemonicName(
-			this.client,
-			this.resolved.model,
-			this.resolved.provider,
-			{
-				agentName: delegation.agent_name,
-				goal: effectiveDelegation.goal,
-				description: delegation.description,
-				usedNames: [...this.usedMnemonicNames],
-			},
-			this.signal,
-		);
+		// Deviation #1: no mnemonic LLM call for cell spawns — a fan-out would
+		// mean ~N owner-model completions plus a name-collision race.
+		const mnemonicName = cellSpawn
+			? this.nextCellSpawnName(effectiveDelegation.goal)
+			: await generateMnemonicName(
+					this.client,
+					this.resolved.model,
+					this.resolved.provider,
+					{
+						agentName: delegation.agent_name,
+						goal: effectiveDelegation.goal,
+						description: delegation.description,
+						usedNames: [...this.usedMnemonicNames],
+					},
+					this.signal,
+				);
 		if (mnemonicName) this.usedMnemonicNames.add(mnemonicName);
+
+		const cellSpawnData = cellSpawn ? { cell_spawn: true } : {};
+		const finishAct = (
+			outcome: DelegationOutcome,
+			extra: Record<string, unknown>,
+		): DelegationOutcome => {
+			const actEndData = {
+				agent_name: delegation.agent_name,
+				...extra,
+				child_id: childId,
+				...descData,
+				...payloadData,
+				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
+				...cellSpawnData,
+				...(cellSpawn
+					? {}
+					: {
+							tool_result_message: this.renderDelegationOutcome(delegation, outcome).toolResultMsg,
+						}),
+			};
+			this.captureDelegateObserverOwnerEvent(childId, "act_end", agentId, this.depth, actEndData);
+			this.emitAndLog("act_end", agentId, this.depth, actEndData);
+			return outcome;
+		};
 
 		const actStartData = {
 			agent_name: delegation.agent_name,
@@ -1541,6 +1888,7 @@ export class Agent {
 			handle_id: handleId,
 			child_id: childId,
 			...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
+			...cellSpawnData,
 		};
 		this.captureDelegateObserverOwnerEvent(childId, "act_start", agentId, this.depth, actStartData);
 		this.emitAndLog("act_start", agentId, this.depth, actStartData);
@@ -1550,98 +1898,66 @@ export class Agent {
 					delegation.agent_name,
 					target.allowedNames,
 				);
-				const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
-				const actEndData = {
-					agent_name: delegation.agent_name,
-					success: false,
-					error: errorMsg,
-					child_id: childId,
-					...descData,
-					...payloadData,
-					...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-					tool_result_message: toolResultMsg,
-				};
-				this.captureDelegateObserverOwnerEvent(childId, "act_end", agentId, this.depth, actEndData);
-				this.emitAndLog("act_end", agentId, this.depth, actEndData);
-				return { toolResultMsg, stumbles: 1 };
+				return finishAct(
+					{ kind: "infrastructure_error", reason: errorMsg },
+					{ success: false, error: errorMsg },
+				);
 			}
 
 			if (normalizedPayload && target.spec.task_payload !== true) {
 				const errorMsg = this.buildTaskPayloadNotAcceptedError(delegation);
-				const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
-				const actEndData = {
-					agent_name: delegation.agent_name,
-					success: false,
-					error: errorMsg,
-					child_id: childId,
-					...descData,
-					...payloadData,
-					...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-					tool_result_message: toolResultMsg,
-				};
-				this.captureDelegateObserverOwnerEvent(childId, "act_end", agentId, this.depth, actEndData);
-				this.emitAndLog("act_end", agentId, this.depth, actEndData);
-				return { toolResultMsg, stumbles: 1 };
+				return finishAct(
+					{ kind: "infrastructure_error", reason: errorMsg },
+					{ success: false, error: errorMsg },
+				);
 			}
 
 			if (this.depth + 1 > MAX_AGENT_DEPTH) {
 				const errorMsg = this.buildDepthLimitError(delegation.agent_name);
-				const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
-				const actEndData = {
-					agent_name: delegation.agent_name,
-					success: false,
-					error: errorMsg,
-					child_id: childId,
-					...descData,
-					...payloadData,
-					...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-					tool_result_message: toolResultMsg,
-				};
-				this.captureDelegateObserverOwnerEvent(childId, "act_end", agentId, this.depth, actEndData);
-				this.emitAndLog("act_end", agentId, this.depth, actEndData);
-				return { toolResultMsg, stumbles: 1 };
+				return finishAct(
+					{ kind: "infrastructure_error", reason: errorMsg },
+					{ success: false, error: errorMsg },
+				);
 			}
 
-			const result = await this.spawner!.spawnAgent({
-				agentName: delegation.agent_name,
-				genomePath: this.genomePath ?? "",
-				projectDataDir: this.projectDataDir,
-				caller,
-				goal: effectiveDelegation.goal,
-				hints: effectiveDelegation.hints,
-				payload: normalizedPayload?.value,
-				blocking,
-				shared,
-				workDir: this.env.working_directory(),
-				handleId,
-				agentId: childId,
-				rootDir: this.rootDir,
-				mnemonicName: mnemonicName ?? undefined,
-				evalMode: this.evalMode,
-				providerIdOverride: this.resolved.provider,
-				resolverSettings: this.resolverSettings,
-				trustedUserInstruction: this.trustedUserInstruction,
-				surfacedMemoryBlock: this.childSurfacedMemoryBlock(target.spec.name),
-			});
+			const targetSpecName = target.spec.name;
+			const spawnCall = () =>
+				this.spawner!.spawnAgent({
+					agentName: delegation.agent_name,
+					genomePath: this.genomePath ?? "",
+					projectDataDir: this.projectDataDir,
+					caller,
+					goal: effectiveDelegation.goal,
+					hints: effectiveDelegation.hints,
+					payload: normalizedPayload?.value,
+					blocking,
+					shared,
+					workDir: this.env.working_directory(),
+					handleId,
+					agentId: childId,
+					rootDir: this.rootDir,
+					mnemonicName: mnemonicName ?? undefined,
+					evalMode: this.evalMode,
+					allowExec: this.allowExec,
+					dataPlaneEnabled: this.dataPlaneEnabled,
+					...(effectiveDelegation.model !== undefined ? { model: effectiveDelegation.model } : {}),
+					providerIdOverride: this.resolved.provider,
+					resolverSettings: this.resolverSettings,
+					featherweight: isFeatherweightEligible(target.spec!),
+					trustedUserInstruction: this.trustedUserInstruction,
+					surfacedMemoryBlock: this.childSurfacedMemoryBlock(targetSpecName),
+					env: effectiveDelegation.env,
+				});
+			// A blocking spawn waits on the child; suspend the inactivity timer for it.
+			const result = blocking
+				? await this.withInactivitySuspendedFor(handleId, spawnCall)
+				: await spawnCall();
 
 			if (typeof result === "string") {
-				const toolResultMsg = Msg.toolResult(
-					delegation.call_id,
-					`Agent started. Handle: ${result}`,
+				return finishAct(
+					{ kind: "started", handleId: result },
+					{ success: true, handle_id: result },
 				);
-				const actEndData = {
-					agent_name: delegation.agent_name,
-					success: true,
-					handle_id: result,
-					child_id: childId,
-					...descData,
-					...payloadData,
-					...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-					tool_result_message: toolResultMsg,
-				};
-				this.captureDelegateObserverOwnerEvent(childId, "act_end", agentId, this.depth, actEndData);
-				this.emitAndLog("act_end", agentId, this.depth, actEndData);
-				return { toolResultMsg, stumbles: 0, output: result };
 			}
 
 			// Blocking: result is a ResultMessage
@@ -1667,6 +1983,9 @@ export class Agent {
 			});
 
 			if (learnSignal) {
+				// Deviation #4: tag cell-originated signals with the owning cell
+				// so cell-level verify never re-signals the same child failure.
+				if (cellSpawn && this.currentCellId) learnSignal.cell_id = this.currentCellId;
 				this.emitAndLog("learn_signal", agentId, this.depth, {
 					signal: learnSignal,
 				});
@@ -1679,60 +1998,219 @@ export class Agent {
 				this.learnProcess.recordAction(agentId);
 			}
 
-			const truncated = truncateToolOutput(resultMsg.output, delegation.agent_name);
-			const content = `${truncated}\n\nHandle: ${resultMsg.handle_id}`;
-			const toolResultMsg = Msg.toolResult(delegation.call_id, content);
-
-			const actEndData = {
-				agent_name: delegation.agent_name,
+			const manifest = await fetchManifestLines(
+				this.spawner?.storeAccess,
+				this.manifestRenames,
+				resultMsg.handle_id,
+			);
+			const summary = renderDelegationResult(
+				resultMsg.output,
+				delegation.agent_name,
+				manifest,
+				resultMsg.recovered === true,
+			);
+			const outcome: DelegationOutcome = {
+				kind: "completed",
+				ok: resultMsg.success,
+				summary,
+				bindings: manifest.values,
+				handleId: resultMsg.handle_id,
+				stumbles: verify.stumbled ? 1 : 0,
+				rawOutput: resultMsg.output,
+			};
+			finishAct(outcome, {
 				success: resultMsg.success,
 				handle_id: resultMsg.handle_id,
 				turns: resultMsg.turns,
 				timed_out: resultMsg.timed_out,
-				child_id: childId,
-				...descData,
-				...payloadData,
-				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-				tool_result_message: toolResultMsg,
-			};
-			this.captureDelegateObserverOwnerEvent(childId, "act_end", agentId, this.depth, actEndData);
-			this.emitAndLog("act_end", agentId, this.depth, actEndData);
-
-			await this.deliverDelegateObserverFrames({
-				delegation: effectiveDelegation,
-				childId,
-				childHandleId: resultMsg.handle_id,
-				childAgentName: target.spec.name,
-				result: resultMsg,
-				description: delegation.description,
 			});
 
-			return {
-				toolResultMsg,
-				stumbles: verify.stumbled ? 1 : 0,
-				output: resultMsg.output,
-			};
+			// Deviation #2: per-spawn observer frames only on the tool path; cell
+			// spawns batch into one frame at cell end.
+			if (!cellSpawn) {
+				await this.deliverDelegateObserverFrames({
+					delegation: effectiveDelegation,
+					childId,
+					childHandleId: resultMsg.handle_id,
+					childAgentName: target.spec.name,
+					result: resultMsg,
+					description: delegation.description,
+				});
+			}
+
+			return outcome;
 		} catch (err) {
 			const errorMsg = `Spawner delegation to '${delegation.agent_name}' failed: ${String(err)}`;
-			const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
-			const actEndData = {
-				agent_name: delegation.agent_name,
-				success: false,
-				error: errorMsg,
-				child_id: childId,
-				...descData,
-				...payloadData,
-				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-				tool_result_message: toolResultMsg,
-			};
-			this.captureDelegateObserverOwnerEvent(childId, "act_end", agentId, this.depth, actEndData);
-			this.emitAndLog("act_end", agentId, this.depth, actEndData);
-			return { toolResultMsg, stumbles: 1 };
+			return finishAct(
+				{ kind: "infrastructure_error", reason: errorMsg },
+				{ success: false, error: errorMsg },
+			);
 		} finally {
 			if (captureDelegateEvents) {
 				this.delegateObserverEventsByChildId.delete(childId);
 			}
 		}
+	}
+
+	/**
+	 * Deterministic child name for a cell spawn (deviation #1): goal slug plus
+	 * a per-cell index. The counter resets at cell start.
+	 */
+	private nextCellSpawnName(goal: string): string {
+		const slug =
+			goal
+				.toLowerCase()
+				.replace(/[^a-z0-9]+/g, "-")
+				.replace(/^-+|-+$/g, "")
+				.slice(0, 32)
+				.replace(/-+$/, "") || "spawn";
+		return `${slug}_${++this.cellSpawnIndex}`;
+	}
+
+	/**
+	 * Service an ambient spawn() from this agent's cell (spec §4): the request
+	 * runs through the delegation core with the cell deviations, and its
+	 * completed summaries collect into the per-cell observer digest. A throw
+	 * from the core's preamble (target resolution, payload normalization) is
+	 * spawn infrastructure by definition.
+	 */
+	private async serviceCellSpawn(req: CellSpawnRequest): Promise<DelegationOutcome> {
+		const delegation: Delegation = {
+			call_id: `cell-spawn-${ulid()}`,
+			agent_name: req.agent,
+			goal: req.goal,
+			...(req.hints !== undefined ? { hints: req.hints } : {}),
+			...(req.blocking !== undefined ? { blocking: req.blocking } : {}),
+			...(req.shared !== undefined ? { shared: req.shared } : {}),
+			...(req.model !== undefined ? { model: req.model } : {}),
+			...(req.env !== undefined ? { env: req.env } : {}),
+		};
+		try {
+			const outcome = await this.runSpawnerDelegation(delegation, this.agentId ?? this.spec.name, {
+				cellSpawn: true,
+			});
+			this.recordCellSpawnDigest(outcome, req.agent, req.goal);
+			return outcome;
+		} catch (err) {
+			return {
+				kind: "infrastructure_error",
+				reason: err instanceof Error ? err.message : String(err),
+			};
+		}
+	}
+
+	/**
+	 * Service an ambient handle.wait() (spec §4): the TIMER-LESS blocking wait
+	 * — not the wait_agent tool's 900 s cap, which would spuriously fail the
+	 * long-running survivors this path exists for. No caller: cell handles are
+	 * the owner's own, and the owner's spawner state scopes what is reachable.
+	 */
+	private async serviceCellHandleWait(id: string): Promise<DelegationOutcome> {
+		if (!this.spawner) {
+			return { kind: "infrastructure_error", reason: "handle.wait requires the spawner runtime" };
+		}
+		try {
+			const result = await this.spawner.waitAgent(id, undefined, { untimed: true });
+			const outcome = await this.completedOutcomeFor(result, id, "handle.wait");
+			this.recordCellSpawnDigest(
+				outcome,
+				this.spawner.getHandle(id)?.agentName ?? id,
+				"handle.wait",
+			);
+			return outcome;
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			// A lookup miss on a cell handle-wait most often means the handle
+			// belongs to another process's spawner — cross-process / shared-handle
+			// waits are a Phase 5 deferral, so say so instead of a bare miss.
+			const reason = message.startsWith("Unknown handle")
+				? `${message} — waiting on a handle owned by another process (shared/cross-process handles) is not supported yet`
+				: message;
+			return { kind: "infrastructure_error", reason };
+		}
+	}
+
+	/** Service an ambient handle.message() (spec §4). Blocking by default,
+	 * matching message_agent; non-blocking resolves as a started ack. */
+	private async serviceCellHandleMessage(
+		id: string,
+		text: string,
+		opts?: { env?: Record<string, string>; blocking?: boolean },
+	): Promise<DelegationOutcome> {
+		if (!this.spawner) {
+			return {
+				kind: "infrastructure_error",
+				reason: "handle.message requires the spawner runtime",
+			};
+		}
+		try {
+			const blocking = opts?.blocking !== false;
+			const result = await this.spawner.messageAgent(id, text, this.callerIdentity(), blocking, {
+				trustedUserInstruction: this.trustedUserInstruction,
+				callerTarget: this.callerAddress,
+				envGrants: opts?.env,
+			});
+			if (!blocking || !result) return { kind: "started", handleId: id };
+			const outcome = await this.completedOutcomeFor(result, id, "handle.message");
+			this.recordCellSpawnDigest(
+				outcome,
+				this.spawner.getHandle(id)?.agentName ?? id,
+				"handle.message",
+			);
+			return outcome;
+		} catch (err) {
+			return {
+				kind: "infrastructure_error",
+				reason: err instanceof Error ? err.message : String(err),
+			};
+		}
+	}
+
+	/**
+	 * Record a completed cell delegation in the observer digest (deviation #2:
+	 * one frame summarizes ALL of a cell's delegations at cell end). Started
+	 * outcomes carry no result yet; they enter the digest when their eventual
+	 * handle.wait()/handle.message() completes. Deduped by handle so a blocking
+	 * spawn already recorded is not doubled by a later wait on the same handle.
+	 */
+	private recordCellSpawnDigest(outcome: DelegationOutcome, agentName: string, goal: string): void {
+		if (outcome.kind !== "completed") return;
+		if (this.cellSpawnDigest.some((entry) => entry.handleId === outcome.handleId)) return;
+		this.cellSpawnDigest.push({
+			agentName,
+			goal,
+			handleId: outcome.handleId,
+			ok: outcome.ok,
+			summary: outcome.summary,
+		});
+	}
+
+	/** Fold a child ResultMessage plus its manifest delta into a completed outcome. */
+	private async completedOutcomeFor(
+		result: ResultMessage,
+		handleId: string,
+		label: string,
+	): Promise<DelegationOutcome> {
+		const manifest = await fetchManifestLines(
+			this.spawner?.storeAccess,
+			this.manifestRenames,
+			handleId,
+		);
+		const summary = renderDelegationResult(
+			result.output,
+			label,
+			manifest,
+			result.recovered === true,
+		);
+		return {
+			kind: "completed",
+			ok: result.success,
+			summary,
+			bindings: manifest.values,
+			handleId,
+			stumbles: result.success ? 0 : 1,
+			rawOutput: result.output,
+		};
 	}
 
 	/** Execute an agent command (wait_agent, message_agent). Returns the tool result message. */
@@ -1752,63 +2230,77 @@ export class Agent {
 			return { toolResultMsg, stumbles: 1 };
 		}
 
+		const spawner = this.spawner;
 		const caller = this.callerIdentity();
-		const handle = this.spawner.getHandle(cmd.handle);
+		const handle = spawner.getHandle(cmd.handle);
 		const childAgentId = handle?.agentId;
 		const targetMnemonicName = handle?.mnemonicName;
 		const targetAgentName = handle?.agentName;
 
+		// Target identity carried on every act_end for this command.
+		const targetFields = {
+			child_id: childAgentId,
+			...(targetMnemonicName ? { mnemonic_name: targetMnemonicName } : {}),
+			...(targetAgentName ? { target_agent_name: targetAgentName } : {}),
+		};
+		// A blocking wait/message resolved with the target's result: render it
+		// (manifest lines included) and emit the act_end.
+		const settleResult = async (result: ResultMessage) => {
+			const manifest = await fetchManifestLines(
+				this.spawner?.storeAccess,
+				this.manifestRenames,
+				cmd.handle,
+			);
+			const content = renderDelegationResult(
+				result.output,
+				cmd.kind,
+				manifest,
+				result.recovered === true,
+			);
+			const toolResultMsg = Msg.toolResult(cmd.call_id, content);
+			this.emitAndLog("act_end", agentId, this.depth, {
+				agent_name: cmd.kind,
+				success: result.success,
+				...targetFields,
+				tool_result_message: toolResultMsg,
+			});
+			return { toolResultMsg, stumbles: result.success ? 0 : 1, output: result.output };
+		};
+
 		try {
 			if (cmd.kind === "wait_agent") {
-				const result = await this.spawner.waitAgent(cmd.handle, caller);
-				const content = truncateToolOutput(result.output, "wait_agent");
-				const toolResultMsg = Msg.toolResult(cmd.call_id, content);
-				this.emitAndLog("act_end", agentId, this.depth, {
-					agent_name: cmd.kind,
-					success: result.success,
-					child_id: childAgentId,
-					...(targetMnemonicName ? { mnemonic_name: targetMnemonicName } : {}),
-					...(targetAgentName ? { target_agent_name: targetAgentName } : {}),
-					tool_result_message: toolResultMsg,
-				});
-				return { toolResultMsg, stumbles: result.success ? 0 : 1, output: result.output };
+				// A blocking wait on another agent; suspend the inactivity timer.
+				const result = await this.withInactivitySuspendedFor(cmd.handle, () =>
+					spawner.waitAgent(cmd.handle, caller),
+				);
+				return await settleResult(result);
 			}
 
 			// message_agent
 			const blocking = cmd.blocking !== false; // default true
-			const result = await this.spawner.messageAgent(
-				cmd.handle,
-				cmd.message,
-				caller,
-				blocking,
-				this.trustedUserInstruction,
-				this.callerAddress,
-			);
+			const messageCall = () =>
+				spawner.messageAgent(cmd.handle, cmd.message, caller, blocking, {
+					trustedUserInstruction: this.trustedUserInstruction,
+					callerTarget: this.callerAddress,
+					envGrants: cmd.env,
+				});
+			// Blocking message_agent waits for the target's next result.
+			const result = blocking
+				? await this.withInactivitySuspendedFor(cmd.handle, messageCall)
+				: await messageCall();
 
 			if (!blocking || !result) {
 				const toolResultMsg = Msg.toolResult(cmd.call_id, "Message sent.");
 				this.emitAndLog("act_end", agentId, this.depth, {
 					agent_name: cmd.kind,
 					success: true,
-					child_id: childAgentId,
-					...(targetMnemonicName ? { mnemonic_name: targetMnemonicName } : {}),
-					...(targetAgentName ? { target_agent_name: targetAgentName } : {}),
+					...targetFields,
 					tool_result_message: toolResultMsg,
 				});
 				return { toolResultMsg, stumbles: 0 };
 			}
 
-			const content = truncateToolOutput(result.output, "message_agent");
-			const toolResultMsg = Msg.toolResult(cmd.call_id, content);
-			this.emitAndLog("act_end", agentId, this.depth, {
-				agent_name: cmd.kind,
-				success: result.success,
-				child_id: childAgentId,
-				...(targetMnemonicName ? { mnemonic_name: targetMnemonicName } : {}),
-				...(targetAgentName ? { target_agent_name: targetAgentName } : {}),
-				tool_result_message: toolResultMsg,
-			});
-			return { toolResultMsg, stumbles: result.success ? 0 : 1, output: result.output };
+			return await settleResult(result);
 		} catch (err) {
 			const errorMsg = `${cmd.kind} failed: ${String(err)}`;
 			const toolResultMsg = Msg.toolResult(cmd.call_id, `Error: ${errorMsg}`, true);
@@ -1816,9 +2308,7 @@ export class Agent {
 				agent_name: cmd.kind,
 				success: false,
 				error: errorMsg,
-				child_id: childAgentId,
-				...(targetMnemonicName ? { mnemonic_name: targetMnemonicName } : {}),
-				...(targetAgentName ? { target_agent_name: targetAgentName } : {}),
+				...targetFields,
 				tool_result_message: toolResultMsg,
 			});
 			return { toolResultMsg, stumbles: 1 };
@@ -1896,9 +2386,14 @@ export class Agent {
 			}
 		}
 
-		// Load workspace tools created by the quartermaster for this agent
+		// Load workspace tools created by the quartermaster for this agent.
+		// Never in code mode (Phase 7 hardening): code mode's tool surface is
+		// exactly `cell`, and a registered-but-unoffered script tool would still
+		// be a shell escape one hallucinated tool call away. Skipping the load
+		// (and the PATH additions that only serve script tools) keeps the
+		// stripped-realm premise honest.
 		let wsToolDefs: import("../genome/genome.ts").AgentToolDefinition[] = [];
-		if (this.genome) {
+		if (this.genome && !this.codeMode) {
 			wsToolDefs = this.rootDir
 				? await this.genome.loadAgentToolsWithRoot(this.spec.name, this.rootDir, this.agentTree)
 				: await this.genome.loadAgentTools(this.spec.name);
@@ -2153,6 +2648,45 @@ export class Agent {
 		// Collect results keyed by call ID so we can add them to history in original order.
 		const resultByCallId = new Map<string, Message>();
 
+		// The dispatchable surface = exactly what this agent was offered. Phase 7
+		// hardening covers the WHOLE dispatch, not just primitives: a delegation
+		// (including a legacy bare-agent-name call, which is semantically a
+		// delegate) requires the delegate tool to have been offered, and
+		// wait/message commands require their tools — otherwise a code-mode
+		// agent whose surface is "exactly cell" could still delegate or message
+		// with one hallucinated or injected tool call.
+		const allowedDispatchNames = new Set(this.resolvedTools().map((tool) => tool.name));
+		const surfaceErrorMsg = (toolName: string) =>
+			`Tool '${toolName}' is not in this agent's granted tool surface ` +
+			`(granted: ${[...allowedDispatchNames].join(", ") || "none"}).`;
+		// Refuse a delegation/agent-command call: error tool result + act_end.
+		const denyCommand = (callId: string, agentName: string, errorMsg: string) => {
+			const toolResultMsg = Msg.toolResult(callId, `Error: ${errorMsg}`, true);
+			resultByCallId.set(callId, toolResultMsg);
+			this.emitAndLog("act_end", agentId, this.depth, {
+				agent_name: agentName,
+				success: false,
+				error: errorMsg,
+				tool_result_message: toolResultMsg,
+			});
+			stumbles++;
+		};
+		// Refuse a primitive call: error tool result + primitive_end.
+		const denyPrimitive = (call: ToolCall, displayName: string, errorMsg: string) => {
+			const toolResultMsg = Msg.toolResult(call.id, `Error: ${errorMsg}`, true);
+			resultByCallId.set(call.id, toolResultMsg);
+			this.emitAndLog("primitive_end", agentId, this.depth, {
+				name: call.name,
+				display_name: displayName,
+				success: false,
+				stumbled: true,
+				output: "",
+				error: errorMsg,
+				tool_result_message: toolResultMsg,
+			});
+			stumbles++;
+		};
+
 		// Handle malformed delegations — add error tool results so history stays valid
 		for (const err of delegationErrors) {
 			this.emitAndLog("error", agentId, this.depth, { error: err.error });
@@ -2160,22 +2694,64 @@ export class Agent {
 			stumbles++;
 		}
 
-		// Launch all delegations concurrently (spawner or in-process fallback)
-		const executeDelegationFn = this.spawner
-			? (d: Delegation) => this.executeSpawnerDelegation(d, agentId)
-			: (d: Delegation) => this.executeDelegation(d, agentId);
+		// Launch all delegations concurrently on the spawner runtime. Delegation
+		// has no in-process fallback: every production entry wires a spawner, so
+		// a spawnerless Agent rejects loudly instead of drifting on a shadow path.
+		// Flag-off (spec §6): env grants on delegate are a data-plane field —
+		// reject loudly naming the flag before the delegation runs.
+		const executeDelegationFn = (
+			d: Delegation,
+		): Promise<{ toolResultMsg: Message; stumbles: number; output?: string }> => {
+			const rejectDelegation = (errorMsg: string) => {
+				const toolResultMsg = Msg.toolResult(d.call_id, `Error: ${errorMsg}`, true);
+				this.emitAndLog("act_end", agentId, this.depth, {
+					agent_name: d.agent_name,
+					success: false,
+					error: errorMsg,
+					tool_result_message: toolResultMsg,
+				});
+				return Promise.resolve({ toolResultMsg, stumbles: 1 });
+			};
+			if (!this.dataPlaneEnabled && d.env !== undefined) {
+				return rejectDelegation(this.dataPlaneDisabledError("env grants on delegate"));
+			}
+			if (!this.spawner) {
+				return rejectDelegation(
+					`Agent delegation to '${d.agent_name}': delegation requires the spawner runtime, but none is available`,
+				);
+			}
+			return this.executeSpawnerDelegation(d, agentId);
+		};
 
-		const delegationPromises = delegations.map((delegation) =>
-			executeDelegationFn(delegation).then((dr) => {
+		const delegationPromises = delegations.map((delegation) => {
+			if (!allowedDispatchNames.has(DELEGATE_TOOL_NAME)) {
+				denyCommand(delegation.call_id, delegation.agent_name, surfaceErrorMsg(DELEGATE_TOOL_NAME));
+				return Promise.resolve();
+			}
+			return executeDelegationFn(delegation).then((dr) => {
 				resultByCallId.set(delegation.call_id, dr.toolResultMsg);
 				stumbles += dr.stumbles;
 				if (dr.output !== undefined) lastOutput = dr.output;
-			}),
-		);
+			});
+		});
 		await Promise.all(delegationPromises);
 
 		// Handle agent commands (wait_agent, message_agent)
 		for (const cmd of agentCommands) {
+			if (!allowedDispatchNames.has(cmd.kind)) {
+				denyCommand(cmd.call_id, cmd.kind, surfaceErrorMsg(cmd.kind));
+				continue;
+			}
+			// Flag-off (spec §6): env grants on message_agent are a data-plane
+			// field — reject loudly naming the flag.
+			if (!this.dataPlaneEnabled && cmd.kind === "message_agent" && cmd.env !== undefined) {
+				denyCommand(
+					cmd.call_id,
+					cmd.kind,
+					this.dataPlaneDisabledError("env grants on message_agent"),
+				);
+				continue;
+			}
 			const result = await this.executeAgentCommand(cmd, agentId);
 			resultByCallId.set(cmd.call_id, result.toolResultMsg);
 			if (result.stumbles > 0) stumbles += result.stumbles;
@@ -2200,6 +2776,31 @@ export class Agent {
 				args: call.arguments,
 			});
 
+			// Phase 7 hardening: dispatch only what this agent was actually
+			// offered. The registry holds every registered primitive (kernel
+			// primitives, workspace script tools, save_tool, ...), so executing by
+			// bare name would let any agent — including a code-mode agent whose
+			// surface is "exactly cell" — reach ungranted tools with one
+			// hallucinated or injected tool call. Script tools run through
+			// exec_command, so this is the line between "granted script tool" and
+			// "silent shell escape".
+			if (!allowedDispatchNames.has(call.name)) {
+				denyPrimitive(call, displayName, surfaceErrorMsg(call.name));
+				continue;
+			}
+
+			// Flag-off (spec §6): capture fields (bind:/publish:) are data-plane
+			// fields — reject loudly naming the flag rather than passing them as
+			// unknown args to the raw primitive (which would silently ignore them).
+			if (!this.dataPlaneEnabled) {
+				const dataPlaneField =
+					"bind" in call.arguments ? "bind:" : "publish" in call.arguments ? "publish:" : undefined;
+				if (dataPlaneField) {
+					denyPrimitive(call, displayName, this.dataPlaneDisabledError(dataPlaneField));
+					continue;
+				}
+			}
+
 			// Enforce write path constraints before execution
 			const pathDenied = checkPathConstraint(
 				call.name,
@@ -2208,31 +2809,50 @@ export class Agent {
 				this.env.working_directory(),
 			);
 			if (pathDenied) {
-				const content = `Error: ${pathDenied}`;
-				const toolResultMsg = Msg.toolResult(call.id, content, true);
-				resultByCallId.set(call.id, toolResultMsg);
-				this.emitAndLog("primitive_end", agentId, this.depth, {
-					name: call.name,
-					display_name: displayName,
-					success: false,
-					stumbled: true,
-					output: "",
-					error: pathDenied,
-					tool_result_message: toolResultMsg,
-				});
-				stumbles++;
+				denyPrimitive(call, displayName, pathDenied);
 				continue;
 			}
 
-			const result = await this.primitiveRegistry.execute(call.name, call.arguments, this.signal);
+			// $ref splicing (sap spec §2): resolve whole-arg ⟦name⟧ references
+			// below the line, then re-run path constraints on the resolved
+			// arguments (belt-and-braces, frozen rule) before execution.
+			const spliced = await this.spliceCallArguments(call.name, call.arguments);
+			if (!spliced.ok) {
+				denyPrimitive(call, displayName, spliced.error);
+				continue;
+			}
+			if (spliced.splicedNames.length > 0) {
+				const resolvedDenied = checkPathConstraint(
+					call.name,
+					spliced.args,
+					this.spec.constraints,
+					this.env.working_directory(),
+				);
+				if (resolvedDenied) {
+					denyPrimitive(call, displayName, resolvedDenied);
+					continue;
+				}
+			}
 
-			// Verify primitive result
-			const { stumbled, learnSignal: primSignal } = verifyPrimitiveResult(
+			// A pending cell is a blocking wait on the cell worker: the
+			// inactivity timer suspends for its duration (spec §4). The parent's
+			// budget clock + RSS watchdog are the net for a wedged cell — tighter
+			// than liveness pings, so no probe watches this suspension.
+			const executeCall = () =>
+				this.primitiveRegistry.execute(call.name, spliced.args, this.signal);
+			const result =
+				call.name === "cell" ? await this.runCellCall(executeCall) : await executeCall();
+
+			// Verify primitive result. Infrastructure-tagged failures (spec §4)
+			// are not model error: no stumble, no learn signal, a warning event.
+			const infrastructure = result.infrastructure === true;
+			const { stumbled: rawStumbled, learnSignal: primSignal } = verifyPrimitiveResult(
 				result,
 				call.name,
 				goal,
 				this.sessionId,
 			);
+			const stumbled = infrastructure ? false : rawStumbled;
 
 			const content = result.error ? `Error: ${result.error}\n${result.output}` : result.output;
 			const toolResultMsg = Msg.toolResult(call.id, content, !result.success);
@@ -2245,13 +2865,44 @@ export class Agent {
 				output: result.output,
 				error: result.error,
 				tool_result_message: toolResultMsg,
+				...(result.boundValues ? { bound_values: result.boundValues } : {}),
 			});
 
-			if (stumbled) {
+			// Telemetry cell_end (spec §4/§8): carries the redacted code and the
+			// run's metrics, NOT the tool result — primitive_end above is the
+			// replay-safe carrier of the transcript result.
+			if (call.name === "cell") {
+				const cellCode = String(spliced.args.code ?? "");
+				// Program linkage (spec §7 / Phase 7): when the cell invoked a genome
+				// program, carry the resolved name+version so a fabricated/repaired
+				// program artifact is resolvable back to the cell runs that motivated
+				// it. Lexical scan (over-matches, documented in program.ts).
+				const referencedPrograms = this.genome
+					? programsReferencedInCode(cellCode, this.genome.allPrograms())
+					: [];
+				this.emitAndLog("cell_end", agentId, this.depth, {
+					code: redactSensitiveTranscriptContent(cellCode),
+					success: result.success,
+					...(result.metrics ? { metrics: result.metrics } : {}),
+					...(referencedPrograms.length > 0 ? { programs: referencedPrograms } : {}),
+				});
+			}
+
+			if (infrastructure) {
+				this.emitAndLog("warning", agentId, this.depth, {
+					message: `infrastructure failure in ${call.name} (not counted as a stumble): ${
+						result.error ?? "unknown"
+					}`,
+				});
+			} else if (result.stumbleCount !== undefined) {
+				// Cell accounting (spec §4): failed children + own error, counted,
+				// replacing the at-most-1 boolean.
+				stumbles += result.stumbleCount;
+			} else if (stumbled) {
 				stumbles++;
 			}
 
-			if (primSignal) {
+			if (primSignal && !infrastructure) {
 				this.emitAndLog("learn_signal", agentId, this.depth, {
 					signal: primSignal,
 				});
@@ -2295,22 +2946,24 @@ export class Agent {
 		let lastOutput = "";
 		let interrupted = false;
 		let timedOut = false;
+		let completedNaturally = false;
 		let usedToolThisRun = false;
 
 		const timeoutMs = this.spec.constraints.timeout_ms;
-		let timeoutController: AbortController | undefined;
-		let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+		const timeoutController: AbortController | undefined =
+			timeoutMs > 0 ? new AbortController() : undefined;
 
-		const resetInactivityTimer = () => {
-			if (timeoutMs <= 0) return;
-			clearTimeout(timeoutTimer);
-			timeoutTimer = setTimeout(() => timeoutController?.abort(), timeoutMs);
-		};
-
-		if (timeoutMs > 0) {
-			timeoutController = new AbortController();
-			resetInactivityTimer();
-		}
+		// Inactivity timeout: reset after planning and after each tool batch.
+		// Pausable — blocking waits on other agents (withInactivitySuspendedFor)
+		// and cell runs (withTimerSuspended) suspend it so a busy child cannot
+		// time out an idle-looking parent. reset()/clear() are no-ops when
+		// timeoutMs <= 0 (disabled), matching the old guard.
+		const inactivityTimer = createInactivityTimer({
+			timeoutMs,
+			onTimeout: () => timeoutController?.abort(),
+		});
+		this.currentInactivityTimer = inactivityTimer;
+		inactivityTimer.reset();
 
 		// Combined signal: aborts if external signal OR inactivity timeout fires
 		const signals: AbortSignal[] = [];
@@ -2320,6 +2973,26 @@ export class Agent {
 
 		// Update this.signal so executeToolCalls picks up the combined signal
 		if (signal) this.signal = signal;
+
+		// Classify an abort: inactivity timeout vs external interruption. The
+		// "interrupted" event is optional because one caller's path has already
+		// emitted it.
+		const classifyAbort = (opts: { emitInterrupted: boolean }) => {
+			if (timeoutController?.signal.aborted) {
+				this.emitAndLog("warning", agentId, this.depth, {
+					message: `Agent timed out after ${timeoutMs}ms idle (total elapsed: ${Math.round(performance.now() - startTime)}ms, limit: ${timeoutMs}ms)`,
+				});
+				timedOut = true;
+			} else {
+				interrupted = true;
+				if (opts.emitInterrupted) {
+					this.emitAndLog("interrupted", agentId, this.depth, {
+						message: "Agent interrupted by abort signal",
+						turns,
+					});
+				}
+			}
+		};
 
 		try {
 			while (turns < this.spec.constraints.max_turns) {
@@ -2346,18 +3019,7 @@ export class Agent {
 
 				// Check abort signal (timeout or external)
 				if (signal?.aborted) {
-					if (timeoutController?.signal.aborted) {
-						this.emitAndLog("warning", agentId, this.depth, {
-							message: `Agent timed out after ${timeoutMs}ms idle (total elapsed: ${Math.round(performance.now() - startTime)}ms, limit: ${timeoutMs}ms)`,
-						});
-						timedOut = true;
-					} else {
-						interrupted = true;
-						this.emitAndLog("interrupted", agentId, this.depth, {
-							message: "Agent interrupted by abort signal",
-							turns,
-						});
-					}
+					classifyAbort({ emitInterrupted: true });
 					break;
 				}
 
@@ -2392,19 +3054,12 @@ export class Agent {
 					suppressNaturalAssistantText: this.shouldSuppressNaturalObserverOutput(),
 				});
 				if (planningResult.kind === "interrupted") {
-					if (timeoutController?.signal.aborted) {
-						this.emitAndLog("warning", agentId, this.depth, {
-							message: `Agent timed out after ${timeoutMs}ms idle (total elapsed: ${Math.round(performance.now() - startTime)}ms, limit: ${timeoutMs}ms)`,
-						});
-						timedOut = true;
-					} else {
-						// Note: requestPlanResponse already emitted the "interrupted" event
-						interrupted = true;
-					}
+					// Note: requestPlanResponse already emitted the "interrupted" event
+					classifyAbort({ emitInterrupted: false });
 					break;
 				}
 				const { response, assistantMessage, toolCalls } = planningResult;
-				resetInactivityTimer();
+				inactivityTimer.reset();
 				await this.trackMemoryMentions(assistantMessage);
 
 				// If response was truncated (hit max_tokens), tool calls are likely incomplete.
@@ -2454,6 +3109,7 @@ export class Agent {
 					if (finalOutput.trim() === "") {
 						if (this.canCompleteWithEmptyOutput()) {
 							lastOutput = "";
+							completedNaturally = true;
 							break;
 						}
 						this.history.push(
@@ -2468,6 +3124,7 @@ export class Agent {
 						continue;
 					}
 					lastOutput = finalOutput;
+					completedNaturally = true;
 					break;
 				}
 
@@ -2482,25 +3139,37 @@ export class Agent {
 				if (toolExecution.output !== undefined) {
 					lastOutput = toolExecution.output;
 				}
-				resetInactivityTimer();
+				inactivityTimer.reset();
 
-				// Compact history if context usage exceeds threshold or manually requested
+				// Compact history if context usage exceeds threshold or manually
+				// requested. total_input_tokens is the real context size — plain
+				// input_tokens is only the uncached sliver, which prompt caching
+				// shrinks to near-zero, silently disabling threshold compaction.
+				const turnsBeforeCompactionDecision = this.turnsSinceCompaction;
 				const compactionDecision = evaluateCompaction({
 					turnsSinceCompaction: this.turnsSinceCompaction,
 					compactionRequested: this.compactionRequested,
-					inputTokens: response.usage?.input_tokens ?? 0,
+					inputTokens: response.usage?.total_input_tokens ?? response.usage?.input_tokens ?? 0,
 					contextWindowSize: getContextWindowSize(this.resolved.model),
 				});
 				this.turnsSinceCompaction = compactionDecision.turnsSinceCompaction;
 				this.compactionRequested = compactionDecision.compactionRequested;
 				if (compactionDecision.shouldCompact) {
 					try {
+						// Older turns carry the delivered store manifests; re-state the
+						// scope's bound names in the summary so a post-compaction turn
+						// can still ⟦name⟧-reference its values. Store unavailability
+						// degrades to no manifest line, never a failed compaction.
+						const scopeNames = this.dataPlaneEnabled
+							? await this.spawner?.storeAccess?.names().catch(() => undefined)
+							: undefined;
 						const compactResult = await compactHistory({
 							history: this.history,
 							client: this.client,
 							model: this.resolved.model,
 							provider: this.resolved.provider,
 							logPath: this.logBasePath ? `${this.logBasePath}.jsonl` : "",
+							...(scopeNames ? { scopeNames } : {}),
 						});
 						this.emitAndLog("compaction", agentId, this.depth, {
 							summary: compactResult.summary,
@@ -2509,6 +3178,10 @@ export class Agent {
 							logPath: this.logBasePath ? `${this.logBasePath}.jsonl` : undefined,
 						});
 					} catch (err) {
+						// The decision consumed the cooldown slot before the attempt;
+						// give it back so the next over-threshold turn retries instead
+						// of waiting out a fresh cooldown while the context grows.
+						this.turnsSinceCompaction = turnsBeforeCompactionDecision + 1;
 						this.emitAndLog("warning", agentId, this.depth, {
 							message: `Compaction failed, continuing without: ${String(err)}`,
 						});
@@ -2545,7 +3218,8 @@ export class Agent {
 			await this.replayRecorder?.flush();
 			throw err;
 		} finally {
-			clearTimeout(timeoutTimer);
+			inactivityTimer.clear();
+			this.currentInactivityTimer = undefined;
 			this.stopDelegateObserverEventCapture();
 			this.signal = externalSignal;
 		}
@@ -2556,6 +3230,7 @@ export class Agent {
 			maxTurns: this.spec.constraints.max_turns,
 			timedOut,
 			interrupted,
+			completedNaturally,
 			output: lastOutput,
 			sessionId: this.sessionId,
 		});
@@ -2625,11 +3300,6 @@ function slugHandlePart(value: string): string {
 	return slug.length > 0 ? slug : "unknown";
 }
 
-function truncateForObserver(value: string, maxChars: number): string {
-	if (value.length <= maxChars) return value;
-	return `${value.slice(0, Math.max(0, maxChars - 3))}...`;
-}
-
 async function withTimeout<T>(
 	promise: Promise<T>,
 	timeoutMs: number,
@@ -2653,14 +3323,6 @@ async function withTimeout<T>(
 	} finally {
 		clearTimeout(timer);
 	}
-}
-
-function escapeXml(value: string): string {
-	return value
-		.replaceAll("&", "&amp;")
-		.replaceAll("<", "&lt;")
-		.replaceAll(">", "&gt;")
-		.replaceAll('"', "&quot;");
 }
 
 function subcorticalRecallEnabled(config: AgentSpec["subcortical_recall"]): boolean {

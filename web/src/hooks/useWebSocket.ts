@@ -43,9 +43,14 @@ export class WebSocketClient {
 		this.maxQueuedMessages = Math.max(1, options.maxQueuedMessages ?? 200);
 	}
 
-	/** Open the WebSocket connection. Idempotent if already connecting/connected. */
+	/**
+	 * Open the WebSocket connection. Idempotent if already connecting/connected.
+	 * Revives a disposed client: React StrictMode remounts dispose the memoized
+	 * client on the simulated unmount, then call connect() on it again.
+	 */
 	connect(): void {
-		if (this.disposed || this.ws) return;
+		if (this.ws) return;
+		this.disposed = false;
 		this.openSocket();
 	}
 
@@ -219,7 +224,9 @@ export class WebSocketClient {
 		this.cancelReconnect();
 		this.reconnectTimer = setTimeout(() => {
 			this.reconnectTimer = null;
-			if (!this.disposed) {
+			// A dispose+connect cycle may have opened a fresh socket while this
+			// timer was pending; never stack a second one.
+			if (!this.disposed && !this.ws) {
 				this.openSocket();
 			}
 		}, this.reconnectDelay);

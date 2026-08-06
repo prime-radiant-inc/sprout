@@ -1,6 +1,7 @@
 import type { Memory } from "../kernel/types.ts";
 import type { EmbeddingProvider } from "../llm/embeddings.ts";
 import type { ExtractedMemoryDraft } from "./extraction.ts";
+import { cosineSimilarity } from "./memory-embedding.ts";
 import { isActiveMemoryForRecall } from "./memory-lifecycle.ts";
 
 export const FUZZY_DUPLICATE_THRESHOLD = 0.86;
@@ -170,7 +171,7 @@ function findVectorDuplicate(
 	for (const memory of existing) {
 		const memoryVector = memoryVectorForDedup(memory);
 		if (!memoryVector || memoryVector.length !== vector.length) continue;
-		const score = cosineSimilarity(vector, memoryVector);
+		const score = cosineSimilarityStrict(vector, memoryVector);
 		if (score >= vectorThreshold) {
 			return { duplicate: true, reason: "vector", existingId: memory.id, score };
 		}
@@ -184,7 +185,7 @@ function findAcceptedVectorDuplicate(
 	vectorThreshold: number,
 ): DuplicateCheckResult {
 	for (const accepted of acceptedVectors) {
-		const score = cosineSimilarity(vector, accepted.vector);
+		const score = cosineSimilarityStrict(vector, accepted.vector);
 		if (score >= vectorThreshold) {
 			return { duplicate: true, reason: "vector", existingId: accepted.id, score };
 		}
@@ -198,22 +199,11 @@ function memoryVectorForDedup(memory: Memory): Float32Array | undefined {
 	return Float32Array.from(memory.embedding.vector);
 }
 
-function cosineSimilarity(a: Float32Array, b: Float32Array): number {
+function cosineSimilarityStrict(a: Float32Array, b: Float32Array): number {
 	if (a.length !== b.length) {
 		throw new Error(`Vector dimensions ${a.length} and ${b.length} do not match`);
 	}
-	let dot = 0;
-	let magnitudeA = 0;
-	let magnitudeB = 0;
-	for (let index = 0; index < a.length; index++) {
-		const valueA = a[index] ?? 0;
-		const valueB = b[index] ?? 0;
-		dot += valueA * valueB;
-		magnitudeA += valueA * valueA;
-		magnitudeB += valueB * valueB;
-	}
-	if (magnitudeA === 0 || magnitudeB === 0) return 0;
-	return dot / (Math.sqrt(magnitudeA) * Math.sqrt(magnitudeB));
+	return cosineSimilarity(a, b);
 }
 
 function trigrams(value: string): Set<string> {

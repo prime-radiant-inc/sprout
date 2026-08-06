@@ -170,6 +170,30 @@ describe("stageLearnings", () => {
 		expect(parsed.description).toBe("learned specialist");
 	});
 
+	test("enumerates and stages genome programs (spec §7 promotion path)", async () => {
+		const genomeDir = join(tempDir, "export-programs");
+		const rootDir = join(tempDir, "export-programs-boot");
+		await mkdir(rootDir, { recursive: true });
+		await writeRootAgent(rootDir, "root");
+
+		const genome = new Genome(genomeDir, rootDir);
+		await genome.init();
+		await genome.initFromRoot();
+		await writeFile(
+			join(genomeDir, "programs", "summarize.md"),
+			`---\nname: summarize\ndescription: summarize a log\nspawns:\n  - reader\nversion: 1\n---\nreturn bind("out", args.x);`,
+		);
+
+		const result = await exportLearnings(genomeDir, rootDir);
+		expect(result.programs.map((p) => p.name)).toContain("summarize");
+
+		const stagingDir = join(tempDir, "staging-programs");
+		await stageLearnings(result, stagingDir);
+		const content = await readFile(join(stagingDir, "programs", "summarize.md"), "utf-8");
+		expect(content).toContain("name: summarize");
+		expect(content).toContain('return bind("out", args.x);');
+	});
+
 	test("creates staging directory if it does not exist", async () => {
 		const genomeDir = join(tempDir, "stage-mkdir");
 		const rootDir = join(tempDir, "stage-mkdir-boot");

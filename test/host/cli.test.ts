@@ -256,6 +256,101 @@ describe("parseArgs", () => {
 		});
 	});
 
+	// --- Settings path ---
+
+	test("--settings-path with no args → interactive with settingsPath", () => {
+		const result = parseArgs(["--settings-path", "/custom/settings.json"]);
+		expect(result).toEqual({
+			kind: "interactive",
+			genomePath: defaultGenomePath,
+			settingsPath: "/custom/settings.json",
+		});
+	});
+
+	test("--settings-path with --prompt → headless with settingsPath", () => {
+		const result = parseArgs(["--settings-path", "/custom/settings.json", "--prompt", "Fix bug"]);
+		expect(result).toEqual({
+			kind: "headless",
+			goal: "Fix bug",
+			genomePath: defaultGenomePath,
+			settingsPath: "/custom/settings.json",
+		});
+	});
+
+	test("--settings-path combined with --genome-path captures both", () => {
+		const result = parseArgs([
+			"--genome-path",
+			"/custom/genome",
+			"--settings-path",
+			"/custom/settings.json",
+			"--prompt",
+			"Fix bug",
+		]);
+		expect(result).toEqual({
+			kind: "headless",
+			goal: "Fix bug",
+			genomePath: "/custom/genome",
+			settingsPath: "/custom/settings.json",
+		});
+	});
+
+	test("--settings-path with --resume <id> → resume with settingsPath", () => {
+		const result = parseArgs(["--settings-path", "/custom/settings.json", "--resume", "01ABC123"]);
+		expect(result).toEqual({
+			kind: "resume",
+			sessionId: "01ABC123",
+			genomePath: defaultGenomePath,
+			settingsPath: "/custom/settings.json",
+		});
+	});
+
+	test("--settings-path with --resume (no id) → list with settingsPath", () => {
+		const result = parseArgs(["--settings-path", "/custom/settings.json", "--resume"]);
+		expect(result).toEqual({
+			kind: "list",
+			genomePath: defaultGenomePath,
+			settingsPath: "/custom/settings.json",
+		});
+	});
+
+	test("no --settings-path → omitted (falls back to default resolution)", () => {
+		const result = parseArgs(["--prompt", "Fix bug"]);
+		expect(result).toEqual({
+			kind: "headless",
+			goal: "Fix bug",
+			genomePath: defaultGenomePath,
+		});
+		expect("settingsPath" in result).toBe(false);
+	});
+
+	test("--settings-path with no value returns help", () => {
+		const result = parseArgs(["--settings-path"]);
+		expect(result).toEqual({ kind: "help" });
+	});
+
+	test("duplicate --settings-path returns help", () => {
+		const result = parseArgs(["--settings-path", "/a", "--settings-path", "/b"]);
+		expect(result).toEqual({ kind: "help" });
+	});
+
+	test("--settings-path with --genome maintain --auto captures settingsPath", () => {
+		const result = parseArgs([
+			"--settings-path",
+			"/custom/settings.json",
+			"--genome",
+			"maintain",
+			"--auto",
+		]);
+		expect(result).toEqual({
+			kind: "genome-maintain",
+			genomePath: defaultGenomePath,
+			apply: false,
+			scope: "all",
+			auto: true,
+			settingsPath: "/custom/settings.json",
+		});
+	});
+
 	test("--cwd with no args → interactive with startup cwd", () => {
 		const result = parseArgs(["--cwd", "/workspace/project"]);
 		expect(result).toEqual({
@@ -614,6 +709,39 @@ describe("parseArgs", () => {
 		});
 	});
 
+	test("--genome maintain accepts --auto", () => {
+		const cmd = parseArgs(["--genome", "maintain", "--auto"]);
+		expect(cmd).toEqual({
+			kind: "genome-maintain",
+			genomePath: defaultGenomePath,
+			apply: false,
+			scope: "all",
+			auto: true,
+		});
+	});
+
+	test("--genome maintain --auto rejects mixed maintenance modes", () => {
+		expect(parseArgs(["--genome", "maintain", "--auto", "--apply"])).toEqual({
+			kind: "help",
+		});
+		expect(
+			parseArgs(["--genome", "maintain", "--auto", "--decision-file", "/tmp/decisions.json"]),
+		).toEqual({ kind: "help" });
+		expect(
+			parseArgs([
+				"--genome",
+				"maintain",
+				"--apply",
+				"--decision-file",
+				"/tmp/decisions.json",
+				"--auto",
+			]),
+		).toEqual({ kind: "help" });
+		expect(parseArgs(["--genome", "maintain", "--compact", "--auto"])).toEqual({
+			kind: "help",
+		});
+	});
+
 	test("uses SPROUT_GENOME_PATH as default genome path", () => {
 		const prevSproutGenome = process.env.SPROUT_GENOME_PATH;
 		const prevXdgDataHome = process.env.XDG_DATA_HOME;
@@ -708,45 +836,6 @@ describe("resolveProjectDir", () => {
 		} finally {
 			process.chdir(previousCwd);
 		}
-	});
-});
-
-describe("handleSigint", () => {
-	test("emits interrupt when controller is running", () => {
-		const { handleSigint } = require("../../src/host/cli.ts");
-		const commands: any[] = [];
-		const bus = { emitCommand: (cmd: any) => commands.push(cmd) };
-		const controller = { isRunning: true };
-		let closed = false;
-		const rl = {
-			close: () => {
-				closed = true;
-			},
-		};
-
-		handleSigint(bus as any, controller as any, rl as any);
-
-		expect(commands).toHaveLength(1);
-		expect(commands[0].kind).toBe("interrupt");
-		expect(closed).toBe(false);
-	});
-
-	test("closes readline when controller is idle", () => {
-		const { handleSigint } = require("../../src/host/cli.ts");
-		const commands: any[] = [];
-		const bus = { emitCommand: (cmd: any) => commands.push(cmd) };
-		const controller = { isRunning: false };
-		let closed = false;
-		const rl = {
-			close: () => {
-				closed = true;
-			},
-		};
-
-		handleSigint(bus as any, controller as any, rl as any);
-
-		expect(commands).toHaveLength(0);
-		expect(closed).toBe(true);
 	});
 });
 
@@ -1895,6 +1984,189 @@ describe("startBusInfrastructure", () => {
 		} finally {
 			await infra.cleanup();
 		}
+	});
+
+	test("exposes the session budget and feeds it llm_end token usage from the session topic", async () => {
+		const genomePath = join(tempDir, "genome-budget");
+		await mkdir(join(genomePath, ".git"), { recursive: true });
+
+		const infra = await startBusInfrastructure({
+			genomePath,
+			sessionId: "test-session-budget",
+		});
+
+		try {
+			expect(infra.sessionBudget).toBeDefined();
+
+			// Publish an llm_end event on the session-wide topic from a separate
+			// bus connection, as any agent subprocess would; the host-side budget
+			// must accumulate its usage. (The server never echoes to the sender,
+			// so this must not be the host's own client.)
+			const { sessionEvents } = await import("../../src/bus/topics.ts");
+			const { BusClient } = await import("../../src/bus/client.ts");
+			const childBus = new BusClient(infra.server.url);
+			await childBus.connect();
+			try {
+				await childBus.publish(
+					sessionEvents("test-session-budget"),
+					JSON.stringify({
+						kind: "event",
+						handle_id: "h-child",
+						event: {
+							kind: "llm_end",
+							timestamp: Date.now(),
+							agent_id: "child",
+							depth: 1,
+							data: { input_tokens: 120, output_tokens: 30 },
+						},
+					}),
+				);
+				await new Promise((resolve) => setTimeout(resolve, 100));
+				expect(infra.sessionBudget?.tokens).toBe(150);
+			} finally {
+				await childBus.disconnect();
+			}
+		} finally {
+			await infra.cleanup();
+		}
+	});
+
+	test("a spawn beyond the sub-call budget aborts before launch with the typed reason", async () => {
+		const genomePath = join(tempDir, "genome-budget-cap");
+		await mkdir(join(genomePath, ".git"), { recursive: true });
+		process.env.SPROUT_SESSION_MAX_SUB_CALLS = "0";
+		try {
+			const infra = await startBusInfrastructure({
+				genomePath,
+				sessionId: "test-session-budget-cap",
+			});
+			try {
+				await expect(
+					infra.spawner.spawnAgent({
+						agentName: "worker",
+						genomePath,
+						caller: { agentName: "root", depth: 0, handleId: "root", agentId: "root" },
+						goal: "do a thing",
+						blocking: false,
+						shared: false,
+						workDir: genomePath,
+					}),
+				).rejects.toThrow(/session sub-call budget exceeded/);
+			} finally {
+				await infra.cleanup();
+			}
+		} finally {
+			delete process.env.SPROUT_SESSION_MAX_SUB_CALLS;
+		}
+	});
+
+	test("starts the authenticated channel and exposes its URL and registry", async () => {
+		const genomePath = join(tempDir, "genome-auth");
+		await mkdir(join(genomePath, ".git"), { recursive: true });
+
+		const infra = await startBusInfrastructure({
+			genomePath,
+			sessionId: "test-session-auth",
+		});
+
+		try {
+			expect(infra.authUrl).toMatch(/^ws:\/\/127\.0\.0\.1:\d+$/);
+			// Separate endpoint from the open bus.
+			expect(infra.authUrl).not.toBe(infra.server.url);
+			expect(infra.handleRegistry).toBeDefined();
+
+			// An unauthenticated connection is refused at the handshake.
+			const { AuthChannelClient } = await import("../../src/host/auth-channel.ts");
+			const intruder = new AuthChannelClient({
+				url: infra.authUrl!,
+				handleId: "h-intruder",
+				token: "not-a-real-token",
+			});
+			await expect(intruder.connect()).rejects.toThrow(/handshake rejected/);
+
+			// A handle registered through the host registrar can authenticate.
+			const { hashToken, mintToken } = await import("../../src/host/handle-registry.ts");
+			const token = mintToken();
+			infra.handleRegistry!.registerHandle({
+				handleId: "h-child",
+				tokenHash: hashToken(token),
+				registrarId: "sprout:host",
+				ownerId: "root",
+				depth: 1,
+			});
+			const child = new AuthChannelClient({
+				url: infra.authUrl!,
+				handleId: "h-child",
+				token,
+			});
+			await child.connect();
+			expect(child.connected).toBe(true);
+			await child.disconnect();
+		} finally {
+			await infra.cleanup();
+		}
+	});
+
+	test("no handle may register as the trusted host identity", async () => {
+		const genomePath = join(tempDir, "genome-auth-reserved");
+		await mkdir(join(genomePath, ".git"), { recursive: true });
+
+		const infra = await startBusInfrastructure({
+			genomePath,
+			sessionId: "test-session-auth-reserved",
+		});
+
+		try {
+			const { hashToken, mintToken } = await import("../../src/host/handle-registry.ts");
+			const result = infra.handleRegistry!.registerHandle({
+				handleId: "sprout:host",
+				tokenHash: hashToken(mintToken()),
+				registrarId: "sprout:host",
+				ownerId: "root",
+				depth: 1,
+			});
+			expect(result).toEqual({ ok: false, reason: "reserved" });
+		} finally {
+			await infra.cleanup();
+		}
+	});
+
+	test("exposes the session store client and cleanup shuts it down", async () => {
+		const genomePath = join(tempDir, "genome-store");
+		await mkdir(join(genomePath, ".git"), { recursive: true });
+
+		const infra = await startBusInfrastructure({
+			genomePath,
+			sessionId: "test-session-store",
+		});
+
+		expect(infra.store).toBeDefined();
+		await infra.cleanup();
+
+		// A shut-down store client rejects ops as infrastructure failures.
+		const { StoreUnavailableError } = await import("../../src/store/store-client.ts");
+		await expect(infra.store!.peek("root", "anything")).rejects.toThrow(StoreUnavailableError);
+	});
+
+	test("cleanup stops the authenticated channel server", async () => {
+		const genomePath = join(tempDir, "genome-auth-stop");
+		await mkdir(join(genomePath, ".git"), { recursive: true });
+
+		const infra = await startBusInfrastructure({
+			genomePath,
+			sessionId: "test-session-auth-stop",
+		});
+		const authUrl = infra.authUrl!;
+		await infra.cleanup();
+
+		// Connecting to a stopped server fails outright.
+		const { AuthChannelClient } = await import("../../src/host/auth-channel.ts");
+		const client = new AuthChannelClient({
+			url: authUrl,
+			handleId: "h-any",
+			token: "any",
+		});
+		await expect(client.connect()).rejects.toThrow();
 	});
 
 	test("stops the server when client connection fails during startup", async () => {

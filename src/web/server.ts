@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import type { ServerWebSocket } from "bun";
 import type { SessionBus } from "../host/event-bus.ts";
+import { loadAllProjectSessions } from "../host/session-metadata.ts";
 import {
 	createDefaultSessionSelectionSnapshot,
 	type SessionSelectionSnapshot,
@@ -17,7 +18,10 @@ import type {
 import { EVENT_CAP } from "../kernel/constants.ts";
 import type { PricingTable } from "../kernel/pricing.ts";
 import type { SessionEvent } from "../kernel/types.ts";
-import { requiresSessionIdAfterClear } from "../shared/session-event-scope.ts";
+import {
+	requiresSessionIdAfterClear,
+	sessionScopedEventApplies,
+} from "../shared/session-event-scope.ts";
 import type { SessionSelectionRequest } from "../shared/session-selection.ts";
 import type { CommandMessage, ServerMessage } from "./protocol.ts";
 import { parseCommandMessage } from "./protocol.ts";
@@ -25,6 +29,15 @@ import { parseCommandMessage } from "./protocol.ts";
 interface SettingsControlPlaneLike {
 	execute(command: SettingsCommand): Promise<SettingsCommandResult>;
 }
+
+/**
+ * Upper bound on cached history events served through /api/events. History
+ * exists so the client can page back past the live EVENT_CAP window; five
+ * windows is generous while keeping a long-running session's memory bounded.
+ * Trimming drops the oldest entries, so paging simply bottoms out earlier
+ * (hasMore=false) — the cursor counts from the end and is unaffected.
+ */
+export const HISTORY_CACHE_CAP = EVENT_CAP * 5;
 
 export interface WebServerOptions {
 	bus: SessionBus;
@@ -52,30 +65,6 @@ export interface WebServerOptions {
 }
 
 type SessionStatus = "idle" | "running" | "interrupted";
-
-function cleanString(value: unknown): string | undefined {
-	return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
-}
-
-function sessionLifecycleApplies(
-	event: SessionEvent,
-	currentSessionId: string | undefined,
-	requireSessionId = false,
-): boolean {
-	const eventSessionId = cleanString(event.data.session_id);
-	if (requireSessionId && !eventSessionId) return false;
-	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
-}
-
-function sessionScopedEventApplies(
-	event: SessionEvent,
-	currentSessionId: string | undefined,
-	requireSessionId = false,
-): boolean {
-	const eventSessionId = cleanString(event.data.session_id);
-	if (requireSessionId && !eventSessionId) return false;
-	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
-}
 
 /**
  * Bun HTTP + WebSocket server that bridges a SessionBus to browser clients.
@@ -129,7 +118,7 @@ export class WebServer {
 			this.currentModel = selectionSnapshotToCurrentModel(this.getCurrentSelection()) ?? null;
 		}
 		if (opts.initialEvents) {
-			this.historyCache = [...opts.initialEvents];
+			this.historyCache = opts.initialEvents.slice(-HISTORY_CACHE_CAP);
 			this.historyCacheSessionId = this.sessionId;
 			this.events =
 				opts.initialEvents.length > EVENT_CAP
@@ -183,6 +172,9 @@ export class WebServer {
 					}
 					if (this.historyCache && this.historyCacheSessionId === this.sessionId) {
 						this.historyCache.push(event);
+						if (this.historyCache.length > HISTORY_CACHE_CAP * 2) {
+							this.historyCache = this.historyCache.slice(-HISTORY_CACHE_CAP);
+						}
 					}
 				}
 			}
@@ -227,12 +219,8 @@ export class WebServer {
 
 				// WebSocket upgrade
 				if (req.headers.get("upgrade") === "websocket") {
-					if (!self.isAllowedOrigin(req)) {
-						return new Response("Forbidden", { status: 403 });
-					}
-					if (!self.hasValidToken(url, req)) {
-						return new Response("Unauthorized", { status: 401 });
-					}
+					const denied = self.guardApiRequest(url, req);
+					if (denied) return denied;
 					if (!server.upgrade(req, { data: undefined })) {
 						return new Response("WebSocket upgrade failed", { status: 400 });
 					}
@@ -251,20 +239,26 @@ export class WebServer {
 				}
 
 				if (url.pathname === "/api/session") {
+					const denied = self.guardApiRequest(url, req);
+					if (denied) return denied;
 					return Response.json({ id: self.sessionId, status: self.status });
 				}
 
 				if (url.pathname === "/api/events") {
-					if (!self.isAllowedOrigin(req)) {
-						return new Response("Forbidden", { status: 403 });
-					}
-					if (!self.hasValidToken(url, req)) {
-						return new Response("Unauthorized", { status: 401 });
-					}
+					const denied = self.guardApiRequest(url, req);
+					if (denied) return denied;
 					return self.serveEventHistory(url);
 				}
 
+				if (url.pathname === "/api/sessions") {
+					const denied = self.guardApiRequest(url, req);
+					if (denied) return denied;
+					return self.serveSessionList();
+				}
+
 				if (url.pathname === "/api/models") {
+					const denied = self.guardApiRequest(url, req);
+					if (denied) return denied;
 					return Response.json({
 						models: self.availableModels,
 						currentModel: self.getCurrentModel(),
@@ -327,6 +321,26 @@ export class WebServer {
 		return new Response(file);
 	}
 
+	/**
+	 * List every persisted session across ALL projects (multi-session UI,
+	 * Phase 1). The project data dir is <genome>/projects/<slug>, so its parent
+	 * is the projects root holding every project. Each entry is tagged with its
+	 * project slug; `currentProject` marks this server's project and
+	 * `liveSessionId` its live session. Empty when the project data dir is
+	 * unknown (e.g. a bus-only test server).
+	 */
+	private async serveSessionList(): Promise<Response> {
+		if (!this.projectDataDir) {
+			return Response.json({ sessions: [], liveSessionId: this.sessionId, currentProject: null });
+		}
+		const sessions = await loadAllProjectSessions(dirname(this.projectDataDir));
+		return Response.json({
+			sessions,
+			liveSessionId: this.sessionId,
+			currentProject: basename(this.projectDataDir),
+		});
+	}
+
 	private async serveEventHistory(url: URL): Promise<Response> {
 		const before = Math.max(0, Number(url.searchParams.get("before") ?? 0) || 0);
 		const limit = Math.min(
@@ -354,9 +368,10 @@ export class WebServer {
 		const rootLogPath = join(this.projectDataDir, "logs", `${this.sessionId}.jsonl`);
 		const sessionLogDir = join(this.projectDataDir, "logs", this.sessionId);
 		const events = await loadAllEventLogs(rootLogPath, sessionLogDir);
-		this.historyCache = events;
+		this.historyCache =
+			events.length > HISTORY_CACHE_CAP ? events.slice(-HISTORY_CACHE_CAP) : events;
 		this.historyCacheSessionId = this.sessionId;
-		return events;
+		return this.historyCache;
 	}
 
 	private async emitTaskUpdate(agentId: string, depth: number, sessionId: string): Promise<void> {
@@ -389,21 +404,33 @@ export class WebServer {
 		this.logger?.debug("system", "WebSocket client connected", {
 			clients: this.wsClients.size,
 		});
-		void this.seedTasksForClient(ws);
+		void this.seedTaskUpdateEvent();
 	}
 
-	private async seedTasksForClient(ws: ServerWebSocket<unknown>): Promise<void> {
+	/**
+	 * Seed a synthetic task_update from the persisted task list when no live
+	 * one is buffered yet, so a freshly connected client sees the task list.
+	 */
+	private async seedTaskUpdateEvent(): Promise<void> {
 		// Check if any task_update event already exists in the buffered events
 		const hasTaskUpdate = this.events.some((e) => e.kind === "task_update");
 		if (hasTaskUpdate) return;
 		if (!this.projectDataDir) return;
+		const sessionId = this.sessionId;
 		try {
-			const path = `${this.projectDataDir}/logs/${this.sessionId}/tasks.json`;
+			const path = `${this.projectDataDir}/logs/${sessionId}/tasks.json`;
 			const file = Bun.file(path);
 			if (!(await file.exists())) return;
 			const data = await file.json();
 			const tasks = Array.isArray(data.tasks) ? data.tasks : [];
 			if (tasks.length === 0) return;
+			// The seed must be counted in the buffered events AND the history
+			// cache: the client counts every event it holds when computing its
+			// /api/events cursor, so a seed outside history skews pagination
+			// by one (A-F15). Warm the cache first so the seed lands in it.
+			await this.getHistoryEvents();
+			if (this.sessionId !== sessionId) return;
+			if (this.events.some((e) => e.kind === "task_update")) return;
 			const syntheticEvent: SessionEvent = {
 				kind: "task_update",
 				timestamp: Date.now(),
@@ -411,8 +438,11 @@ export class WebServer {
 				depth: 0,
 				data: { tasks },
 			};
-			const msg: ServerMessage = { type: "event", event: syntheticEvent };
-			ws.send(JSON.stringify(msg));
+			this.events.push(syntheticEvent);
+			if (this.historyCache && this.historyCacheSessionId === this.sessionId) {
+				this.historyCache.push(syntheticEvent);
+			}
+			this.broadcastEvent(syntheticEvent);
 		} catch {
 			// File read/parse error — silently skip
 		}
@@ -479,21 +509,21 @@ export class WebServer {
 		switch (event.kind) {
 			case "session_start":
 				if (event.depth !== 0) break;
-				if (!sessionLifecycleApplies(event, this.sessionId, this.sessionScopedEventsRequireIds)) {
+				if (!sessionScopedEventApplies(event, this.sessionId, this.sessionScopedEventsRequireIds)) {
 					break;
 				}
 				this.status = "running";
 				break;
 			case "session_end":
 				if (event.depth !== 0) break;
-				if (!sessionLifecycleApplies(event, this.sessionId, this.sessionScopedEventsRequireIds)) {
+				if (!sessionScopedEventApplies(event, this.sessionId, this.sessionScopedEventsRequireIds)) {
 					break;
 				}
 				this.status = "idle";
 				break;
 			case "interrupted":
 				if (event.depth !== 0) break;
-				if (!sessionLifecycleApplies(event, this.sessionId, this.sessionScopedEventsRequireIds)) {
+				if (!sessionScopedEventApplies(event, this.sessionId, this.sessionScopedEventsRequireIds)) {
 					break;
 				}
 				this.status = "interrupted";
@@ -635,6 +665,17 @@ export class WebServer {
 		if (parts.length === 1) return first;
 		// likely raw ipv6 without brackets
 		return first;
+	}
+
+	/** Origin + token gate shared by the API routes; null when the request may proceed. */
+	private guardApiRequest(url: URL, req: Request): Response | null {
+		if (!this.isAllowedOrigin(req)) {
+			return new Response("Forbidden", { status: 403 });
+		}
+		if (!this.hasValidToken(url, req)) {
+			return new Response("Unauthorized", { status: 401 });
+		}
+		return null;
 	}
 
 	/** Enforce strict same-origin checks for browser-origin websocket upgrades. */

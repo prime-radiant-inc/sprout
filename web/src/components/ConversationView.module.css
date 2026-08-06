@@ -10,3 +10,10 @@
 .conversationView > * {
 	animation: fadeSlideIn 200ms ease-out both;
 }
+
+/* Phones: trim the wide desktop gutters so message content keeps its width */
+@media (max-width: 640px) {
+	.conversationView {
+		padding: var(--space-md);
+	}
+}

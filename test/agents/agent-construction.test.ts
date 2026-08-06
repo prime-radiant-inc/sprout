@@ -100,7 +100,8 @@ describe("Agent construction and tool resolution", () => {
 		const props = (delegateTool!.parameters as any).properties;
 		expect(props.agent_name).toBeDefined();
 		expect(props.agent_name.enum).toBeUndefined();
-		expect(props.agent_name.description).toContain("leaf");
+		// Resolution is observable on the domain query, not the (cache-stable) schema.
+		expect((agent as any).getDelegatableAgents().map((a: any) => a.name)).toContain("leaf");
 		expect(props.goal).toBeDefined();
 		expect(props.hints).toBeDefined();
 	});
@@ -123,5 +124,39 @@ describe("Agent construction and tool resolution", () => {
 			availableAgents: [leafSpec],
 		});
 		expect(agent.resolvedTools().map((t) => t.name)).toContain("delegate");
+	});
+
+	test("single-turn zero-tool completion agent constructs without a tool", () => {
+		const completionSpec: AgentSpec = {
+			name: "utility/llm-call",
+			description: "Pure completion agent",
+			system_prompt: "Complete the request in your reply. No preamble.",
+			model: "fast",
+			tools: [],
+			agents: [],
+			constraints: { max_turns: 1, timeout_ms: 60_000, can_spawn: false, can_learn: false },
+			tags: [],
+			version: 1,
+		};
+		expect(() =>
+			createAgentFixture({ spec: completionSpec, availableAgents: [completionSpec] }),
+		).not.toThrow();
+	});
+
+	test("zero-tool agent with max_turns > 1 is still rejected at construction", () => {
+		const twoTurnSpec: AgentSpec = {
+			name: "two-turn-no-tools",
+			description: "Not a pure completion agent",
+			system_prompt: "You do things.",
+			model: "fast",
+			tools: [],
+			agents: [],
+			constraints: { max_turns: 2, timeout_ms: 60_000, can_spawn: false, can_learn: false },
+			tags: [],
+			version: 1,
+		};
+		expect(() => createAgentFixture({ spec: twoTurnSpec, availableAgents: [twoTurnSpec] })).toThrow(
+			/zero tools/i,
+		);
 	});
 });

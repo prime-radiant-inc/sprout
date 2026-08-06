@@ -9,29 +9,24 @@ import { Genome } from "../genome/genome.ts";
 import { ensureMemoryIndexFresh } from "../genome/index-builder.ts";
 import { deriveTrustedMemoryWriteAuthorization } from "../genome/memory-write-authorization.ts";
 import { createReadOnlyGenome } from "../genome/read-only-genome.ts";
+import { AuthChannelClient } from "../host/auth-channel.ts";
+import { ChannelHandleRegistrar } from "../host/handle-registrar.ts";
+import { ChannelLivenessProbe, LivenessReporter } from "../host/liveness.ts";
 import { SessionLogger } from "../host/logger.ts";
-import {
-	OpenAICodexOAuthService,
-	type OpenAICodexRuntimeCredentials,
-} from "../host/openai-codex-oauth/service.ts";
-import { importSettingsFromEnv } from "../host/settings/env-import.ts";
-import {
-	createSecretStoreRuntime,
-	type SecretStoreRuntime,
-} from "../host/settings/secret-store.ts";
-import { type SettingsLoadResult, SettingsStore } from "../host/settings/store.ts";
 import { LocalExecutionEnvironment } from "../kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../kernel/primitives.ts";
-import { Client } from "../llm/client.ts";
-import { loggingMiddleware } from "../llm/logging-middleware.ts";
-import { ProviderRegistry, type ProviderRegistryEntry } from "../llm/provider-registry.ts";
-import type { ProviderAdapter } from "../llm/types.ts";
+
+import type { Client } from "../llm/client.ts";
+import { ChannelStoreAccess, type StoreAccess } from "../store/store-access.ts";
+import { validateValueName } from "../store/value.ts";
 import { ensureProjectDirs } from "../util/project-id.ts";
+import { createAgentProcessClient } from "./agent-process-client.ts";
 import { BusClient } from "./client.ts";
 import { BusLearnForwarder } from "./learn-forwarder.ts";
-import { loadCompletedChildHandles, replayHandleLog } from "./resume.ts";
-import { AgentSpawner } from "./spawner.ts";
-import { agentEvents, agentInbox, agentReady, agentResult, sessionEvents } from "./topics.ts";
+import { prepareResultOutput } from "./result-gate.ts";
+import { loadCompletedChildHandles, replayHandleLog, sessionLogDir } from "./resume.ts";
+import { AgentSpawner, type SpawnerAuthChannel } from "./spawner.ts";
+import { agentInbox, agentReady, agentResult, sessionEvents } from "./topics.ts";
 import type {
 	AgentMessageMessage,
 	ContinueMessage,
@@ -62,55 +57,14 @@ export interface AgentProcessConfig {
 	signal?: AbortSignal;
 	/** PID of the process that spawned this agent process. */
 	parentPid?: number;
+	/**
+	 * Credentials for the host's authenticated channel. When present, the
+	 * process connects at startup (failing fast if refused) and its child
+	 * spawner registers grandchildren over that connection.
+	 */
+	authChannel?: { url: string; token: string };
 	/** Structured logger for LLM call logging and diagnostics. */
 	logger?: import("../host/logger.ts").Logger;
-}
-
-interface AgentProcessClientDeps {
-	createSettingsStore?: () => Pick<SettingsStore, "load">;
-	createSecretStoreRuntime?: () => SecretStoreRuntime;
-	importSettingsFromEnv?: typeof importSettingsFromEnv;
-	createProviderRegistry?: (options: ConstructorParameters<typeof ProviderRegistry>[0]) => {
-		getEntries(): Promise<ProviderRegistryEntry[]>;
-	};
-	createOpenAICodexOAuthService?: (options: {
-		secretStore: SecretStoreRuntime["secretStore"];
-		secretBackend: SecretStoreRuntime["secretRefBackend"];
-	}) => {
-		resolveCredentials(providerId: string): Promise<OpenAICodexRuntimeCredentials>;
-	};
-	createClient?: (options: {
-		providers: Record<string, ProviderAdapter>;
-		logger: SessionLogger;
-	}) => Client;
-}
-
-function composeAbortSignal(...signals: Array<AbortSignal | undefined>): {
-	signal?: AbortSignal;
-	cleanup: () => void;
-} {
-	const activeSignals = signals.filter((sig): sig is AbortSignal => sig !== undefined);
-	if (activeSignals.length === 0) return { cleanup: () => {} };
-	if (activeSignals.length === 1) return { signal: activeSignals[0], cleanup: () => {} };
-
-	const controller = new AbortController();
-	const abort = () => controller.abort();
-	for (const sig of activeSignals) {
-		if (sig.aborted) {
-			controller.abort();
-			break;
-		}
-		sig.addEventListener("abort", abort, { once: true });
-	}
-
-	return {
-		signal: controller.signal,
-		cleanup: () => {
-			for (const sig of activeSignals) {
-				sig.removeEventListener("abort", abort);
-			}
-		},
-	};
 }
 
 function monitorParentProcess(
@@ -135,87 +89,12 @@ function parseParentPid(raw: string | undefined): number | undefined {
 	return parsed;
 }
 
-export async function createAgentProcessClient(
-	logger: SessionLogger,
-	deps: AgentProcessClientDeps = {},
-): Promise<Client> {
-	const settingsStore = deps.createSettingsStore?.() ?? new SettingsStore();
-	const settingsLoadResult = (await settingsStore.load()) as SettingsLoadResult;
-	const secretStoreRuntime =
-		deps.createSecretStoreRuntime?.() ?? createSecretStoreRuntime({ env: process.env });
-	const openAICodexOAuthService =
-		deps.createOpenAICodexOAuthService?.({
-			secretStore: secretStoreRuntime.secretStore,
-			secretBackend: secretStoreRuntime.secretRefBackend,
-		}) ??
-		new OpenAICodexOAuthService({
-			secretStore: secretStoreRuntime.secretStore,
-			secretBackend: secretStoreRuntime.secretRefBackend,
-		});
-	const importFromEnv = deps.importSettingsFromEnv ?? importSettingsFromEnv;
-	let settings = settingsLoadResult.settings;
-	if (settingsLoadResult.source === "missing") {
-		const imported = await importFromEnv({
-			env: process.env,
-			secretStore: secretStoreRuntime.secretStore,
-			secretBackend: secretStoreRuntime.secretRefBackend,
-		});
-		if (imported.settings.providers.length > 0) {
-			settings = imported.settings;
-		}
-	}
-	const registry =
-		deps.createProviderRegistry?.({
-			settings,
-			secretStore: secretStoreRuntime.secretStore,
-			secretBackend: secretStoreRuntime.secretRefBackend,
-			secretBackendState: secretStoreRuntime.secretBackendState,
-			openAICodexCredentialResolver: (providerId: string) =>
-				openAICodexOAuthService.resolveCredentials(providerId),
-		}) ??
-		new ProviderRegistry({
-			settings,
-			secretStore: secretStoreRuntime.secretStore,
-			secretBackend: secretStoreRuntime.secretRefBackend,
-			secretBackendState: secretStoreRuntime.secretBackendState,
-			openAICodexCredentialResolver: (providerId: string) =>
-				openAICodexOAuthService.resolveCredentials(providerId),
-		});
-
-	const providers: Record<string, ProviderAdapter> = {};
-	for (const entry of await registry.getEntries()) {
-		if (!entry.provider.enabled || entry.validationErrors.length > 0 || !entry.adapter) {
-			continue;
-		}
-		providers[entry.provider.id] = entry.adapter;
-	}
-
-	return (
-		deps.createClient?.({ providers, logger }) ??
-		Client.fromProviders(providers, {
-			middleware: [loggingMiddleware(logger)],
-		})
-	);
-}
-
-/**
- * Run an agent process that connects to the bus, waits for a start message,
- * runs the agent loop, publishes results, and handles continue messages.
- *
- * Lifecycle:
- * 1. Connect to bus, subscribe to inbox
- * 2. Wait for a start message
- * 3. Load genome, create Agent, run agent loop
- * 4. Publish result to the agent's result topic
- * 5. If shared: stay in idle, handle continue messages
- * 6. If not shared: disconnect and return
- * 7. On abort signal: disconnect and return at any point
- */
 export async function runAgentProcess(config: AgentProcessConfig): Promise<void> {
 	const { busUrl, handleId, sessionId, genomePath, client, workDir, signal } = config;
 	const lifecycleController = new AbortController();
-	const combined = composeAbortSignal(signal, lifecycleController.signal);
-	const runSignal = combined.signal;
+	const runSignal = signal
+		? AbortSignal.any([signal, lifecycleController.signal])
+		: lifecycleController.signal;
 	const stopParentMonitor = monitorParentProcess(config.parentPid, lifecycleController);
 
 	// Connect to bus
@@ -223,15 +102,36 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 	let stopBusDisconnectAbort = () => {};
 
 	const inboxTopic = agentInbox(sessionId, handleId);
-	const eventsTopic = agentEvents(sessionId, handleId);
 	const resultTopic = agentResult(sessionId, handleId);
 	const readyTopic = agentReady(sessionId, handleId);
 
 	let childSpawner: AgentSpawner | undefined;
+	let authClient: AuthChannelClient | undefined;
+	let livenessReporter: LivenessReporter | undefined;
+	let spawnerAuthChannel: SpawnerAuthChannel | undefined;
 
 	try {
 		await bus.connect();
 		stopBusDisconnectAbort = bus.onDisconnect(() => lifecycleController.abort());
+
+		// Connect the authenticated channel before signalling ready: refused
+		// credentials must fail the process fast, not surface mid-delegation.
+		if (config.authChannel) {
+			authClient = new AuthChannelClient({
+				url: config.authChannel.url,
+				handleId,
+				token: config.authChannel.token,
+			});
+			await authClient.connect();
+			livenessReporter = new LivenessReporter({ client: authClient });
+			livenessReporter.start();
+			spawnerAuthChannel = {
+				url: config.authChannel.url,
+				registrar: new ChannelHandleRegistrar(authClient),
+				probe: new ChannelLivenessProbe(authClient),
+				store: new ChannelStoreAccess(authClient),
+			};
+		}
 
 		// Subscribe to inbox and wait for start (or abort)
 		const startPayload = await waitForStartWithReady(
@@ -248,6 +148,13 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 
 		const startMsg = parseBusMessage(startPayload) as StartMessage;
 		const evalMode = startMsg.eval_mode === true;
+		// Exec-strip flag: default true; exec is disabled tree-wide only when the
+		// caller explicitly sent allow_exec:false, so an exec-restricted session
+		// stays restricted across every delegated subprocess.
+		const allowExec = startMsg.allow_exec !== false;
+		// Data-plane session flag (spec §6): default true; off only when the
+		// caller explicitly sent false, so a flag-off session stays off tree-wide.
+		const dataPlaneEnabled = startMsg.data_plane_enabled !== false;
 
 		// Load genome and find agent spec
 		const genome = new Genome(genomePath, config.rootDir);
@@ -293,7 +200,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 				sessionId,
 				...(writeAuthorization ? { writeAuthorization } : {}),
 			},
-			{ evalMode },
+			{ evalMode, allowExec },
 		);
 		const events = new AgentEventEmitter();
 		const preambles = config.rootDir ? await loadPreambles(config.rootDir) : undefined;
@@ -301,7 +208,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		const genomePostscripts = await runtimeGenome.loadPostscripts();
 		const dataDir = config.projectDataDir ?? genomePath;
 		await ensureProjectDirs(dataDir);
-		const logBasePath = join(dataDir, "logs", sessionId, handleId);
+		const logBasePath = join(sessionLogDir(dataDir, sessionId), handleId);
 
 		// Check for a prior log — if this handle ran before, replay its history
 		const priorLogPath = `${logBasePath}.jsonl`;
@@ -309,14 +216,14 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		const currentAgentDepth = startMsg.self.depth;
 		const resumedCompletedHandles = await loadCompletedChildHandles({
 			logPath: priorLogPath,
-			handleLogDir: join(dataDir, "logs", sessionId),
+			handleLogDir: sessionLogDir(dataDir, sessionId),
 			ownerId: startMsg.self.agentName,
 		});
 
-		// Forward agent events to the bus (best-effort; ignore if disconnected).
-		// Publishes to both the per-handle topic (for spawner result tracking)
-		// and the session-wide topic (so the UI sees events at any depth without
-		// needing a relay chain through intermediate spawners).
+		// Forward agent events to the session-wide topic (best-effort; ignore if
+		// disconnected). Every consumer — UI, budget feed, observers, spawner —
+		// subscribes session-wide and filters on handle_id; a per-handle copy
+		// had no readers and doubled the frame traffic.
 		const sessionEventsTopic = sessionEvents(sessionId);
 		events.on((event) => {
 			if (!bus.connected) return;
@@ -325,13 +232,20 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 				handle_id: handleId,
 				event,
 			};
-			const payload = JSON.stringify(eventMsg);
-			bus.publish(eventsTopic, payload);
-			bus.publish(sessionEventsTopic, payload);
+			bus.publish(sessionEventsTopic, JSON.stringify(eventMsg));
 		});
 
-		// Create a spawner so this agent can delegate to other agents via the bus
-		childSpawner = new AgentSpawner(bus, busUrl, sessionId);
+		// Create a spawner so this agent can delegate to other agents via the bus.
+		// Its registrations ride this process's authenticated connection.
+		childSpawner = new AgentSpawner(
+			bus,
+			busUrl,
+			sessionId,
+			undefined,
+			undefined,
+			undefined,
+			spawnerAuthChannel,
+		);
 		for (const { handleId, result, agentName, agentId } of resumedCompletedHandles) {
 			childSpawner.registerCompletedHandle(handleId, result, startMsg.self.agentName, {
 				agentName,
@@ -340,9 +254,10 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 				workDir,
 				agentId,
 				evalMode,
+				allowExec,
+				dataPlaneEnabled,
 				rootDir: config.rootDir,
 				projectDataDir: config.projectDataDir,
-				providerIdOverride: startMsg.provider_id,
 				resolverSettings: startMsg.resolver_settings,
 				trustedUserInstruction: startMsg.trusted_user_instruction,
 				surfacedMemoryBlock: startMsg.surfaced_memory_block,
@@ -393,7 +308,9 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			initialHistory: initialHistory.length > 0 ? initialHistory : undefined,
 			agentId: startMsg.self.agentId,
 			evalMode,
-			providerIdOverride: startMsg.provider_id,
+			allowExec,
+			dataPlaneEnabled,
+			...(startMsg.model !== undefined ? { modelOverride: startMsg.model } : {}),
 			resolverSettings: startMsg.resolver_settings,
 			logger: config.logger,
 			rootDir: config.rootDir,
@@ -407,26 +324,42 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			caller: startMsg.caller,
 		});
 
-		const goal = formatDelegationGoal({
+		// Claim env grants (spec §3): each wire entry (alias → ulid) must match a
+		// grant the sender registered; forged or stale entries bind nothing and
+		// surface as a warning — never a failed start.
+		const claimEnv = async (env?: Record<string, string>): Promise<string | undefined> => {
+			const claim = await claimEnvGrants(spawnerAuthChannel?.store, env);
+			if (!claim) return undefined;
+			for (const warning of claim.warnings) {
+				events.emit("warning", startMsg.self.agentId, startMsg.self.depth, { message: warning });
+			}
+			return claim.announcement;
+		};
+
+		const envAnnouncement = await claimEnv(startMsg.env);
+		const baseGoal = formatDelegationGoal({
 			goal: startMsg.goal,
 			hints: startMsg.hints,
 			payload: startMsg.payload
 				? normalizeTaskPayload(startMsg.payload, "agent start message")
 				: undefined,
 		});
+		const goal = envAnnouncement ? `${baseGoal}\n\n${envAnnouncement}` : baseGoal;
 
 		// Forward steer messages from the inbox to the agent during the initial run.
 		// The idleLoop handles steers for shared agents after run() completes,
 		// but during the initial run() this is the only path for steers.
 		let initialRunActive = true;
 		if (bus.connected) {
-			await bus.subscribe(inboxTopic, (payload) => {
+			await bus.subscribe(inboxTopic, async (payload) => {
 				if (!initialRunActive) return;
 				try {
 					const msg = parseBusMessage(payload);
 					if (msg.kind === "steer") {
 						agent.steer(msg.message, msg.trusted_user_instruction);
 					} else if (msg.kind === "agent_message") {
+						const announcement = await claimEnv(msg.env);
+						if (announcement !== undefined) agent.steer(announcement);
 						agent.receiveAgentMessage(msg.message, msg.from);
 						void ackAgentMessage(bus, msg);
 					}
@@ -460,10 +393,13 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		initialRunActive = false;
 
 		// Publish result (may fail if bus disconnected during shutdown)
+		const storeAccess = spawnerAuthChannel?.store;
 		const resultMsg: ResultMessage = {
 			kind: "result",
 			handle_id: handleId,
-			output: agentResult_.output,
+			output: await prepareResultOutput(storeAccess, handleId, startMsg.goal, agentResult_.output, {
+				publish: true,
+			}),
 			success: agentResult_.success,
 			stumbles: agentResult_.stumbles,
 			turns: agentResult_.turns,
@@ -482,12 +418,24 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		if (!runSignal) {
 			throw new Error("Shared agents require an AbortSignal to exit the idle loop");
 		}
-		await idleLoop(bus, agent, genome, inboxTopic, resultTopic, handleId, runSignal);
+		await idleLoop(
+			bus,
+			agent,
+			genome,
+			inboxTopic,
+			resultTopic,
+			handleId,
+			runSignal,
+			storeAccess,
+			startMsg.goal,
+			claimEnv,
+		);
 	} finally {
 		stopBusDisconnectAbort();
 		stopParentMonitor();
-		combined.cleanup();
 		await childSpawner?.shutdown();
+		livenessReporter?.stop();
+		await authClient?.disconnect();
 		await bus.disconnect();
 	}
 }
@@ -565,6 +513,9 @@ async function idleLoop(
 	resultTopic: string,
 	handleId: string,
 	signal: AbortSignal,
+	storeAccess: StoreAccess | undefined,
+	goal: string,
+	claimEnv: (env?: Record<string, string>) => Promise<string | undefined>,
 ): Promise<void> {
 	if (signal?.aborted) return;
 
@@ -576,6 +527,10 @@ async function idleLoop(
 		while (continueQueue.length > 0 && !signal.aborted) {
 			const continueMsg = continueQueue.shift()!;
 			try {
+				// Claimed env binds announce via the steering queue, injected into
+				// the continue run as a user-role message.
+				const announcement = await claimEnv(continueMsg.env);
+				if (announcement !== undefined) agent.steer(announcement);
 				await genome.loadFromDisk();
 				const result = await agent.continue(continueMsg.message, signal, {
 					trustedUserInstruction: continueMsg.trusted_user_instruction,
@@ -584,7 +539,9 @@ async function idleLoop(
 				const resultMsg: ResultMessage = {
 					kind: "result",
 					handle_id: handleId,
-					output: result.output,
+					output: await prepareResultOutput(storeAccess, handleId, goal, result.output, {
+						publish: true,
+					}),
 					success: result.success,
 					stumbles: result.stumbles,
 					turns: result.turns,
@@ -596,7 +553,15 @@ async function idleLoop(
 				const errorResult: ResultMessage = {
 					kind: "result",
 					handle_id: handleId,
-					output: `Continue failed: ${err instanceof Error ? err.message : String(err)}`,
+					// Error text is unbounded (provider messages can embed payloads)
+					// — bound it inline exactly like a success result.
+					output: await prepareResultOutput(
+						storeAccess,
+						handleId,
+						goal,
+						`Continue failed: ${err instanceof Error ? err.message : String(err)}`,
+						{ publish: true },
+					),
 					success: false,
 					stumbles: 0,
 					turns: 0,
@@ -621,6 +586,8 @@ async function idleLoop(
 
 			if (msg.kind === "agent_message") {
 				const agentMessage = msg as AgentMessageMessage;
+				const announcement = await claimEnv(agentMessage.env);
+				if (announcement !== undefined) agent.steer(announcement);
 				agent.receiveAgentMessage(agentMessage.message, agentMessage.from);
 				await ackAgentMessage(bus, agentMessage);
 				return;
@@ -649,6 +616,52 @@ async function idleLoop(
 	});
 }
 
+/**
+ * Claim wire env entries (alias → ulid) against the store's pending grants
+ * (spec §3). Each successful claim binds the alias into THIS process's scope
+ * and contributes a compact announcement line with the value's first preview
+ * line. A claim with no matching grant — a forged bus message, a stale ulid,
+ * or no store at all — binds NOTHING and degrades to a bracketed note plus a
+ * warning; the start/continue itself never fails on env.
+ */
+async function claimEnvGrants(
+	store: StoreAccess | undefined,
+	env: Record<string, string> | undefined,
+): Promise<{ announcement: string; warnings: string[] } | undefined> {
+	if (env === undefined) return undefined;
+	const entries = Object.entries(env);
+	if (entries.length === 0) return undefined;
+	const claimed: string[] = [];
+	const notes: string[] = [];
+	const warnings: string[] = [];
+	for (const [alias, ulid] of entries) {
+		// A wire alias is untrusted text: an invalid one (e.g. carrying ⟧/newline
+		// injection) is never echoed into the transcript, even inside a note.
+		if (!validateValueName(alias).ok) {
+			notes.push("[an invalid env alias was ignored]");
+			warnings.push("an invalid env alias was ignored");
+			continue;
+		}
+		if (store === undefined) {
+			notes.push(`[env ⟦${alias}⟧ was not granted — ignored]`);
+			warnings.push(`env ⟦${alias}⟧ was not granted — ignored: no store available`);
+			continue;
+		}
+		try {
+			const metadata = await store.claimEnvGrant(alias, ulid);
+			claimed.push(`⟦${metadata.name}⟧ (${metadata.preview.split("\n", 1)[0]})`);
+		} catch (err) {
+			const reason = err instanceof Error ? err.message : String(err);
+			notes.push(`[env ⟦${alias}⟧ was not granted — ignored]`);
+			warnings.push(`env ⟦${alias}⟧ was not granted — ignored: ${reason}`);
+		}
+	}
+	const sections: string[] = [];
+	if (claimed.length > 0) sections.push(`Values now in your scope:\n${claimed.join("\n")}`);
+	sections.push(...notes);
+	return { announcement: sections.join("\n"), warnings };
+}
+
 async function ackAgentMessage(bus: BusClient, message: AgentMessageMessage): Promise<void> {
 	if (!message.ack_topic || !bus.connected) return;
 	await bus.publish(message.ack_topic, "delivered").catch(() => {});
@@ -667,6 +680,8 @@ export async function runAgentProcessFromEnvironment(
 	const rootDir = env.SPROUT_ROOT_DIR;
 	const projectDataDir = env.SPROUT_PROJECT_DATA_DIR;
 	const parentPid = parseParentPid(env.SPROUT_PARENT_PID);
+	const authUrl = env.SPROUT_AUTH_URL;
+	const authToken = env.SPROUT_HANDLE_TOKEN;
 
 	if (!busUrl || !handleId || !sessionId || !genomePath) {
 		console.error(
@@ -680,7 +695,7 @@ export async function runAgentProcessFromEnvironment(
 	process.on("SIGINT", () => controller.abort());
 
 	const dataDir = projectDataDir ?? genomePath;
-	const logPath = join(dataDir, "logs", sessionId, handleId, "session.log.jsonl");
+	const logPath = join(sessionLogDir(dataDir, sessionId), handleId, "session.log.jsonl");
 	const logger = new SessionLogger({ logPath, component: "agent-process", sessionId });
 
 	try {
@@ -695,6 +710,7 @@ export async function runAgentProcessFromEnvironment(
 			rootDir,
 			projectDataDir,
 			parentPid,
+			...(authUrl && authToken ? { authChannel: { url: authUrl, token: authToken } } : {}),
 			signal: controller.signal,
 			logger,
 		});

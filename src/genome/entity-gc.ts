@@ -4,6 +4,7 @@ import type { Client } from "../llm/client.ts";
 import { Msg, messageText, type ProviderModel } from "../llm/types.ts";
 import { trigramDiceSimilarity } from "./dedup.ts";
 import type { Genome } from "./genome.ts";
+import { repairJson, stripCodeFence } from "./llm-json.ts";
 import { isActiveMemoryForRecall } from "./memory-lifecycle.ts";
 import type { ProjectActivityRecord } from "./projects.ts";
 
@@ -177,6 +178,12 @@ or
 {"action":"reject","reasoning":"why these should remain separate"}`;
 }
 
+/**
+ * Parse an LLM entity-GC reply into a decision. Hardened for unattended use:
+ * a merge with absent or empty aliases throws (no merge-by-default of every
+ * candidate), and the canonical name must exactly match one of the group's
+ * occurrence names (no LLM renames). Alias uuids are filtered to the group.
+ */
 export function normalizeEntityGcDecisionPayload(
 	group: EntityGcGroup,
 	text: string,
@@ -205,23 +212,22 @@ export function normalizeEntityGcDecisionPayload(
 	if (!candidateKeys.has(canonical.uuid)) {
 		throw new Error("Entity GC merge decision canonical is not in the candidate group");
 	}
-	const aliases = Array.isArray(parsed.aliases)
-		? parsed.aliases
-				.filter(isRecord)
-				.map((alias) => ({
-					uuid: typeof alias.uuid === "string" ? alias.uuid.trim() : "",
-					name: typeof alias.name === "string" ? alias.name.trim() : "",
-				}))
-				.filter(
-					(alias) =>
-						alias.uuid &&
-						alias.name &&
-						alias.uuid !== canonical.uuid &&
-						candidateKeys.has(alias.uuid),
-				)
-		: group.candidates
-				.filter((candidate) => candidate.uuid !== canonical.uuid)
-				.map((candidate) => ({ uuid: candidate.uuid, name: candidate.name }));
+	if (!group.candidates.some((candidate) => candidate.name === canonical.name)) {
+		throw new Error("Entity GC merge decision canonical name is not an occurrence in the group");
+	}
+	if (!Array.isArray(parsed.aliases)) {
+		throw new Error("Entity GC merge decision has no aliases");
+	}
+	const aliases = parsed.aliases
+		.filter(isRecord)
+		.map((alias) => ({
+			uuid: typeof alias.uuid === "string" ? alias.uuid.trim() : "",
+			name: typeof alias.name === "string" ? alias.name.trim() : "",
+		}))
+		.filter(
+			(alias) =>
+				alias.uuid && alias.name && alias.uuid !== canonical.uuid && candidateKeys.has(alias.uuid),
+		);
 	if (aliases.length === 0) throw new Error("Entity GC merge decision has no aliases");
 	return { action, canonical, aliases, reasoning };
 }
@@ -463,6 +469,17 @@ function pairKey(left: string, right: string): string {
 	return [left, right].sort().join("\0");
 }
 
+function parseJsonObject(text: string): Record<string, unknown> {
+	const stripped = stripCodeFence(text.trim());
+	const parsed = JSON.parse(repairJson(stripped));
+	if (!isRecord(parsed)) throw new Error("Expected JSON object");
+	return parsed;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function union(parent: Map<string, string>, left: string, right: string): void {
 	parent.set(find(parent, right), find(parent, left));
 }
@@ -474,29 +491,6 @@ function find(parent: Map<string, string>, id: string): string {
 	const root = find(parent, current);
 	parent.set(id, root);
 	return root;
-}
-
-function parseJsonObject(text: string): Record<string, unknown> {
-	const stripped = stripCodeFence(text.trim());
-	const parsed = JSON.parse(repairJson(stripped));
-	if (!isRecord(parsed)) throw new Error("Expected JSON object");
-	return parsed;
-}
-
-function stripCodeFence(text: string): string {
-	const match = text.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/);
-	return match?.[1]?.trim() ?? text;
-}
-
-function repairJson(text: string): string {
-	return text
-		.replace(/[“”]/g, '"')
-		.replace(/[‘’]/g, "'")
-		.replace(/,\s*([}\]])/g, "$1");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function slug(value: string): string {

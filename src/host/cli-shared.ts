@@ -24,11 +24,19 @@ export interface BusInfrastructure {
 	server: BusServer;
 	bus: BusClient;
 	spawner: AgentSpawner;
+	/** ws:// URL of the authenticated host channel (sap spec §1 Transport). */
+	authUrl?: string;
+	/** Handle identity registry backing the authenticated channel. */
+	handleRegistry?: import("./handle-registry.ts").HandleRegistry;
 	genomeService?: {
 		updateResolverSettings(resolverSettings: ResolverSettings | undefined): void;
 		updateRuntimeClient(client: Client, resolverSettings: ResolverSettings | undefined): void;
 	};
 	genome: import("../genome/genome.ts").Genome;
+	/** Session store worker client (sap spec §1), when store wiring is active. */
+	store?: import("../store/store-client.ts").StoreWorkerClient;
+	/** Per-session sub-call/token budget (Phase 7), enforced at handle registration. */
+	sessionBudget?: import("./session-budget.ts").SessionBudget;
 	cleanup: () => Promise<void>;
 }
 
@@ -44,15 +52,63 @@ export async function startBusInfrastructure(
 	const { AgentSpawner } = await import("../bus/spawner.ts");
 	const { GenomeMutationService } = await import("../bus/genome-service.ts");
 	const { Genome } = await import("../genome/genome.ts");
+	const { HandleRegistry } = await import("./handle-registry.ts");
+	const { AuthChannelServer } = await import("./auth-channel.ts");
+	const {
+		HostHandleRegistrar,
+		makeRegisterHandleHandler,
+		REGISTER_HANDLE_REQUEST,
+		TRUSTED_REGISTRAR_ID,
+	} = await import("./handle-registrar.ts");
+	const {
+		HostLivenessProbe,
+		LIVENESS_REQUEST,
+		makeLivenessHandler,
+		makePingHandler,
+		PING_REQUEST,
+	} = await import("./liveness.ts");
+	const { sessionBudgetFromEnv } = await import("./session-budget.ts");
+	const { StoreWorkerClient } = await import("../store/store-client.ts");
+	const { DirectStoreAccess } = await import("../store/store-access.ts");
+	const { registerStoreHandlers } = await import("./store-channel.ts");
 
 	const server = new BusServer({ port: 0, hostname: "127.0.0.1" });
+	const handleRegistry = new HandleRegistry({ trustedRegistrarId: TRUSTED_REGISTRAR_ID });
+	// Per-session sub-call/token budget (Phase 7): host-side counters checked at
+	// the handle-registration boundary, so no spawn — root's or a mid-tree
+	// agent's — can bypass them from a child process.
+	const sessionBudget = sessionBudgetFromEnv();
+	const authServer = new AuthChannelServer({
+		port: 0,
+		hostname: "127.0.0.1",
+		registry: handleRegistry,
+	});
 	let bus: InstanceType<typeof BusClient> | null = null;
 	let genomeService: InstanceType<typeof GenomeMutationService> | null = null;
 	let spawner: InstanceType<typeof AgentSpawner> | null = null;
 	const genome = new Genome(options.genomePath, options.rootDir);
+	const rootScopeId = "root";
+	const storeBase = join(options.genomePath, "store", options.sessionId);
+	const store = new StoreWorkerClient({
+		journalPath: join(storeBase, "journal.jsonl"),
+		casRoot: join(storeBase, "cas"),
+		rootScopeId,
+	});
 
 	try {
 		await server.start();
+		await authServer.start();
+		authServer.onRequest(
+			REGISTER_HANDLE_REQUEST,
+			makeRegisterHandleHandler(handleRegistry, sessionBudget),
+		);
+		authServer.onRequest(PING_REQUEST, makePingHandler(handleRegistry));
+		authServer.onRequest(LIVENESS_REQUEST, makeLivenessHandler(handleRegistry));
+		registerStoreHandlers(authServer, store, {
+			rootScopeId,
+			handleOwner: (id) => handleRegistry.get(id)?.ownerId,
+			isObserver: (id) => handleRegistry.get(id)?.observerRemit !== undefined,
+		});
 
 		bus = new BusClient(server.url);
 		await bus.connect();
@@ -70,24 +126,66 @@ export async function startBusInfrastructure(
 		});
 		await genomeService.start();
 
-		spawner = new AgentSpawner(bus, server.url, options.sessionId);
+		spawner = new AgentSpawner(
+			bus,
+			server.url,
+			options.sessionId,
+			undefined,
+			undefined,
+			undefined,
+			{
+				url: authServer.url,
+				registrar: new HostHandleRegistrar(handleRegistry, TRUSTED_REGISTRAR_ID, sessionBudget),
+				probe: new HostLivenessProbe(handleRegistry),
+				store: new DirectStoreAccess(store, rootScopeId),
+			},
+		);
+
+		// Token feed for the session budget: every agent subprocess publishes its
+		// events on the session-wide topic; llm_end carries per-call usage. The
+		// counter lives host-side, so model-authored code cannot unwind it. (The
+		// root agent's own turns run in this process and are bounded by its
+		// max_turns; the cap targets the delegation subtree where runaways live.)
+		const unsubscribeBudgetFeed = await spawner.subscribeSessionEvents((eventMsg) => {
+			const ev = eventMsg.event;
+			if (ev.kind !== "llm_end") return;
+			const input = typeof ev.data.input_tokens === "number" ? ev.data.input_tokens : 0;
+			const output = typeof ev.data.output_tokens === "number" ? ev.data.output_tokens : 0;
+			sessionBudget.recordTokens(input + output);
+		});
 
 		const cleanup = async () => {
+			unsubscribeBudgetFeed();
 			await genomeService?.stop();
 			await spawner?.shutdown();
 			if (bus) {
 				await bus.disconnect();
 			}
+			await store.shutdown();
+			await authServer.stop();
 			await server.stop();
 		};
 
-		return { server, bus, spawner, genomeService, genome, cleanup };
+		return {
+			server,
+			bus,
+			spawner,
+			authUrl: authServer.url,
+			handleRegistry,
+			genomeService,
+			genome,
+			store,
+			sessionBudget,
+			cleanup,
+		};
 	} catch (error) {
 		await genomeService?.stop().catch(() => {});
 		await spawner?.shutdown();
 		if (bus) {
 			await bus.disconnect().catch(() => {});
 		}
+		await store.shutdown().catch(() => {});
+		await authServer.stop().catch(() => {});
 		await server.stop().catch(() => {});
 		throw error;
 	}
@@ -422,17 +520,4 @@ export async function configureTerminal(options: ConfigureTerminalOptions = {}):
 	sections.push("Newline keys: Shift+Enter (primary), Alt+Enter, Ctrl+J (universal fallback)");
 
 	return sections.join("\n\n");
-}
-
-/** Handle SIGINT: interrupt if running, exit if idle. */
-export function handleSigint(
-	bus: { emitCommand(cmd: import("../kernel/types.ts").Command): void },
-	controller: { isRunning: boolean },
-	rl: { close(): void },
-): void {
-	if (controller.isRunning) {
-		bus.emitCommand({ kind: "interrupt", data: {} });
-	} else {
-		rl.close();
-	}
 }

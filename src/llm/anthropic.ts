@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { ProviderKind } from "../shared/provider-settings.ts";
+import { asRecord } from "../util/record.ts";
 import {
 	ContentKind,
 	type FinishReason,
@@ -244,7 +245,9 @@ export function buildAnthropicRequest(
 }
 
 function acceptsAnthropicTemperature(model: string): boolean {
-	return model !== "claude-opus-4-7" && !model.startsWith("claude-opus-4-7-");
+	if (model === "claude-opus-4-7" || model.startsWith("claude-opus-4-7-")) return false;
+	if (model === "claude-sonnet-5" || model.startsWith("claude-sonnet-5-")) return false;
+	return true;
 }
 
 interface AnthropicCacheSettings {
@@ -263,13 +266,6 @@ function resolveAnthropicCacheSettings(request: Request): AnthropicCacheSettings
 		cacheControl: ttl ? { type: "ephemeral", ttl } : { type: "ephemeral" },
 		historyBreakpoints: 2,
 	};
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-	if (value && typeof value === "object" && !Array.isArray(value)) {
-		return value as Record<string, unknown>;
-	}
-	return {};
 }
 
 function convertMessages(

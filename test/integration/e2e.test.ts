@@ -4,8 +4,10 @@ import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createAgent } from "../../src/agents/factory.ts";
+import { scanAgentTree } from "../../src/agents/loader.ts";
 import { submitGoal } from "../../src/host/session.ts";
 import { Client } from "../../src/llm/client.ts";
+import { createInProcessSpawner, type InProcessSpawnerConfig } from "../agents/fixtures.ts";
 import { buildTestResolverContext } from "../helpers/resolver-context.ts";
 import "../helpers/test-env.ts";
 import { createVcr } from "../helpers/vcr.ts";
@@ -52,14 +54,27 @@ describe("E2E Integration", () => {
 	test("bootstrap: fresh genome creates a file", async () => {
 		const vcr = vcrForTest("bootstrap-fresh-genome-creates-a-file");
 		const resolverContext = await buildTestResolverContext(vcr.client);
+		// Delegation requires a spawner; the in-process fake runs children in
+		// this process against the runtime genome (late-bound below).
+		const rootDir = join(import.meta.dir, "../../root");
+		const spawnerConfig: InProcessSpawnerConfig = {
+			client: vcr.client,
+			modelsByProvider: resolverContext.modelsByProvider,
+			rootDir,
+			agentTree: await scanAgentTree(rootDir),
+			enableStreaming: true,
+		};
+		const { spawner } = createInProcessSpawner(spawnerConfig);
 		const result = await createAgent({
 			genomePath: genomeDir,
-			rootDir: join(import.meta.dir, "../../root"),
+			rootDir,
 			workDir: workDir,
 			client: vcr.client,
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
+			spawner,
 		});
+		spawnerConfig.genome = result.genome;
+		spawnerConfig.events = result.events;
 		for await (const _event of submitGoal(
 			"Create a file called hello.py in the current directory that prints 'Hello World'",
 			{ agent: result.agent, events: result.events, learnProcess: result.learnProcess },
@@ -77,14 +92,25 @@ describe("E2E Integration", () => {
 	test("multi-step: modify file and create test", async () => {
 		const vcr = vcrForTest("multi-step-modify-file-and-create-test");
 		const resolverContext = await buildTestResolverContext(vcr.client);
+		const rootDir = join(import.meta.dir, "../../root");
+		const spawnerConfig: InProcessSpawnerConfig = {
+			client: vcr.client,
+			modelsByProvider: resolverContext.modelsByProvider,
+			rootDir,
+			agentTree: await scanAgentTree(rootDir),
+			enableStreaming: true,
+		};
+		const { spawner } = createInProcessSpawner(spawnerConfig);
 		const result = await createAgent({
 			genomePath: genomeDir,
-			rootDir: join(import.meta.dir, "../../root"),
+			rootDir,
 			workDir: workDir,
 			client: vcr.client,
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
+			spawner,
 		});
+		spawnerConfig.genome = result.genome;
+		spawnerConfig.events = result.events;
 
 		for await (const _event of submitGoal(
 			"Add a command-line argument to hello.py that takes a name and prints 'Hello <name>'. Then create a test file test_hello.py that tests this functionality.",
@@ -119,7 +145,6 @@ describe("E2E Integration", () => {
 			rootDir: join(import.meta.dir, "../../root"),
 			workDir: workDir,
 			client: vcr.client,
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 		});
 
@@ -143,7 +168,6 @@ describe("E2E Integration", () => {
 			rootDir: join(import.meta.dir, "../../root"),
 			workDir: workDir,
 			client: vcr.client,
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 		});
 		expect(genome2.agentCount()).toBeGreaterThanOrEqual(4);
@@ -159,7 +183,6 @@ describe("E2E Integration", () => {
 			rootDir: join(import.meta.dir, "../../root"),
 			workDir: workDir,
 			client: vcr.client,
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 		});
 
@@ -178,7 +201,6 @@ describe("E2E Integration", () => {
 			rootDir: join(import.meta.dir, "../../root"),
 			workDir: workDir,
 			client: vcr.client,
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 		});
 

@@ -70,6 +70,45 @@ describe("runHeadlessMode", () => {
 		});
 	});
 
+	test("forwards settingsPath into the shared runtime bootstrap", async () => {
+		let capturedSettingsPath: string | undefined;
+
+		await runHeadlessMode(
+			{
+				goal: "fix tests",
+				genomePath: "/tmp/genome",
+				settingsPath: "/tmp/settings.json",
+				projectDataDir: "/tmp/project",
+				rootDir: "/tmp/root",
+				startBusInfrastructure: async () => ({
+					spawner: { id: "spawner" } as any,
+					genome: { id: "genome" } as any,
+					cleanup: async () => {},
+				}),
+			},
+			{
+				createSessionId: () => "01HEADLESS",
+				bootstrapRuntime: async (opts) => {
+					capturedSettingsPath = opts.settingsPath;
+					return {
+						controller: {
+							runGoal: async () => ({
+								sessionId: "01HEADLESS",
+								output: "done",
+								success: true,
+								stumbles: 0,
+								turns: 1,
+								timedOut: false,
+							}),
+						},
+					};
+				},
+			},
+		);
+
+		expect(capturedSettingsPath).toBe("/tmp/settings.json");
+	});
+
 	test("forwards resume state into the shared runtime bootstrap", async () => {
 		const history: Message[] = [{ role: "user", content: [{ kind: "text", text: "resume me" }] }];
 

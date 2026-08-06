@@ -1,0 +1,715 @@
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { AuthChannelClient, AuthChannelServer } from "../../src/host/auth-channel";
+import { HandleRegistry, hashToken, mintToken } from "../../src/host/handle-registry";
+import { registerStoreHandlers } from "../../src/host/store-channel";
+import { ContentStore } from "../../src/store/cas";
+import { SessionJournal } from "../../src/store/journal";
+import { SapStore } from "../../src/store/store";
+import {
+	ChannelStoreAccess,
+	DirectStoreAccess,
+	type StoreAccess,
+} from "../../src/store/store-access";
+import { StoreWorkerClient, type StoreWorkerHandle } from "../../src/store/store-client";
+import { runStoreWorker } from "../../src/store/store-worker";
+import type { ValueProvenance } from "../../src/store/value";
+
+const ROOT_SCOPE = "root";
+const TRUSTED = "sprout:host";
+
+const prov = (agentHandleId: string): ValueProvenance => ({
+	agentHandleId,
+	origin: { kind: "cell" },
+});
+
+describe("store access", () => {
+	let dir: string;
+	let journal: SessionJournal;
+	let cas: ContentStore;
+
+	beforeEach(async () => {
+		dir = await mkdtemp(join(tmpdir(), "sap-store-access-"));
+		journal = new SessionJournal(join(dir, "journal.jsonl"));
+		cas = new ContentStore(join(dir, "cas"));
+	});
+
+	afterEach(async () => {
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	/** In-process fake worker: a fresh SapStore.resume per spawn, like a restart. */
+	function workingSpawn(): () => StoreWorkerHandle {
+		return () => {
+			let lineHandler: (line: string) => void = () => {};
+			const storeReady = SapStore.resume({ journal, cas, rootScopeId: ROOT_SCOPE });
+			let queue = Promise.resolve();
+			return {
+				send(line) {
+					queue = queue.then(async () => {
+						const store = await storeReady;
+						const responses: string[] = [];
+						async function* one(): AsyncGenerator<string> {
+							yield line;
+						}
+						await runStoreWorker({ lines: one(), write: (l) => responses.push(l), store });
+						for (const r of responses) lineHandler(r);
+					});
+				},
+				kill() {},
+				onLine(cb) {
+					lineHandler = cb;
+				},
+				onExit() {},
+			};
+		};
+	}
+
+	function makeClient(): StoreWorkerClient {
+		return new StoreWorkerClient({
+			journalPath: join(dir, "journal.jsonl"),
+			casRoot: join(dir, "cas"),
+			rootScopeId: ROOT_SCOPE,
+			opTimeoutMs: 1_000,
+			spawnFn: workingSpawn(),
+		});
+	}
+
+	describe("DirectStoreAccess", () => {
+		it("roundtrips bind/peek/metadata/get/slice/grep with its fixed scope", async () => {
+			const client = makeClient();
+			const access: StoreAccess = new DirectStoreAccess(client, ROOT_SCOPE);
+			const meta = await access.bind({
+				name: "notes",
+				content: "hello\nworld",
+				type: "text",
+				provenance: prov("root"),
+				explicit: true,
+			});
+			expect(meta.name).toBe("notes");
+			expect(meta.scopeId).toBe(ROOT_SCOPE);
+			expect(await access.peek("notes")).toContain("text · 11 bytes");
+			expect((await access.metadata("notes")).size).toBe(11);
+			expect(new TextDecoder().decode(await access.get("notes", { maxBytes: 100 }))).toBe(
+				"hello\nworld",
+			);
+			expect(await access.slice("notes", { startLine: 2, lineCount: 1 })).toBe("world");
+			expect(await access.grep("notes", "wor")).toEqual({
+				matches: [{ line: 2, text: "world" }],
+				truncated: false,
+			});
+			await client.shutdown();
+		});
+
+		it("publishes with its fixed scope as the handle", async () => {
+			const client = makeClient();
+			const access: StoreAccess = new DirectStoreAccess(client, ROOT_SCOPE);
+			const meta = await access.bind({
+				name: "report",
+				content: "the report",
+				type: "text",
+				provenance: prov("root"),
+				explicit: true,
+			});
+			await access.publish(meta.ulid);
+			const publishes = (await journal.replay()).filter((r) => r.kind === "publish");
+			expect(publishes).toEqual([
+				{ kind: "publish", handle: ROOT_SCOPE, ulids: [meta.ulid], seq: 1 },
+			]);
+			await client.shutdown();
+		});
+
+		it("roundtrips binary content", async () => {
+			const client = makeClient();
+			const access = new DirectStoreAccess(client, ROOT_SCOPE);
+			const body = new Uint8Array([7, 0, 255]);
+			await access.bind({
+				name: "blob",
+				content: body,
+				type: "bytes",
+				provenance: prov("root"),
+				explicit: true,
+			});
+			expect(await access.get("blob", { maxBytes: 100 })).toEqual(body);
+			await client.shutdown();
+		});
+	});
+
+	describe("ChannelStoreAccess + registerStoreHandlers", () => {
+		let registry: HandleRegistry;
+		let server: AuthChannelServer;
+		let storeClient: StoreWorkerClient;
+		const clients: AuthChannelClient[] = [];
+
+		beforeEach(async () => {
+			registry = new HandleRegistry({ trustedRegistrarId: TRUSTED });
+			server = new AuthChannelServer({ port: 0, registry });
+			await server.start();
+			storeClient = makeClient();
+			registerStoreHandlers(server, storeClient, {
+				rootScopeId: ROOT_SCOPE,
+				handleOwner: (id) => registry.get(id)?.ownerId,
+				isObserver: (id) => registry.get(id)?.observerRemit !== undefined,
+			});
+		});
+
+		afterEach(async () => {
+			for (const c of clients.splice(0)) await c.disconnect();
+			await server.stop();
+			await storeClient.shutdown();
+		});
+
+		async function connectAgent(
+			handleId: string,
+			ownerId = "root",
+			options: { observer?: boolean } = {},
+		): Promise<AuthChannelClient> {
+			const token = mintToken();
+			const result = registry.registerHandle({
+				handleId,
+				tokenHash: hashToken(token),
+				registrarId: TRUSTED,
+				ownerId,
+				depth: 1,
+				...(options.observer ? { observerRemit: { kind: "session" as const } } : {}),
+			});
+			expect(result.ok).toBe(true);
+			const client = new AuthChannelClient({ url: server.url, handleId, token });
+			await client.connect();
+			clients.push(client);
+			return client;
+		}
+
+		it("roundtrips bind/peek/metadata/get/slice/grep over the channel", async () => {
+			const client = await connectAgent("agent_a");
+			const access: StoreAccess = new ChannelStoreAccess(client);
+			const meta = await access.bind({
+				name: "notes",
+				content: "alpha\nbeta",
+				type: "text",
+				provenance: prov("agent_a"),
+				explicit: true,
+			});
+			expect(meta.name).toBe("notes");
+			// The caller's scope IS its handle id.
+			expect(meta.scopeId).toBe("agent_a");
+			expect(await access.peek("notes")).toContain("text · 10 bytes");
+			expect((await access.metadata("notes")).size).toBe(10);
+			expect(new TextDecoder().decode(await access.get("notes", { maxBytes: 100 }))).toBe(
+				"alpha\nbeta",
+			);
+			expect(await access.slice("notes", { startLine: 1, lineCount: 1 })).toBe("alpha");
+			expect(await access.grep("notes", "bet", { maxResults: 5 })).toEqual({
+				matches: [{ line: 2, text: "beta" }],
+				truncated: false,
+			});
+		});
+
+		it("publishes over the channel; the publisher identity is the connection's handle", async () => {
+			const client = await connectAgent("agent_pub");
+			const access: StoreAccess = new ChannelStoreAccess(client);
+			const meta = await access.bind({
+				name: "report",
+				content: "the report",
+				type: "text",
+				provenance: prov("agent_pub"),
+				explicit: true,
+			});
+			await access.publish("report");
+			const publishes = (await journal.replay()).filter((r) => r.kind === "publish");
+			expect(publishes).toEqual([
+				{ kind: "publish", handle: "agent_pub", ulids: [meta.ulid], seq: 1 },
+			]);
+		});
+
+		it("roundtrips binary content over the channel", async () => {
+			const client = await connectAgent("agent_bin");
+			const access = new ChannelStoreAccess(client);
+			const body = new Uint8Array([1, 2, 254]);
+			await access.bind({
+				name: "blob",
+				content: body,
+				type: "bytes",
+				provenance: prov("agent_bin"),
+				explicit: true,
+			});
+			expect(await access.get("blob", { maxBytes: 100 })).toEqual(body);
+		});
+
+		it("forces provenance.agentHandleId to the verified identity and ignores payload scope", async () => {
+			const client = await connectAgent("agent_honest");
+			// A crafted raw payload naming another agent's identity and scope.
+			const result = (await client.request("store_bind", {
+				name: "forged",
+				content: "x",
+				encoding: "utf8",
+				type: "text",
+				explicit: true,
+				scopeId: ROOT_SCOPE,
+				provenance: { agentHandleId: "someone_else", origin: { kind: "cell" } },
+			})) as { scopeId: string; provenance: ValueProvenance };
+			expect(result.scopeId).toBe("agent_honest");
+			expect(result.provenance.agentHandleId).toBe("agent_honest");
+		});
+
+		it("scopes are per-agent: same name binds without collision, reads stay scoped", async () => {
+			const a = new ChannelStoreAccess(await connectAgent("agent_a"));
+			const b = new ChannelStoreAccess(await connectAgent("agent_b"));
+			const metaA = await a.bind({
+				name: "report",
+				content: "a-content",
+				type: "text",
+				provenance: prov("agent_a"),
+				explicit: true,
+			});
+			const metaB = await b.bind({
+				name: "report",
+				content: "b-content",
+				type: "text",
+				provenance: prov("agent_b"),
+				explicit: true,
+			});
+			expect(metaA.scopeId).toBe("agent_a");
+			expect(metaB.scopeId).toBe("agent_b");
+			expect(new TextDecoder().decode(await a.get("report", { maxBytes: 100 }))).toBe("a-content");
+			expect(new TextDecoder().decode(await b.get("report", { maxBytes: 100 }))).toBe("b-content");
+		});
+
+		it("names() lists only the caller's own scope", async () => {
+			const a = new ChannelStoreAccess(await connectAgent("agent_a"));
+			const b = new ChannelStoreAccess(await connectAgent("agent_b"));
+			await a.bind({
+				name: "mine",
+				content: "x",
+				type: "text",
+				provenance: prov("agent_a"),
+				explicit: true,
+			});
+			await b.bind({
+				name: "theirs",
+				content: "y",
+				type: "text",
+				provenance: prov("agent_b"),
+				explicit: true,
+			});
+			expect(await a.names()).toEqual(["mine"]);
+			expect(await b.names()).toEqual(["theirs"]);
+		});
+
+		it("a name is unreadable cross-scope, but the ulid is globally readable (engine semantics)", async () => {
+			const a = new ChannelStoreAccess(await connectAgent("agent_a"));
+			const b = new ChannelStoreAccess(await connectAgent("agent_b"));
+			const metaB = await b.bind({
+				name: "secret_notes",
+				content: "b-only",
+				type: "text",
+				provenance: prov("agent_b"),
+				explicit: true,
+			});
+			// By name: agent_a's scope has no such binding.
+			await expect(a.peek("secret_notes")).rejects.toThrow(/unknown value/);
+			// By ulid: current engine semantics resolve ulids globally. Asserted
+			// deliberately — scope-visibility hardening would change this.
+			expect(new TextDecoder().decode(await a.get(metaB.ulid, { maxBytes: 100 }))).toBe("b-only");
+		});
+
+		it("lazily creates the caller scope and tolerates a scope that already exists", async () => {
+			const client = await connectAgent("agent_lazy");
+			const access = new ChannelStoreAccess(client);
+			await access.bind({
+				name: "first",
+				content: "1",
+				type: "text",
+				provenance: prov("agent_lazy"),
+				explicit: true,
+			});
+			// A second handler registration (fresh created-scope memory, as after
+			// a host restart racing its own journal) must treat "already exists"
+			// as fine.
+			registerStoreHandlers(server, storeClient, {
+				rootScopeId: ROOT_SCOPE,
+				handleOwner: (id) => registry.get(id)?.ownerId,
+			});
+			const meta = await access.bind({
+				name: "second",
+				content: "2",
+				type: "text",
+				provenance: prov("agent_lazy"),
+				explicit: true,
+			});
+			expect(meta.scopeId).toBe("agent_lazy");
+		});
+
+		it("store errors pass through as request errors", async () => {
+			const client = await connectAgent("agent_err");
+			const access = new ChannelStoreAccess(client);
+			await expect(access.peek("never_bound")).rejects.toThrow(/unknown value/);
+		});
+
+		it("rejects malformed payloads field-by-field", async () => {
+			const client = await connectAgent("agent_shape");
+			await expect(client.request("store_bind", { name: 42 })).rejects.toThrow(/name/);
+			await expect(client.request("store_peek", {})).rejects.toThrow(/ref/);
+			await expect(client.request("store_slice", { ref: "x", startLine: "1" })).rejects.toThrow(
+				/startLine/,
+			);
+			await expect(client.request("store_grep", { ref: "x" })).rejects.toThrow(/pattern/);
+			await expect(client.request("store_get", { ref: "x" })).rejects.toThrow(/maxBytes/);
+		});
+
+		it("rejects non-finite and out-of-range numeric fields", async () => {
+			const client = await connectAgent("agent_numbers");
+			await expect(
+				client.request("store_get", { ref: "x", maxBytes: Number.POSITIVE_INFINITY }),
+			).rejects.toThrow(/maxBytes/);
+			await expect(
+				client.request("store_slice", { ref: "x", startLine: -1, lineCount: 1 }),
+			).rejects.toThrow(/startLine/);
+			await expect(
+				client.request("store_slice", { ref: "x", startLine: 1.5, lineCount: 1 }),
+			).rejects.toThrow(/startLine/);
+			await expect(
+				client.request("store_grep", { ref: "x", pattern: "a", maxResults: Number.NaN }),
+			).rejects.toThrow(/maxResults/);
+		});
+
+		it("bind refuses a value whose wire form exceeds the channel limit", async () => {
+			const access = new ChannelStoreAccess(await connectAgent("agent_big"));
+			await expect(
+				access.bind({
+					name: "huge",
+					content: "x".repeat(6 * 1024 * 1024 + 1),
+					type: "text",
+					provenance: prov("agent_big"),
+					explicit: true,
+				}),
+			).rejects.toThrow(/too large for the channel.*CAS handoff/);
+		});
+
+		it("manifestDelta derives the recipient from the connection", async () => {
+			// The parent registered (owns) the child handle: it may pull.
+			const child = new ChannelStoreAccess(await connectAgent("agent_child", "agent_parent"));
+			const parent = new ChannelStoreAccess(await connectAgent("agent_parent"));
+			const meta = await child.bind({
+				name: "impl",
+				content: "the impl",
+				type: "text",
+				provenance: prov("agent_child"),
+				explicit: true,
+			});
+			await child.publish("impl");
+
+			const delta = await parent.manifestDelta("agent_child");
+			expect(delta.throughSeq).toBe(1);
+			expect(delta.delivered).toHaveLength(1);
+			expect(delta.delivered[0]!.name).toBe("impl");
+			expect(delta.delivered[0]!.ulid).toBe(meta.ulid);
+			// The alias landed in the CONNECTION's scope, readable by name there.
+			expect(new TextDecoder().decode(await parent.get("impl", { maxBytes: 100 }))).toBe(
+				"the impl",
+			);
+			// The grant names the connection's scope as recipient.
+			const grants = (await journal.replay()).filter((r) => r.kind === "grant");
+			expect(grants).toEqual([
+				{
+					kind: "grant",
+					granter: "agent_child",
+					recipient: "agent_parent",
+					name: "impl",
+					ulid: meta.ulid,
+					via: "manifest",
+				},
+			]);
+		});
+
+		it("only the publisher's registered owner may pull its manifest", async () => {
+			const child = new ChannelStoreAccess(await connectAgent("agent_owned", "agent_owner"));
+			await child.bind({
+				name: "goods",
+				content: "x",
+				type: "text",
+				provenance: prov("agent_owned"),
+				explicit: true,
+			});
+			await child.publish("goods");
+			// An unrelated authenticated handle is refused.
+			const stranger = new ChannelStoreAccess(await connectAgent("agent_stranger"));
+			await expect(stranger.manifestDelta("agent_owned")).rejects.toThrow(
+				/not the owner of that handle's publishes/,
+			);
+			expect((await journal.replay()).filter((r) => r.kind === "grant")).toHaveLength(0);
+			// The owner succeeds.
+			const owner = new ChannelStoreAccess(await connectAgent("agent_owner"));
+			const delta = await owner.manifestDelta("agent_owned");
+			expect(delta.delivered.map((d) => d.name)).toEqual(["goods"]);
+		});
+
+		it("a crafted payload cannot name another recipient — there is no such field", async () => {
+			const child = new ChannelStoreAccess(await connectAgent("agent_child2", "agent_attacker"));
+			await child.bind({
+				name: "loot",
+				content: "x",
+				type: "text",
+				provenance: prov("agent_child2"),
+				explicit: true,
+			});
+			await child.publish("loot");
+			const attacker = await connectAgent("agent_attacker");
+			// Raw request smuggling recipient/scope fields: they are ignored; the
+			// delta lands in the ATTACKER's own scope, never the named one.
+			await attacker.request("store_manifest_delta", {
+				publisherHandle: "agent_child2",
+				recipient: ROOT_SCOPE,
+				recipientScopeId: ROOT_SCOPE,
+				scopeId: ROOT_SCOPE,
+			});
+			const grants = (await journal.replay()).filter((r) => r.kind === "grant");
+			expect(grants.map((g) => (g as { recipient: string }).recipient)).toEqual(["agent_attacker"]);
+		});
+
+		it("manifestDelta rejects a malformed publisherHandle", async () => {
+			const client = await connectAgent("agent_badshape");
+			await expect(client.request("store_manifest_delta", {})).rejects.toThrow(/publisherHandle/);
+		});
+
+		it("DirectStoreAccess manifestDelta delivers into its fixed scope", async () => {
+			const client = makeClient();
+			const child = new DirectStoreAccess(client, ROOT_SCOPE);
+			// Bind+publish under a child scope via the worker client directly.
+			await client.createScope({
+				scopeId: "direct_child",
+				ownerHandleId: "direct_child",
+				parentScopeId: ROOT_SCOPE,
+			});
+			const meta = await client.bind({
+				scopeId: "direct_child",
+				name: "notes",
+				content: "n",
+				type: "text",
+				provenance: prov("direct_child"),
+				explicit: true,
+			});
+			await client.publish("direct_child", meta.ulid);
+			const delta = await child.manifestDelta("direct_child");
+			expect(delta.delivered.map((d) => d.name)).toEqual(["notes"]);
+			expect(await child.names()).toContain("notes");
+			await client.shutdown();
+		});
+
+		it("env grant/claim roundtrip: the sender identity is the connection's", async () => {
+			const parent = new ChannelStoreAccess(await connectAgent("agent_env_parent"));
+			const meta = await parent.bind({
+				name: "schema",
+				content: "the schema",
+				type: "text",
+				provenance: prov("agent_env_parent"),
+				explicit: true,
+			});
+			// The child registers (owned by the parent) before the grant: grants
+			// are gated on the sender's registered ownership of the recipient.
+			const child = new ChannelStoreAccess(
+				await connectAgent("agent_env_child", "agent_env_parent"),
+			);
+			const granted = await parent.registerEnvGrant("agent_env_child", "api_schema", "schema");
+			expect(granted.ulid).toBe(meta.ulid);
+			// The env_grant record names the CONNECTION as sender.
+			expect(await journal.replay()).toContainEqual({
+				kind: "env_grant",
+				sender: "agent_env_parent",
+				recipient: "agent_env_child",
+				alias: "api_schema",
+				ulid: meta.ulid,
+			});
+
+			const claimed = await child.claimEnvGrant("api_schema", meta.ulid);
+			expect(claimed.name).toBe("api_schema");
+			expect(new TextDecoder().decode(await child.get("api_schema", { maxBytes: 100 }))).toBe(
+				"the schema",
+			);
+		});
+
+		it("a crafted grant payload cannot forge the sender scope", async () => {
+			const victim = new ChannelStoreAccess(await connectAgent("agent_env_victim"));
+			await victim.bind({
+				name: "loot",
+				content: "x",
+				type: "text",
+				provenance: prov("agent_env_victim"),
+				explicit: true,
+			});
+			const attacker = await connectAgent("agent_env_attacker");
+			// A recipient the attacker owns, so the ownership gate is not what
+			// stops this — the smuggled sender fields are.
+			registry.registerHandle({
+				handleId: "agent_env_target",
+				tokenHash: hashToken(mintToken()),
+				registrarId: TRUSTED,
+				ownerId: "agent_env_attacker",
+				depth: 2,
+			});
+			// Smuggled sender/scope fields are ignored: the ref resolves in the
+			// ATTACKER's scope, where "loot" does not exist.
+			await expect(
+				attacker.request("store_env_grant", {
+					recipientHandle: "agent_env_target",
+					alias: "loot",
+					ref: "loot",
+					senderScopeId: "agent_env_victim",
+					scopeId: "agent_env_victim",
+				}),
+			).rejects.toThrow(/unknown value/);
+		});
+
+		it("a crafted claim payload cannot name another recipient scope", async () => {
+			const parent = new ChannelStoreAccess(await connectAgent("agent_env_p2"));
+			const meta = await parent.bind({
+				name: "notes",
+				content: "n",
+				type: "text",
+				provenance: prov("agent_env_p2"),
+				explicit: true,
+			});
+			const child = new ChannelStoreAccess(await connectAgent("agent_env_c2", "agent_env_p2"));
+			await parent.registerEnvGrant("agent_env_c2", "notes", "notes");
+			// A different authenticated handle claims with a smuggled recipient:
+			// the recipient is the CONNECTION's scope, where no grant is pending.
+			const stranger = await connectAgent("agent_env_stranger");
+			await expect(
+				stranger.request("store_env_claim", {
+					alias: "notes",
+					ulid: meta.ulid,
+					recipientScopeId: "agent_env_c2",
+					scopeId: "agent_env_c2",
+				}),
+			).rejects.toThrow(/no matching env grant/);
+			// The rightful recipient still claims fine.
+			expect((await child.claimEnvGrant("notes", meta.ulid)).ulid).toBe(meta.ulid);
+		});
+
+		it("rejects a sibling-to-sibling env grant and journals nothing", async () => {
+			const a = new ChannelStoreAccess(await connectAgent("agent_sib_a", "agent_sib_owner"));
+			await connectAgent("agent_sib_b", "agent_sib_owner");
+			await a.bind({
+				name: "gift",
+				content: "g",
+				type: "text",
+				provenance: prov("agent_sib_a"),
+				explicit: true,
+			});
+			await expect(a.registerEnvGrant("agent_sib_b", "gift", "gift")).rejects.toThrow(
+				/you may only grant env to handles you own or to your owner/,
+			);
+			expect((await journal.replay()).filter((r) => r.kind === "env_grant")).toHaveLength(0);
+		});
+
+		it("a child may grant env to its own registered owner (the caller reply path)", async () => {
+			const child = new ChannelStoreAccess(await connectAgent("agent_up_child", "agent_up_owner"));
+			const owner = new ChannelStoreAccess(await connectAgent("agent_up_owner"));
+			await child.bind({
+				name: "reply",
+				content: "r",
+				type: "text",
+				provenance: prov("agent_up_child"),
+				explicit: true,
+			});
+			const granted = await child.registerEnvGrant("agent_up_owner", "reply", "reply");
+			expect((await owner.claimEnvGrant("reply", granted.ulid)).name).toBe("reply");
+		});
+
+		it("rejects an env grant to an observer recipient", async () => {
+			const parent = new ChannelStoreAccess(await connectAgent("agent_obs_parent"));
+			await connectAgent("agent_obs_kid", "agent_obs_parent", { observer: true });
+			await parent.bind({
+				name: "peek_this",
+				content: "p",
+				type: "text",
+				provenance: prov("agent_obs_parent"),
+				explicit: true,
+			});
+			await expect(
+				parent.registerEnvGrant("agent_obs_kid", "peek_this", "peek_this"),
+			).rejects.toThrow(/cannot grant env to an observer/);
+		});
+
+		it("rejects an observer's env claim — observers never bind", async () => {
+			const observer = new ChannelStoreAccess(
+				await connectAgent("agent_obs_claimer", "root", { observer: true }),
+			);
+			await expect(
+				observer.claimEnvGrant("anything", "01ARZ3NDEKTSV4RRFFQ69G5FAV"),
+			).rejects.toThrow(/observers never bind/);
+		});
+
+		it("rejects an observer-role sender's env grant registration", async () => {
+			const observer = new ChannelStoreAccess(
+				await connectAgent("agent_env_obs", "root", { observer: true }),
+			);
+			await observer.bind({
+				name: "observed",
+				content: "o",
+				type: "text",
+				provenance: prov("agent_env_obs"),
+				explicit: true,
+			});
+			await expect(
+				observer.registerEnvGrant("agent_env_c3", "observed", "observed"),
+			).rejects.toThrow(/observers cannot attach env/);
+		});
+
+		it("rejects malformed env payloads field-by-field", async () => {
+			const client = await connectAgent("agent_env_shape");
+			await expect(client.request("store_env_grant", { alias: "a", ref: "r" })).rejects.toThrow(
+				/recipientHandle/,
+			);
+			await expect(
+				client.request("store_env_grant", { recipientHandle: "h", ref: "r" }),
+			).rejects.toThrow(/alias/);
+			await expect(
+				client.request("store_env_grant", { recipientHandle: "h", alias: "a" }),
+			).rejects.toThrow(/ref/);
+			await expect(client.request("store_env_claim", { alias: "a" })).rejects.toThrow(/ulid/);
+			await expect(client.request("store_env_claim", { ulid: "u" })).rejects.toThrow(/alias/);
+		});
+
+		it("a channel get costs exactly one worker round-trip", async () => {
+			const inner = workingSpawn();
+			let issued = 0;
+			const countingClient = new StoreWorkerClient({
+				journalPath: join(dir, "journal.jsonl"),
+				casRoot: join(dir, "cas"),
+				rootScopeId: ROOT_SCOPE,
+				opTimeoutMs: 1_000,
+				spawnFn: () => {
+					const handle = inner();
+					const send = handle.send.bind(handle);
+					handle.send = (line) => {
+						issued++;
+						send(line);
+					};
+					return handle;
+				},
+			});
+			registerStoreHandlers(server, countingClient, {
+				rootScopeId: ROOT_SCOPE,
+				handleOwner: (id) => registry.get(id)?.ownerId,
+			});
+			const access = new ChannelStoreAccess(await connectAgent("agent_count"));
+			await access.bind({
+				name: "counted",
+				content: "payload",
+				type: "text",
+				provenance: prov("agent_count"),
+				explicit: true,
+			});
+			const before = issued;
+			expect(new TextDecoder().decode(await access.get("counted", { maxBytes: 100 }))).toBe(
+				"payload",
+			);
+			// One worker op for the get — content and encoding in one response.
+			expect(issued - before).toBe(1);
+			await countingClient.shutdown();
+		});
+	});
+});

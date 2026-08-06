@@ -226,4 +226,23 @@ describe("buildAtifMetrics", () => {
 		expect(metrics?.cost_usd).toBeCloseTo(0.0841675, 8);
 		expect(metrics?.extra?.cost_pricing_source).toBe("snapshot");
 	});
+
+	test("falls back to the litellm-generated table for a model the hand-curated table lacks", () => {
+		// claude-opus-4-8 is not in the hand-curated FALLBACK_PRICING_TABLE (see
+		// pricing.test.ts), so pricing this with no live snapshot proves the
+		// litellm-generated table is actually wired into the fallback path.
+		const metrics = buildAtifMetrics({
+			providerId: "anthropic",
+			modelId: "claude-opus-4-8",
+			usage: {
+				input_tokens: 1_000,
+				output_tokens: 500,
+				total_tokens: 1_500,
+			},
+			pricingSnapshot: null,
+		});
+
+		expect(metrics?.extra?.cost_pricing_source).toBe("fallback");
+		expect(metrics?.cost_usd).toBeGreaterThan(0);
+	});
 });

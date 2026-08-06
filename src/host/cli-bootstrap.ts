@@ -56,12 +56,21 @@ export function resolveStderrLevel(opts: { logStderr?: boolean; debug?: boolean 
 
 export interface SessionBootstrapOptions {
 	genomePath: string;
+	/** Isolated settings.json path (providers, model tiers). Falls back to the
+	 *  host-global default resolution when omitted. Does NOT isolate provider
+	 *  credentials — API keys/OAuth tokens live in the OS secret store, keyed
+	 *  independently of this path. */
+	settingsPath?: string;
 	projectDataDir: string;
 	rootDir: string;
 	sessionId: string;
 	workDir?: string;
 	atifPath?: string;
 	evalMode?: boolean;
+	/** When false, the exec primitive is stripped tree-wide (root + delegates). Defaults true. */
+	allowExec?: boolean;
+	/** When false, the sap data plane (cell/code-mode) is OFF — traditional agent. Defaults true. */
+	dataPlaneEnabled?: boolean;
 	nonInteractive?: boolean;
 	initialHistory?: Message[];
 	initialMemorySurface?: SessionMemorySurfaceSnapshot;
@@ -147,12 +156,15 @@ interface InteractiveBootstrapDeps {
 		sessionId: string;
 		workDir?: string;
 		evalMode?: boolean;
+		allowExec?: boolean;
+		dataPlaneEnabled?: boolean;
 		nonInteractive?: boolean;
 		initialHistory?: Message[];
 		initialMemorySurface?: SessionMemorySurfaceSnapshot;
 		initialSelection?: SessionSelectionSnapshot;
 		resolveSelection?: (selection: SessionSelectionRequest) => SessionSelectionSnapshot;
 		getResolverSettings?: () => ReturnType<typeof createResolverSettings>;
+		getMemoryMaintenanceSetting?: () => "manual" | "auto";
 		spawner: AgentSpawner;
 		genome: Genome;
 		completedHandles?: Array<{
@@ -190,7 +202,8 @@ export async function bootstrapSessionRuntime(
 }> {
 	const d: InteractiveBootstrapDeps = {
 		createBus: deps.createBus ?? (() => new EventBus()),
-		createSettingsStore: deps.createSettingsStore ?? (() => new SettingsStore()),
+		createSettingsStore:
+			deps.createSettingsStore ?? (() => new SettingsStore({ settingsPath: opts.settingsPath })),
 		createSecretStore:
 			deps.createSecretStore ?? (() => createSecretStoreRuntime({ env: process.env })),
 		importSettingsFromEnv:
@@ -253,12 +266,15 @@ export async function bootstrapSessionRuntime(
 					workDir: controllerOpts.workDir,
 					sessionId: controllerOpts.sessionId,
 					evalMode: controllerOpts.evalMode,
+					allowExec: controllerOpts.allowExec,
+					dataPlaneEnabled: controllerOpts.dataPlaneEnabled,
 					nonInteractive: controllerOpts.nonInteractive,
 					initialHistory: controllerOpts.initialHistory,
 					initialMemorySurface: controllerOpts.initialMemorySurface,
 					initialSelection: controllerOpts.initialSelection,
 					resolveSelection: controllerOpts.resolveSelection,
 					getResolverSettings: controllerOpts.getResolverSettings,
+					getMemoryMaintenanceSetting: controllerOpts.getMemoryMaintenanceSetting,
 					spawner: controllerOpts.spawner,
 					genome: controllerOpts.genome,
 					completedHandles: controllerOpts.completedHandles,
@@ -347,7 +363,12 @@ export async function bootstrapSessionRuntime(
 	const startupState = await loadStartupProvidersAndCatalog(registry);
 	const llmClient = await d.createClient({ logger, providers: startupState.providers });
 	const availableModels = await d.loadAvailableModels(startupState.catalog);
-	let settingsControlPlaneRef: { getSelectionContext?: () => SessionSelectionContext } | undefined;
+	let settingsControlPlaneRef:
+		| {
+				getSelectionContext?: () => SessionSelectionContext;
+				getMemoryMaintenanceSetting?: () => "manual" | "auto";
+		  }
+		| undefined;
 	const getCurrentResolverSettings = () => {
 		const context = settingsControlPlaneRef?.getSelectionContext?.();
 		if (!context) return createResolverSettings([]);
@@ -358,6 +379,8 @@ export async function bootstrapSessionRuntime(
 			context.settings.agentModelOverrides,
 		);
 	};
+	const getCurrentMemoryMaintenanceSetting = () =>
+		settingsControlPlaneRef?.getMemoryMaintenanceSetting?.() ?? "auto";
 	const updateGenomeServiceRuntime = () => {
 		opts.infra.genomeService?.updateRuntimeClient(
 			llmClient as Client,
@@ -404,6 +427,7 @@ export async function bootstrapSessionRuntime(
 	});
 	settingsControlPlaneRef = settingsControlPlane as {
 		getSelectionContext?: () => SessionSelectionContext;
+		getMemoryMaintenanceSetting?: () => "manual" | "auto";
 	};
 	updateGenomeServiceRuntime();
 	const resolveSelection = createSelectionResolver(
@@ -420,12 +444,15 @@ export async function bootstrapSessionRuntime(
 		sessionId: opts.sessionId,
 		workDir: opts.workDir,
 		evalMode: opts.evalMode,
+		allowExec: opts.allowExec,
+		dataPlaneEnabled: opts.dataPlaneEnabled,
 		nonInteractive: opts.nonInteractive,
 		initialHistory: opts.initialHistory,
 		initialMemorySurface: opts.initialMemorySurface,
 		initialSelection,
 		resolveSelection,
 		getResolverSettings: getCurrentResolverSettings,
+		getMemoryMaintenanceSetting: getCurrentMemoryMaintenanceSetting,
 		spawner: opts.infra.spawner,
 		genome: opts.infra.genome,
 		completedHandles: opts.completedHandles,

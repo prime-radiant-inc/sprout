@@ -236,6 +236,126 @@ describe("OpenAIAdapter", () => {
 		expect(finish?.usage?.output_tokens).toBe(1);
 	});
 
+	test("streaming requests ask for usage via stream_options", async () => {
+		// Spec-conforming servers (e.g. vLLM) send NO usage on streamed
+		// responses unless stream_options.include_usage is set — leaving cost
+		// accounting and threshold compaction reading zero on streamed runs.
+		const adapter = new OpenAIAdapter("unused", {
+			providerId: "ollama",
+			kind: "openai-compatible",
+			baseUrl: "http://127.0.0.1:11434/v1",
+		});
+		let captured: any;
+		(adapter as any).client = {
+			chat: {
+				completions: {
+					create: async function* (params: any) {
+						captured = params;
+						yield { choices: [{ delta: {}, finish_reason: "stop" }] };
+					},
+				},
+			},
+		};
+
+		for await (const _event of adapter.stream({
+			model: "qwen",
+			messages: [{ role: "user", content: [{ kind: ContentKind.TEXT, text: "hi" }] }],
+		})) {
+			// drain
+		}
+
+		expect(captured.stream).toBe(true);
+		expect(captured.stream_options).toEqual({ include_usage: true });
+	});
+
+	test("chat-completions complete keeps length when a tool call is truncated", async () => {
+		const adapter = new OpenAIAdapter("unused", {
+			providerId: "lmstudio",
+			kind: "openai-compatible",
+			baseUrl: "http://127.0.0.1:1234/v1",
+		});
+		(adapter as any).client = {
+			chat: {
+				completions: {
+					create: async () => ({
+						id: "chatcmpl-trunc",
+						model: "qwen",
+						choices: [
+							{
+								message: {
+									role: "assistant",
+									content: null,
+									tool_calls: [
+										{
+											id: "call_1",
+											type: "function",
+											function: { name: "read_file", arguments: '{"path":"READ' },
+										},
+									],
+								},
+								// Provider signals truncation, not a clean tool-call stop.
+								finish_reason: "length",
+							},
+						],
+						usage: { prompt_tokens: 11, completion_tokens: 4, total_tokens: 15 },
+					}),
+				},
+			},
+		};
+		const response = await adapter.complete({
+			model: "qwen",
+			messages: [{ role: "user", content: [{ kind: ContentKind.TEXT, text: "read" }] }],
+			tools: [{ name: "read_file", description: "Read a file", parameters: { type: "object" } }],
+		});
+		expect(response.finish_reason.reason).toBe("length");
+	});
+
+	test("chat-completions stream keeps length when a tool call is truncated", async () => {
+		const adapter = new OpenAIAdapter("unused", {
+			providerId: "ollama",
+			kind: "openai-compatible",
+			baseUrl: "http://127.0.0.1:11434/v1",
+		});
+		(adapter as any).client = {
+			chat: {
+				completions: {
+					create: async function* () {
+						yield {
+							choices: [
+								{
+									delta: {
+										tool_calls: [
+											{
+												index: 0,
+												id: "call_1",
+												function: { name: "read_file", arguments: '{"path":"READ' },
+											},
+										],
+									},
+									finish_reason: null,
+								},
+							],
+						};
+						yield {
+							choices: [{ delta: {}, finish_reason: "length" }],
+							usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+						};
+					},
+				},
+			},
+		};
+		const events = [];
+		for await (const event of adapter.stream({
+			model: "qwen",
+			messages: [{ role: "user", content: [{ kind: ContentKind.TEXT, text: "hi" }] }],
+			tools: [{ name: "read_file", description: "Read a file", parameters: { type: "object" } }],
+		})) {
+			events.push(event);
+		}
+		const finish = events.find((event) => event.type === "finish");
+		expect(finish?.finish_reason?.reason).toBe("length");
+	});
+
 	test("openai-compatible extra_body can override chat defaults", async () => {
 		const adapter = new OpenAIAdapter("unused", {
 			providerId: "ollama",

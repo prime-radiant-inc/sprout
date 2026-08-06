@@ -109,4 +109,27 @@ describe("memory scoring", () => {
 		expect(item.archived_at).toBe(now);
 		expect(item.archived_reason).toContain("low importance score");
 	});
+
+	test("never auto-archives protected manual/user memories, matching the archivist tool", () => {
+		const now = Date.parse("2026-04-26T00:00:00Z");
+		const decayed = {
+			expires_at: now - 6 * 24 * 60 * 60 * 1000,
+			activity_days_at_creation: 0,
+			activity_days_at_last_access: 0,
+		};
+		const userMemory = memory({ id: "memory-user", source: "user", ...decayed });
+		const manualMemory = memory({ id: "memory-manual", source: "manual:cli", ...decayed });
+		const ordinary = memory({ id: "memory-ordinary", ...decayed });
+
+		const result = applyMemoryScores([userMemory, manualMemory, ordinary], [], {
+			now,
+			minImportance: 0.1,
+		});
+
+		expect(result.archived).toEqual(["memory-ordinary"]);
+		expect(userMemory.archived_at).toBeUndefined();
+		expect(manualMemory.archived_at).toBeUndefined();
+		// Protected memories still get their scores refreshed.
+		expect(result.updated).toContain("memory-user");
+	});
 });

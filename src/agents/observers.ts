@@ -193,12 +193,12 @@ function booleanData(event: SessionEvent, key: string): boolean | undefined {
 	return typeof value === "boolean" ? value : undefined;
 }
 
-function truncate(value: string, maxChars: number): string {
+export function truncate(value: string, maxChars: number): string {
 	if (value.length <= maxChars) return value;
 	return `${value.slice(0, Math.max(0, maxChars - 3))}...`;
 }
 
-function escapeXml(value: string): string {
+export function escapeXml(value: string): string {
 	return value
 		.replaceAll("&", "&amp;")
 		.replaceAll("<", "&lt;")

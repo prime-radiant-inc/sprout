@@ -1,0 +1,288 @@
+/**
+ * Cell worker subprocess entry (sap spec §4). Each agent process owns ONE cell
+ * worker (Phase 5 design decision): cells execute here, in a stripped realm,
+ * and every ambient op is proxied to the PARENT over stdio — the worker holds
+ * no store credentials and no channel token. The parent's stdin pipe is the
+ * lease: when the owner dies the pipe closes, the line loop ends, and the
+ * worker exits.
+ *
+ * The realm itself lives behind the CellEngine seam (cell-engine.ts): the
+ * QuickJS-WASM engine. This module owns everything engine-agnostic — the line
+ * protocol, ambient correlation, infra-error identity bookkeeping, and console
+ * buffering.
+ *
+ * Protocol (stdio JSONL, mirroring the store worker, plus worker-initiated
+ * ambient requests):
+ *   parent → worker: { id, op: "cell", code }
+ *   worker → parent: { id, op: "ambient", method, args }   (worker-initiated)
+ *   parent → worker: { id, ok, result | error }             (ambient response)
+ *   worker → parent: { id, op: "result", ok, output, returnValue?, error? }
+ */
+
+import { LineBuffer } from "../util/line-buffer.ts";
+import type { WorkerProgram } from "./cell-bootstrap.ts";
+import { type CellEngine, type CellLimits, createCellEngine } from "./cell-engine.ts";
+
+export type { WorkerProgram } from "./cell-bootstrap.ts";
+
+/*
+ * The parent's answer to one ambient request is `{id, ok, result}` or
+ * `{id, ok: false, error, infrastructure?}`, correlated by the worker's id. An
+ * `infrastructure` rejection (worker death, StoreUnavailable, spawn transport)
+ * carries the flag so the worker can track its OBJECT identity — the cell's
+ * stumble accounting keys on identity, never on the message string a cell could
+ * forge.
+ */
+
+export type CellWorkerMessage =
+	| { id: string; op: "ambient"; method: string; args: unknown[] }
+	| {
+			id: string;
+			op: "result";
+			ok: boolean;
+			output: string;
+			returnValue?: string;
+			error?: string;
+			/** True only when the terminal error IS a host infrastructure error. */
+			infrastructure?: boolean;
+	  };
+
+/**
+ * Lexical gate (spec §4, frozen): any `import` or `require` token occurrence
+ * rejects the cell BEFORE execution — dynamic `import()` is syntax, not a
+ * deletable property, so global stripping alone cannot deliver "no import".
+ * Word-boundary match on the raw source; hits inside comments and strings
+ * over-reject, which is safe — silence is not. Returns the rejection message,
+ * or undefined when the code passes.
+ */
+export function rejectImportRequire(code: string): string | undefined {
+	const match = code.match(/\b(import|require)\b/);
+	if (!match) return undefined;
+	return (
+		`cell rejected: "${match[1]}" is not available in cells. ` +
+		"Cells run pure JS plus the ambient API (bind, get, slice, grep, ...); " +
+		"there are no modules — even in comments or strings the token is refused."
+	);
+}
+
+/** Console buffer cap; past it output truncates with a note. */
+const CONSOLE_BUFFER_CAP = 64 * 1024;
+
+/** Keep only well-formed positive numeric limits off the wire. */
+function sanitizeLimits(raw: Record<string, unknown>): CellLimits | undefined {
+	const limits: CellLimits = {};
+	if (typeof raw.memoryBytes === "number" && raw.memoryBytes > 0) {
+		limits.memoryBytes = raw.memoryBytes;
+	}
+	if (typeof raw.budgetMs === "number" && raw.budgetMs > 0) {
+		limits.budgetMs = raw.budgetMs;
+	}
+	return limits.memoryBytes !== undefined || limits.budgetMs !== undefined ? limits : undefined;
+}
+
+/**
+ * Console capture. The QuickJS engine's marshalLogArgs delivers each arg as
+ * its final display string, so capture is verbatim; String() is a defensive
+ * fallback for the never-expected non-string.
+ */
+function formatConsoleArg(arg: unknown): string {
+	return typeof arg === "string" ? arg : String(arg);
+}
+
+class ConsoleBuffer {
+	private text = "";
+	private truncated = false;
+
+	append(args: unknown[]): void {
+		if (this.truncated) return;
+		this.text += `${args.map(formatConsoleArg).join(" ")}\n`;
+		if (this.text.length > CONSOLE_BUFFER_CAP) {
+			this.text = `${this.text.slice(0, CONSOLE_BUFFER_CAP)}\n[console output truncated at ${CONSOLE_BUFFER_CAP} bytes]\n`;
+			this.truncated = true;
+		}
+	}
+
+	contents(): string {
+		return this.text;
+	}
+}
+
+export interface RunCellWorkerInput {
+	/** Raw stdin chunks (or pre-split lines); split on \n internally. */
+	lines: AsyncIterable<string | Uint8Array>;
+	/** Emit one message line (newline handled by the caller's transport). */
+	write: (line: string) => void;
+	/** Engine override for tests; defaults to the QuickJS engine. */
+	engine?: CellEngine;
+}
+
+/**
+ * Serve cells over a line protocol. Separated from real stdio so the protocol
+ * is testable in-process. The line loop must NOT await cell execution: a
+ * running cell awaits ambient responses that arrive as later lines, so cells
+ * start detached and the loop keeps reading. The parent serializes cells; a
+ * second cell arriving while one runs is refused loudly rather than queued.
+ */
+export async function runCellWorker(input: RunCellWorkerInput): Promise<void> {
+	const engine = input.engine ?? (await createCellEngine());
+	const pendingAmbient = new Map<
+		string,
+		{ resolve: (result: unknown) => void; reject: (err: Error) => void }
+	>();
+	// Errors the host tagged as infrastructure, held by OBJECT identity: a cell
+	// that catches and rethrows a NEW error (however it words the message) does
+	// not leak into this set, so its failure is a stumble, not infrastructure.
+	const infraErrors = new WeakSet<object>();
+	let ambientSeq = 0;
+	let cellRunning = false;
+
+	function callAmbient(method: string, args: unknown[]): Promise<unknown> {
+		return new Promise((resolve, reject) => {
+			const id = `ambient-${++ambientSeq}`;
+			pendingAmbient.set(id, { resolve, reject });
+			input.write(JSON.stringify({ id, op: "ambient", method, args }));
+		});
+	}
+
+	async function executeCell(
+		id: string,
+		code: string,
+		programs?: WorkerProgram[],
+		limits?: CellLimits,
+	): Promise<void> {
+		const consoleBuffer = new ConsoleBuffer();
+		const rejection = rejectImportRequire(code);
+		if (rejection !== undefined) {
+			input.write(JSON.stringify({ id, op: "result", ok: false, output: "", error: rejection }));
+			return;
+		}
+		// An engine THROW (as opposed to an error result) is an engine bug or a
+		// wasm-load failure — host infrastructure, never the cell's fault. The
+		// worker must survive it and say so.
+		const result = await engine
+			.runCell({
+				code,
+				programs,
+				limits,
+				callAmbient,
+				isInfraError: (err) => typeof err === "object" && err !== null && infraErrors.has(err),
+				log: (args) => consoleBuffer.append(args),
+			})
+			.catch((err: unknown) => ({
+				ok: false as const,
+				error: `cell engine failure: ${err instanceof Error ? err.message : String(err)}`,
+				infrastructure: true,
+			}));
+		if (result.ok) {
+			const message: CellWorkerMessage = {
+				id,
+				op: "result",
+				ok: true,
+				output: consoleBuffer.contents(),
+			};
+			if (result.returnValue !== undefined) message.returnValue = result.returnValue;
+			input.write(JSON.stringify(message));
+		} else {
+			input.write(
+				JSON.stringify({
+					id,
+					op: "result",
+					ok: false,
+					output: consoleBuffer.contents(),
+					error: result.error,
+					...(result.infrastructure ? { infrastructure: true } : {}),
+				}),
+			);
+		}
+	}
+
+	function handleLine(line: string): void {
+		if (line.trim().length === 0) return;
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(line);
+		} catch {
+			return;
+		}
+		if (typeof parsed !== "object" || parsed === null) return;
+		const message = parsed as { id?: unknown; op?: unknown; ok?: unknown };
+		if (typeof message.id !== "string") return;
+		if (message.op === "cell") {
+			const code = (message as { code?: unknown }).code;
+			if (typeof code !== "string") {
+				input.write(
+					JSON.stringify({
+						id: message.id,
+						op: "result",
+						ok: false,
+						output: "",
+						error: "cell request must carry string code",
+					}),
+				);
+				return;
+			}
+			if (cellRunning) {
+				input.write(
+					JSON.stringify({
+						id: message.id,
+						op: "result",
+						ok: false,
+						output: "",
+						error: "a cell is already running; cells are serialized per agent",
+					}),
+				);
+				return;
+			}
+			const programs = (message as { programs?: unknown }).programs;
+			const rawLimits = (message as { limits?: unknown }).limits;
+			const limits =
+				typeof rawLimits === "object" && rawLimits !== null
+					? sanitizeLimits(rawLimits as Record<string, unknown>)
+					: undefined;
+			cellRunning = true;
+			// Detached on purpose: the loop must keep reading ambient responses.
+			void executeCell(
+				message.id,
+				code,
+				Array.isArray(programs) ? (programs as WorkerProgram[]) : undefined,
+				limits,
+			).finally(() => {
+				cellRunning = false;
+			});
+			return;
+		}
+		if (typeof message.ok === "boolean") {
+			const pending = pendingAmbient.get(message.id);
+			if (pending === undefined) return;
+			pendingAmbient.delete(message.id);
+			if (message.ok) pending.resolve((message as { result?: unknown }).result);
+			else {
+				const err = new Error(String((message as { error?: unknown }).error));
+				if ((message as { infrastructure?: unknown }).infrastructure === true) {
+					infraErrors.add(err);
+				}
+				pending.reject(err);
+			}
+		}
+	}
+
+	const buffer = new LineBuffer();
+	for await (const chunk of input.lines) {
+		for (const line of buffer.push(chunk)) handleLine(line);
+	}
+	const tail = buffer.takePending();
+	if (tail.length > 0) handleLine(tail);
+}
+
+/** Subprocess entry: serve real stdio until the parent's pipe closes. */
+export async function runCellWorkerFromStdio(): Promise<number> {
+	await runCellWorker({
+		lines: process.stdin,
+		write: (line) => process.stdout.write(`${line}\n`),
+	});
+	return 0;
+}
+
+if (import.meta.main) {
+	process.exit(await runCellWorkerFromStdio());
+}

@@ -1,15 +1,38 @@
 import { describe, expect, test } from "bun:test";
 import { createResolverSettings } from "../../src/agents/model-resolver.ts";
+import type { ObserverAttachmentConfig } from "../../src/agents/observers.ts";
 import type {
 	AgentSpawner,
 	DeliverObserverFrameOptions,
 	SpawnAgentOptions,
 } from "../../src/bus/spawner.ts";
 import type { AgentAddress, ResultMessage } from "../../src/bus/types.ts";
-import { ObserverDispatcher } from "../../src/host/observer-dispatcher.ts";
+import { ObserverRegistry } from "../../src/host/observer-registry.ts";
 import type { EventKind, SessionEvent } from "../../src/kernel/types.ts";
 import { addr } from "../helpers/agent-address.ts";
 import { waitFor } from "../helpers/wait-for.ts";
+
+const METACOGNITIVE_CONFIG: ObserverAttachmentConfig = {
+	agentName: "metacognitive",
+	target: "root",
+	events: [
+		"perceive",
+		"steering",
+		"plan_end",
+		"warning",
+		"error",
+		"primitive_end",
+		"act_end",
+		"compaction",
+		"interrupted",
+	],
+	trigger: { every: 3, event: "plan_end" },
+	maxEvents: 24,
+	maxChars: 6000,
+	handleId: "observer-metacognitive",
+	agentId: "observer-metacognitive",
+	description: "observes root turns",
+};
 
 function resolverSettings() {
 	return createResolverSettings(
@@ -109,7 +132,8 @@ function makeDispatcher(
 		depth: number;
 		data: Record<string, unknown>;
 	}> = [];
-	const dispatcher = new ObserverDispatcher({
+	const dispatcher = new ObserverRegistry({
+		configs: [METACOGNITIVE_CONFIG],
 		sessionId: options.sessionId ?? "session-1",
 		rootAgentName: options.rootAgentName ?? "root",
 		spawner: spawner as unknown as AgentSpawner,
@@ -123,7 +147,7 @@ function makeDispatcher(
 	return { dispatcher, emitted };
 }
 
-describe("ObserverDispatcher", () => {
+describe("ObserverRegistry (default metacognitive attachment)", () => {
 	test("starts the metacognitive observer after the root plan_end trigger", async () => {
 		const spawner = new FakeSpawner();
 		const { dispatcher, emitted } = makeDispatcher(spawner);

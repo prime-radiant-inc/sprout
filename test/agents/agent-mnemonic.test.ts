@@ -7,7 +7,12 @@ import { createPrimitiveRegistry } from "@/kernel/primitives.ts";
 import type { Client } from "@/llm/client.ts";
 import type { Message, Response } from "@/llm/types.ts";
 import { ContentKind } from "@/llm/types.ts";
-import { leafSpec, rootSpec, withDefaultResolverContext } from "./fixtures.ts";
+import {
+	createInProcessSpawner,
+	leafSpec,
+	rootSpec,
+	withDefaultResolverContext,
+} from "./fixtures.ts";
 
 class Agent extends RawAgent {
 	constructor(options: AgentOptions) {
@@ -79,6 +84,11 @@ describe("Agent mnemonic names", () => {
 		const events = new AgentEventEmitter();
 		const env = new LocalExecutionEnvironment(tmpdir());
 		const registry = createPrimitiveRegistry(env);
+		const { spawner } = createInProcessSpawner({
+			client: mockClient,
+			events,
+			availableAgents: [rootSpec, leafSpec],
+		});
 		const agent = new Agent({
 			spec: rootSpec,
 			env,
@@ -87,6 +97,7 @@ describe("Agent mnemonic names", () => {
 			availableAgents: [rootSpec, leafSpec],
 			depth: 0,
 			events,
+			spawner,
 		});
 
 		await agent.run("delegate something");
@@ -169,6 +180,11 @@ describe("Agent mnemonic names", () => {
 		const events = new AgentEventEmitter();
 		const env = new LocalExecutionEnvironment(tmpdir());
 		const registry = createPrimitiveRegistry(env);
+		const { spawner } = createInProcessSpawner({
+			client: mockClient,
+			events,
+			availableAgents: [rootSpec, leafSpec],
+		});
 		const agent = new Agent({
 			spec: rootSpec,
 			env,
@@ -177,6 +193,7 @@ describe("Agent mnemonic names", () => {
 			availableAgents: [rootSpec, leafSpec],
 			depth: 0,
 			events,
+			spawner,
 		});
 
 		await agent.run("delegate twice");
@@ -258,6 +275,11 @@ describe("Agent mnemonic names", () => {
 		const events = new AgentEventEmitter();
 		const env = new LocalExecutionEnvironment(tmpdir());
 		const registry = createPrimitiveRegistry(env);
+		const { spawner } = createInProcessSpawner({
+			client: mockClient,
+			events,
+			availableAgents: [rootSpec, leafSpec],
+		});
 		const agent = new Agent({
 			spec: rootSpec,
 			env,
@@ -266,6 +288,7 @@ describe("Agent mnemonic names", () => {
 			availableAgents: [rootSpec, leafSpec],
 			depth: 0,
 			events,
+			spawner,
 		});
 
 		const result = await agent.run("delegate something");

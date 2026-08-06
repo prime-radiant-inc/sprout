@@ -29,6 +29,44 @@ export interface GrepOptions {
 	max_results?: number;
 }
 
+/** One structured grep match — capture binds these as a JSON value. */
+export interface GrepStructuredMatch {
+	path: string;
+	line: number;
+	text: string;
+}
+
+/**
+ * Render raw file content as read_file's line-numbered output. The single
+ * rendering implementation — both the plain read path and the capture wrapper
+ * use it, so captured raw bytes and rendered output can never diverge.
+ */
+export function renderReadFile(content: string, startLine = 1): string {
+	return content
+		.split("\n")
+		.map((line, i) => `${startLine + i}\t${line}`)
+		.join("\n");
+}
+
+/**
+ * Parse rg/grep `path:line:text` output into structured matches. Splits on the
+ * first two colons only, so colons in the matched text survive.
+ */
+function parseGrepOutput(raw: string): GrepStructuredMatch[] {
+	const matches: GrepStructuredMatch[] = [];
+	for (const line of raw.split("\n")) {
+		if (line.length === 0) continue;
+		const first = line.indexOf(":");
+		if (first === -1) continue;
+		const second = line.indexOf(":", first + 1);
+		if (second === -1) continue;
+		const lineNumber = Number(line.slice(first + 1, second));
+		if (!Number.isInteger(lineNumber) || lineNumber < 1) continue;
+		matches.push({ path: line.slice(0, first), line: lineNumber, text: line.slice(second + 1) });
+	}
+	return matches;
+}
+
 /** Sensitive env var patterns to exclude by default */
 const SENSITIVE_PATTERNS = [
 	/_API_KEY$/i,
@@ -39,6 +77,11 @@ const SENSITIVE_PATTERNS = [
 	/^ANTHROPIC_API_KEY$/i,
 	/^OPENAI_API_KEY$/i,
 	/^GEMINI_API_KEY$/i,
+	// Control-plane endpoints (not secrets, but reachability): model-authored shell must not
+	// be able to speak raw bus or authenticated-channel protocol. The per-handle token is
+	// already covered by /_TOKEN$/; identifiers like SPROUT_HANDLE_ID are not filtered.
+	/^SPROUT_BUS_URL$/i,
+	/^SPROUT_AUTH_URL$/i,
 ];
 
 function filterEnvVars(env: Record<string, string | undefined>): Record<string, string> {
@@ -63,10 +106,25 @@ function isCommandNotFound(result: ExecResult): boolean {
  */
 export interface ExecutionEnvironment {
 	read_file(path: string, options?: ReadFileOptions): Promise<string>;
+	/**
+	 * The raw bytes of exactly what read_file would render — same offset/limit
+	 * slice, no line numbering. Optional: capture requires it and skips
+	 * gracefully on environments that don't provide it.
+	 */
+	read_file_raw?(path: string, options?: ReadFileOptions): Promise<string>;
 	write_file(path: string, content: string): Promise<void>;
 	file_exists(path: string): Promise<boolean>;
 	exec_command(command: string, options?: ExecOptions): Promise<ExecResult>;
 	grep(pattern: string, path?: string, options?: GrepOptions): Promise<string>;
+	/**
+	 * grep's matches in structured form. Optional: capture requires it and
+	 * skips gracefully on environments that don't provide it.
+	 */
+	grep_structured?(
+		pattern: string,
+		path?: string,
+		options?: GrepOptions,
+	): Promise<GrepStructuredMatch[]>;
 	glob(pattern: string, path?: string): Promise<string[]>;
 	working_directory(): string;
 	platform(): string;
@@ -117,16 +175,17 @@ export class LocalExecutionEnvironment implements ExecutionEnvironment {
 	}
 
 	async read_file(path: string, options?: ReadFileOptions): Promise<string> {
+		return renderReadFile(await this.read_file_raw(path, options), options?.offset ?? 1);
+	}
+
+	async read_file_raw(path: string, options?: ReadFileOptions): Promise<string> {
 		const fullPath = this.resolvePath(path);
 		const content = await readFile(fullPath, "utf-8");
 		const lines = content.split("\n");
 
 		const offset = (options?.offset ?? 1) - 1; // convert 1-based to 0-based
 		const limit = options?.limit ?? lines.length;
-		const sliced = lines.slice(offset, offset + limit);
-
-		// Return line-numbered output
-		return sliced.map((line, i) => `${offset + i + 1}\t${line}`).join("\n");
+		return lines.slice(offset, offset + limit).join("\n");
 	}
 
 	async write_file(path: string, content: string): Promise<void> {
@@ -259,7 +318,17 @@ export class LocalExecutionEnvironment implements ExecutionEnvironment {
 
 	async grep(pattern: string, path?: string, options?: GrepOptions): Promise<string> {
 		const searchPath = path ? this.resolvePath(path) : this.workDir;
-		const rgArgs = ["--line-number", "--fixed-strings", "--color", "never", "--no-heading"];
+		// -H forces the file path even for a single explicit file, where rg/grep
+		// would otherwise print bare `line:text` and structured parsing would
+		// drop every match.
+		const rgArgs = [
+			"--line-number",
+			"--with-filename",
+			"--fixed-strings",
+			"--color",
+			"never",
+			"--no-heading",
+		];
 
 		if (options?.case_insensitive) rgArgs.push("-i");
 		if (options?.max_results) rgArgs.push("-m", String(options.max_results));
@@ -276,7 +345,7 @@ export class LocalExecutionEnvironment implements ExecutionEnvironment {
 			throw new Error(`grep failed: ${rgResult.stderr}`);
 		}
 
-		const args = ["--line-number", "-F"];
+		const args = ["--line-number", "-H", "-F"];
 
 		if (options?.case_insensitive) args.push("-i");
 		if (options?.max_results) args.push("-m", String(options.max_results));
@@ -294,6 +363,15 @@ export class LocalExecutionEnvironment implements ExecutionEnvironment {
 		}
 
 		return result.stdout;
+	}
+
+	async grep_structured(
+		pattern: string,
+		path?: string,
+		options?: GrepOptions,
+	): Promise<GrepStructuredMatch[]> {
+		// One rg/grep run, parsed — capture and rendering share this result.
+		return parseGrepOutput(await this.grep(pattern, path, options));
 	}
 
 	async glob(pattern: string, _path?: string): Promise<string[]> {

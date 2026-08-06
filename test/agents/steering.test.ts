@@ -225,6 +225,42 @@ describe("Agent message queue", () => {
 		expect((agentMessageEvents[0]!.data.to as { agentName: string }).agentName).toBe("test-leaf");
 	});
 
+	test("agent messages are redacted and clamped in the system prompt", async () => {
+		const requests: Request[] = [];
+		const client = {
+			providers: () => ["anthropic"],
+			complete: async (request: Request): Promise<Response> => {
+				requests.push(request);
+				return {
+					id: "mock-agent-message-clamp",
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("DONE"),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+		const agent = makeAgent({ client });
+
+		// A message carrying a secret plus far more text than the render clamp:
+		// today it rides the system prompt unbounded and unredacted.
+		const filler = "y".repeat(10_000);
+		agent.receiveAgentMessage(
+			`token: hunter2secretvalue ${filler}`,
+			addr("metacognitive", 1, "observer"),
+		);
+		await agent.run("test goal");
+
+		const firstSystem = messageText(requests[0]!.messages[0]!);
+		expect(firstSystem).toContain("[REDACTED_SECRET]");
+		expect(firstSystem).not.toContain("hunter2secretvalue");
+		expect(firstSystem).toContain("chars truncated]");
+		const rendered = firstSystem.slice(firstSystem.indexOf("<sprout:agent-messages>"));
+		expect(rendered.length).toBeLessThan(6_000);
+	});
+
 	test("observer messages are serious guidance, not blind instructions", async () => {
 		const requests: Request[] = [];
 		const client = {
@@ -470,6 +506,12 @@ describe("AbortSignal", () => {
 						usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
 					};
 				}
+				// Hang instead of completing: the 0ms abort timer above can lose the race to
+				// turn 2 (e.g. tool exec fails fast under parallel-suite load and the timer
+				// phase is starved), and a normal DONE here would let the run complete
+				// naturally with no interrupted event. Hanging guarantees the pending abort
+				// lands during planning instead — same pattern as the sibling test above.
+				await new Promise((resolve) => setTimeout(resolve, 5000));
 				return {
 					id: "mock-abort-between-2",
 					model: "claude-haiku-4-5-20251001",

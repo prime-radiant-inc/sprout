@@ -1,7 +1,6 @@
 import type { Primitive } from "../kernel/primitives.ts";
 import type {
 	AnnotationEntry,
-	EntityLinkEntry,
 	Memory,
 	MemoryLinkEntry,
 	PrimitiveResult,
@@ -9,7 +8,7 @@ import type {
 } from "../kernel/types.ts";
 import { traverseMemoryLinks } from "./linking.ts";
 import { isActiveMemoryForRecall } from "./memory-lifecycle.ts";
-import { memoryShortId } from "./memory-schema.ts";
+import { ENTITY_TYPES, memoryShortId } from "./memory-schema.ts";
 import type {
 	MemoryWriteAuthorization,
 	MemoryWriteOperation,
@@ -22,16 +21,12 @@ export interface MemoryToolContext {
 		searchMemories(query: string, limit?: number, minConfidence?: number): Promise<Memory[]>;
 		memories: {
 			all(): Memory[];
-			getById(id: string): Memory | undefined;
 		};
 		segments: {
-			all(): MemorySegment[];
 			getById(id: string): MemorySegment | undefined;
 		};
-		addMemory(memory: Memory): Promise<void>;
 		stageMemoryForMutation(memory: Memory): Promise<Memory>;
 		saveMemoryMutation(commitMessage: string): Promise<void>;
-		recordMemoryMentions(shortIds: string[]): Promise<string[]>;
 	};
 	agentName: string;
 	sessionId: string;
@@ -50,16 +45,6 @@ const MANUAL_MEMORY_LINK_TYPES = [
 ] as const satisfies readonly RelationshipType[];
 
 const MANUAL_MEMORY_LINK_TYPE_SET = new Set<string>(MANUAL_MEMORY_LINK_TYPES);
-
-const ENTITY_TYPES = [
-	"PROJECT",
-	"LIBRARY",
-	"FILE_PATH",
-	"COMMAND",
-	"ERROR_TYPE",
-	"TECHNOLOGY",
-	"PERSON",
-] as const satisfies readonly EntityLinkEntry["type"][];
 
 export function buildReadMemoryPrimitives(ctx: MemoryToolContext): Primitive[] {
 	return [
@@ -436,7 +421,7 @@ function memoryConsolidatePrimitive(ctx: MemoryToolContext): Primitive {
 function memorySynthesizeAnswerPrimitive(ctx: MemoryToolContext): Primitive {
 	return {
 		name: "memory_synthesize_answer",
-		description: "Archivist-only: synthesize a cited answer from selected memories.",
+		description: "Synthesize a cited answer from selected memories.",
 		parameters: {
 			type: "object",
 			properties: {

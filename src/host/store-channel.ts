@@ -1,0 +1,338 @@
+/**
+ * Host-side store handlers for the authenticated channel (sap spec §1
+ * Transport, §3 scope-per-delegation). The keystone, mirroring the handle
+ * registrar: the caller's scope comes from the verified connection — a
+ * caller's scope id IS its handle id — never from the payload. Payloads carry
+ * no scope and no identity fields; any such field a crafted payload smuggles
+ * in is ignored, and `provenance.agentHandleId` on bind is forced to the
+ * connection's handle.
+ */
+
+import {
+	STORE_BIND_REQUEST,
+	STORE_CELL_RECORD_REQUEST,
+	STORE_ENV_CLAIM_REQUEST,
+	STORE_ENV_GRANT_REQUEST,
+	STORE_GET_REQUEST,
+	STORE_GREP_REQUEST,
+	STORE_MANIFEST_REQUEST,
+	STORE_METADATA_REQUEST,
+	STORE_NAMES_REQUEST,
+	STORE_PEEK_REQUEST,
+	STORE_PUBLISH_REQUEST,
+	STORE_SLICE_REQUEST,
+} from "../store/store-access.ts";
+import type { StoreWorkerClient } from "../store/store-client.ts";
+import { decodeWireContent, type WireEncoding } from "../store/store-worker.ts";
+import type { ValueOrigin, ValueType } from "../store/value.ts";
+import type { AuthChannelServer } from "./auth-channel.ts";
+
+export interface RegisterStoreHandlersOptions {
+	/** Parent scope under which per-caller scopes are created. */
+	rootScopeId: string;
+	/**
+	 * Registered owner of a handle, from the handle registry. Manifest pulls
+	 * are owner-gated: only the handle that spawned (owns) a publisher may pull
+	 * its publishes. Shared-handle cross-waiter delivery widens later if needed.
+	 */
+	handleOwner: (handleId: string) => string | undefined;
+	/**
+	 * Whether a handle registered with an observer remit. Observers never touch
+	 * env (spec §3): they cannot attach it (with whole-remit read, an observer
+	 * grant would be a cross-scope grant), cannot receive it, and never bind a
+	 * claim. Absent means no observer checking (tests).
+	 */
+	isObserver?: (handleId: string) => boolean;
+}
+
+/**
+ * Register the store-op handlers on the authenticated channel. Each caller's
+ * scope is created lazily on first use as a child of the root scope; "already
+ * exists" from the store is fine — a restarted host may race its own memory
+ * against the journal it already wrote.
+ */
+export function registerStoreHandlers(
+	authServer: AuthChannelServer,
+	storeClient: StoreWorkerClient,
+	options: RegisterStoreHandlersOptions,
+): void {
+	const createdScopes = new Set<string>();
+
+	async function ensureScope(handleId: string): Promise<string> {
+		if (!createdScopes.has(handleId)) {
+			try {
+				await storeClient.createScope({
+					scopeId: handleId,
+					ownerHandleId: handleId,
+					parentScopeId: options.rootScopeId,
+				});
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				if (!message.includes("scope already exists")) throw error;
+			}
+			createdScopes.add(handleId);
+		}
+		return handleId;
+	}
+
+	authServer.onRequest(STORE_BIND_REQUEST, async (ctx, payload) => {
+		const input = parseBindPayload(payload);
+		const scopeId = await ensureScope(ctx.handleId);
+		const metadata = await storeClient.bind({
+			scopeId,
+			name: input.name,
+			content: decodeWireContent(input.content, input.encoding),
+			type: input.type,
+			// Identity is the connection's, never the payload's.
+			provenance: { agentHandleId: ctx.handleId, origin: input.origin },
+			explicit: input.explicit,
+		});
+		return metadata;
+	});
+
+	authServer.onRequest(STORE_PEEK_REQUEST, async (ctx, payload) => {
+		const ref = parseRef(payload, STORE_PEEK_REQUEST);
+		return storeClient.peek(await ensureScope(ctx.handleId), ref);
+	});
+
+	authServer.onRequest(STORE_METADATA_REQUEST, async (ctx, payload) => {
+		const ref = parseRef(payload, STORE_METADATA_REQUEST);
+		return storeClient.metadata(await ensureScope(ctx.handleId), ref);
+	});
+
+	authServer.onRequest(STORE_GET_REQUEST, async (ctx, payload) => {
+		const fields = parseObjectPayload(payload, STORE_GET_REQUEST);
+		const ref = parseRef(payload, STORE_GET_REQUEST);
+		const maxBytes = int(fields, "maxBytes", { min: 0 }, STORE_GET_REQUEST);
+		// One worker round-trip: the worker's get op already returns the wire
+		// body with the value's own encoding — no separate metadata op.
+		return storeClient.getWire(await ensureScope(ctx.handleId), ref, { maxBytes });
+	});
+
+	authServer.onRequest(STORE_SLICE_REQUEST, async (ctx, payload) => {
+		const fields = parseObjectPayload(payload, STORE_SLICE_REQUEST);
+		const ref = parseRef(payload, STORE_SLICE_REQUEST);
+		return storeClient.slice(await ensureScope(ctx.handleId), ref, {
+			startLine: int(fields, "startLine", { min: 1 }, STORE_SLICE_REQUEST),
+			lineCount: int(fields, "lineCount", { min: 1 }, STORE_SLICE_REQUEST),
+		});
+	});
+
+	authServer.onRequest(STORE_GREP_REQUEST, async (ctx, payload) => {
+		const fields = parseObjectPayload(payload, STORE_GREP_REQUEST);
+		const ref = parseRef(payload, STORE_GREP_REQUEST);
+		if (typeof fields.pattern !== "string") {
+			throw new Error(`${STORE_GREP_REQUEST}: pattern must be a string`);
+		}
+		const maxResults =
+			fields.maxResults !== undefined
+				? int(fields, "maxResults", { min: 1 }, STORE_GREP_REQUEST)
+				: undefined;
+		return storeClient.grep(await ensureScope(ctx.handleId), ref, fields.pattern, {
+			...(maxResults !== undefined ? { maxResults } : {}),
+		});
+	});
+
+	authServer.onRequest(STORE_PUBLISH_REQUEST, async (ctx, payload) => {
+		const ref = parseRef(payload, STORE_PUBLISH_REQUEST);
+		// The publisher identity is the connection's: a caller can only publish
+		// from its own scope, and the record's handle IS that scope id.
+		await storeClient.publish(await ensureScope(ctx.handleId), ref);
+		return null;
+	});
+
+	authServer.onRequest(STORE_MANIFEST_REQUEST, async (ctx, payload) => {
+		const fields = parseObjectPayload(payload, STORE_MANIFEST_REQUEST);
+		if (typeof fields.publisherHandle !== "string") {
+			throw new Error(`${STORE_MANIFEST_REQUEST}: publisherHandle must be a string`);
+		}
+		// Owner-gated: only the publisher's registered owner may pull its
+		// publishes — any handle naming an arbitrary publisher is refused.
+		if (options.handleOwner(fields.publisherHandle) !== ctx.handleId) {
+			throw new Error(`${STORE_MANIFEST_REQUEST}: not the owner of that handle's publishes`);
+		}
+		// The recipient is the connection's verified scope — any recipient/scope
+		// field a crafted payload smuggles in is ignored.
+		return storeClient.deliverManifest(await ensureScope(ctx.handleId), fields.publisherHandle);
+	});
+
+	authServer.onRequest(STORE_ENV_GRANT_REQUEST, async (ctx, payload) => {
+		if (options.isObserver?.(ctx.handleId)) {
+			throw new Error(`${STORE_ENV_GRANT_REQUEST}: observers cannot attach env`);
+		}
+		const fields = parseObjectPayload(payload, STORE_ENV_GRANT_REQUEST);
+		if (typeof fields.recipientHandle !== "string") {
+			throw new Error(`${STORE_ENV_GRANT_REQUEST}: recipientHandle must be a string`);
+		}
+		if (typeof fields.alias !== "string") {
+			throw new Error(`${STORE_ENV_GRANT_REQUEST}: alias must be a string`);
+		}
+		if (typeof fields.ref !== "string") {
+			throw new Error(`${STORE_ENV_GRANT_REQUEST}: ref must be a string`);
+		}
+		if (options.isObserver?.(fields.recipientHandle)) {
+			throw new Error(`${STORE_ENV_GRANT_REQUEST}: cannot grant env to an observer`);
+		}
+		// Relationship-gated (spec §3): a sender may only grant into scopes it
+		// has a registered relationship with — a child it owns (delegation and
+		// message-to-own-child) or its own registered owner (the "caller" reply
+		// path). Anything else is a cross-scope write and rejects.
+		const senderOwnsRecipient = options.handleOwner(fields.recipientHandle) === ctx.handleId;
+		const recipientIsSendersOwner = options.handleOwner(ctx.handleId) === fields.recipientHandle;
+		if (!senderOwnsRecipient && !recipientIsSendersOwner) {
+			throw new Error(
+				`${STORE_ENV_GRANT_REQUEST}: you may only grant env to handles you own or to your owner`,
+			);
+		}
+		// The sender scope is the connection's verified identity — any sender or
+		// scope field a crafted payload smuggles in is ignored.
+		return storeClient.registerEnvGrant(
+			await ensureScope(ctx.handleId),
+			fields.recipientHandle,
+			fields.alias,
+			fields.ref,
+		);
+	});
+
+	authServer.onRequest(STORE_ENV_CLAIM_REQUEST, async (ctx, payload) => {
+		if (options.isObserver?.(ctx.handleId)) {
+			throw new Error(`${STORE_ENV_CLAIM_REQUEST}: observers never bind`);
+		}
+		const fields = parseObjectPayload(payload, STORE_ENV_CLAIM_REQUEST);
+		if (typeof fields.alias !== "string") {
+			throw new Error(`${STORE_ENV_CLAIM_REQUEST}: alias must be a string`);
+		}
+		if (typeof fields.ulid !== "string") {
+			throw new Error(`${STORE_ENV_CLAIM_REQUEST}: ulid must be a string`);
+		}
+		// The recipient scope is the connection's verified identity — a claim
+		// can only ever land grants pending for THIS handle.
+		return storeClient.claimEnvGrant(await ensureScope(ctx.handleId), fields.alias, fields.ulid);
+	});
+
+	authServer.onRequest(STORE_CELL_RECORD_REQUEST, async (ctx, payload) => {
+		const fields = parseObjectPayload(payload, STORE_CELL_RECORD_REQUEST);
+		if (typeof fields.code !== "string") {
+			throw new Error(`${STORE_CELL_RECORD_REQUEST}: code must be a string`);
+		}
+		if (!Array.isArray(fields.bindings)) {
+			throw new Error(`${STORE_CELL_RECORD_REQUEST}: bindings must be an array`);
+		}
+		const bindings = fields.bindings.map((entry, i) => {
+			if (typeof entry !== "object" || entry === null) {
+				throw new Error(`${STORE_CELL_RECORD_REQUEST}: bindings[${i}] must be an object`);
+			}
+			const binding = entry as Record<string, unknown>;
+			if (typeof binding.name !== "string" || typeof binding.ulid !== "string") {
+				throw new Error(
+					`${STORE_CELL_RECORD_REQUEST}: bindings[${i}] must carry string name and ulid`,
+				);
+			}
+			return { name: binding.name, ulid: binding.ulid };
+		});
+		if (fields.error !== undefined && typeof fields.error !== "string") {
+			throw new Error(`${STORE_CELL_RECORD_REQUEST}: error must be a string when present`);
+		}
+		// The recorded handle is the connection's verified scope — any handle or
+		// scope field a crafted payload smuggles in is ignored.
+		await storeClient.recordCell(await ensureScope(ctx.handleId), {
+			code: fields.code,
+			bindings,
+			computeTimeMs: int(fields, "computeTimeMs", { min: 0 }, STORE_CELL_RECORD_REQUEST),
+			...(fields.error !== undefined ? { error: fields.error } : {}),
+		});
+		return null;
+	});
+
+	authServer.onRequest(STORE_NAMES_REQUEST, async (ctx) => {
+		// No payload: the only scope a caller can list is its own.
+		return storeClient.names(await ensureScope(ctx.handleId));
+	});
+}
+
+/**
+ * Narrow an untrusted numeric field to a safe integer >= min. Rejects
+ * Infinity, NaN, floats, and negatives — a crafted number must never reach the
+ * engine's arithmetic.
+ */
+function int(
+	fields: Record<string, unknown>,
+	name: string,
+	opts: { min: number },
+	request: string,
+): number {
+	const value = fields[name];
+	if (typeof value !== "number" || !Number.isSafeInteger(value) || value < opts.min) {
+		throw new Error(`${request}: ${name} must be an integer >= ${opts.min}`);
+	}
+	return value;
+}
+
+interface BindPayload {
+	name: string;
+	content: string;
+	encoding: WireEncoding;
+	type: ValueType;
+	origin: ValueOrigin;
+	explicit: boolean;
+}
+
+/**
+ * Narrow an untrusted bind payload field-by-field. Deliberately extracts only
+ * the origin from any provenance the payload carries — the producing identity
+ * is always the connection's.
+ */
+function parseBindPayload(payload: unknown): BindPayload {
+	const fields = parseObjectPayload(payload, STORE_BIND_REQUEST);
+	const { name, content, encoding, type, explicit } = fields;
+	if (typeof name !== "string") {
+		throw new Error(`${STORE_BIND_REQUEST}: name must be a string`);
+	}
+	if (typeof content !== "string") {
+		throw new Error(`${STORE_BIND_REQUEST}: content must be a string`);
+	}
+	if (encoding !== "utf8" && encoding !== "base64") {
+		throw new Error(`${STORE_BIND_REQUEST}: encoding must be "utf8" or "base64"`);
+	}
+	if (type !== "text" && type !== "json" && type !== "bytes") {
+		throw new Error(`${STORE_BIND_REQUEST}: type must be "text", "json", or "bytes"`);
+	}
+	if (typeof explicit !== "boolean") {
+		throw new Error(`${STORE_BIND_REQUEST}: explicit must be a boolean`);
+	}
+	const provenance =
+		typeof fields.provenance === "object" && fields.provenance !== null
+			? (fields.provenance as Record<string, unknown>)
+			: {};
+	return { name, content, encoding, type, explicit, origin: parseOrigin(provenance.origin) };
+}
+
+/** Narrow an untrusted value origin; anything malformed defaults to a cell bind. */
+function parseOrigin(value: unknown): ValueOrigin {
+	if (typeof value !== "object" || value === null) return { kind: "cell" };
+	const fields = value as Record<string, unknown>;
+	if (fields.kind === "delegation") return { kind: "delegation" };
+	if (fields.kind === "primitive" && typeof fields.name === "string") {
+		return {
+			kind: "primitive",
+			name: fields.name,
+			...(typeof fields.argsSummary === "string" ? { argsSummary: fields.argsSummary } : {}),
+		};
+	}
+	return { kind: "cell" };
+}
+
+function parseObjectPayload(payload: unknown, request: string): Record<string, unknown> {
+	if (typeof payload !== "object" || payload === null) {
+		throw new Error(`${request}: payload must be an object`);
+	}
+	return payload as Record<string, unknown>;
+}
+
+function parseRef(payload: unknown, request: string): string {
+	const fields = parseObjectPayload(payload, request);
+	if (typeof fields.ref !== "string") {
+		throw new Error(`${request}: ref must be a string`);
+	}
+	return fields.ref;
+}

@@ -1,4 +1,5 @@
 import type OpenAI from "openai";
+import { asRecord } from "../../util/record.ts";
 import { ContentKind, type Request } from "../types.ts";
 
 export type ResponsesInput = OpenAI.Responses.ResponseInputItem[];
@@ -40,33 +41,33 @@ export function buildResponsesInput(request: Request): ResponsesInput {
 				content: [...textParts, ...imageParts] as any,
 			});
 		} else if (msg.role === "assistant") {
-			// Assistant messages: text and tool calls
-			const textParts = msg.content.filter((p) => p.kind === ContentKind.TEXT && p.text);
-			const toolCallParts = msg.content.filter(
-				(p) => p.kind === ContentKind.TOOL_CALL && p.tool_call,
-			);
-
-			if (textParts.length > 0) {
-				input.push({
-					type: "message",
-					role: "assistant",
-					content: textParts.map((p) => ({
-						type: "output_text" as const,
-						text: p.text!,
-					})) as any,
-				});
-			}
-
-			for (const tc of toolCallParts) {
-				input.push({
-					type: "function_call",
-					call_id: tc.tool_call!.id,
-					name: tc.tool_call!.name,
-					arguments:
-						typeof tc.tool_call!.arguments === "string"
-							? tc.tool_call!.arguments
-							: JSON.stringify(tc.tool_call!.arguments),
-				} as any);
+			// Assistant messages: opaque reasoning items, text, and tool calls.
+			// Replay each part in its original captured order so reasoning items stay
+			// adjacent to the call they precede; reasoning is replayed verbatim
+			// (encrypted_content and all).
+			for (const part of msg.content) {
+				if (
+					part.kind === ContentKind.PROVIDER_STATE &&
+					part.provider_state?.block_type === "reasoning"
+				) {
+					input.push(part.provider_state.data as unknown as OpenAI.Responses.ResponseInputItem);
+				} else if (part.kind === ContentKind.TEXT && part.text) {
+					input.push({
+						type: "message",
+						role: "assistant",
+						content: [{ type: "output_text" as const, text: part.text }],
+					} as any);
+				} else if (part.kind === ContentKind.TOOL_CALL && part.tool_call) {
+					input.push({
+						type: "function_call",
+						call_id: part.tool_call.id,
+						name: part.tool_call.name,
+						arguments:
+							typeof part.tool_call.arguments === "string"
+								? part.tool_call.arguments
+								: JSON.stringify(part.tool_call.arguments),
+					} as any);
+				}
 			}
 		} else if (msg.role === "tool") {
 			// Tool results
@@ -161,11 +162,4 @@ export function buildResponsesParams(
 	}
 
 	return params;
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-	if (value && typeof value === "object" && !Array.isArray(value)) {
-		return value as Record<string, unknown>;
-	}
-	return {};
 }

@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createResolverSettings } from "../../src/agents/model-resolver.ts";
+import { acquireDirectoryLock } from "../../src/genome/file-lock.ts";
 import { git } from "../../src/genome/genome.ts";
 import { memoryIndexPath } from "../../src/genome/index-builder.ts";
 import { incorporateExtractedMemories } from "../../src/genome/memory-incorporation.ts";
@@ -15,6 +16,7 @@ import type { Client } from "../../src/llm/client.ts";
 import type { EmbeddingProvider, EmbeddingVector } from "../../src/llm/embeddings.ts";
 import type { Request, Response } from "../../src/llm/types.ts";
 import { Msg } from "../../src/llm/types.ts";
+import { seedMemories } from "../helpers/genome-seed.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
 
 function memory(overrides: Partial<Memory> = {}): Memory {
@@ -112,7 +114,8 @@ describe("extracted memory incorporation", () => {
 		await withGenome("memory-incorporate-supersedes", async (root) => {
 			const genome = createTestGenome(root);
 			await genome.init();
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({
 					id: "stale-auth",
 					content: "streamlinear uses Authorization: token header format.",
@@ -160,11 +163,79 @@ describe("extracted memory incorporation", () => {
 		});
 	});
 
+	test("classification runs OUTSIDE the memory write lock (A-F3 liveness)", async () => {
+		// Relationship classification is up to a dozen serial LLM calls; holding
+		// the write lock through them starved every other acquirer past its
+		// timeout. The classifier must run before the lock is taken: with the
+		// lock held externally, classification still proceeds — only the apply
+		// step waits.
+		await withGenome("memory-incorporate-lock-liveness", async (root) => {
+			const genome = createTestGenome(root);
+			await genome.init();
+			await seedMemories(genome, memory({ id: "existing-fact", content: "Sprout stores JSONL." }));
+
+			const lockDir = join(root, ".cache", "memory-write.lock");
+			const release = await acquireDirectoryLock(lockDir);
+
+			let classified = false;
+			let signalClassified = () => {};
+			const classifiedPromise = new Promise<void>((resolve) => {
+				signalClassified = resolve;
+			});
+			const incorporation = genome.addExtractedMemoriesWithRelationships({
+				segment: segment({ id: "segment-liveness" }),
+				memories: [memory({ id: "new-fact", content: "Sprout stores memories as JSONL." })],
+				explicitReferenceIds: [memoryShortId("existing-fact")],
+				classifyRelationships: async (input) => {
+					classified = true;
+					signalClassified();
+					return relationships("corroborates")(input);
+				},
+				commitMessage: "genome: liveness incorporation",
+				now: 1234,
+			});
+
+			const outcome = await Promise.race([
+				classifiedPromise.then(() => "classified" as const),
+				new Promise<"stuck">((resolve) => setTimeout(() => resolve("stuck"), 3_000)),
+			]);
+			expect(outcome).toBe("classified");
+			expect(classified).toBe(true);
+
+			await release();
+			const result = await incorporation;
+			expect(result.memories.map((item) => item.id)).toEqual(["new-fact"]);
+			expect(result.linksAdded).toBe(1);
+			expect(genome.memories.getById("new-fact")?.outbound_links?.[0]?.uuid).toBe("existing-fact");
+		});
+	}, 20_000);
+
+	test("markMemoriesUsed under lock contention skips instead of stalling or throwing", async () => {
+		// Usage marking is operational telemetry: a busy write lock must not
+		// stall recall for the full lock timeout, and must never kill the run.
+		await withGenome("memory-mark-used-contention", async (root) => {
+			const genome = createTestGenome(root);
+			await genome.init();
+			await seedMemories(genome, memory({ id: "used-fact" }));
+
+			const lockDir = join(root, ".cache", "memory-write.lock");
+			const release = await acquireDirectoryLock(lockDir);
+			try {
+				await genome.markMemoriesUsed(["used-fact"]);
+			} finally {
+				await release();
+			}
+			// Skipped, not applied: the contended marking is dropped.
+			expect(genome.memories.getById("used-fact")?.use_count ?? 0).toBe(0);
+		});
+	}, 8_000);
+
 	test("persists conflicts without deactivating either memory", async () => {
 		await withGenome("memory-incorporate-conflicts", async (root) => {
 			const genome = createTestGenome(root);
 			await genome.init();
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({
 					id: "old-claim",
 					content: "The project uses Postgres for memory.",
@@ -220,7 +291,8 @@ describe("extracted memory incorporation", () => {
 		await withGenome("memory-incorporate-classifier-fails", async (root) => {
 			const genome = createTestGenome(root);
 			await genome.init();
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({
 					id: "stale-memory",
 					content: "The old memory is stale.",
@@ -299,7 +371,8 @@ describe("extracted memory incorporation", () => {
 		await withGenome("memory-incorporate-dedup", async (root) => {
 			const genome = createTestGenome(root);
 			await genome.init();
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({ id: "existing", content: "Already known memory.", created: 100 }),
 			);
 			let called = false;
@@ -323,14 +396,16 @@ describe("extracted memory incorporation", () => {
 		await withGenome("memory-incorporate-source-evidence", async (root) => {
 			const genome = createTestGenome(root);
 			await genome.init();
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({
 					id: "stale-token-prefix",
 					content: "streamlinear uses Authorization: token.",
 					created: 100,
 				}),
 			);
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({
 					id: "stale-token-header",
 					content: "streamlinear sends Authorization: token headers.",
@@ -371,7 +446,8 @@ describe("extracted memory incorporation", () => {
 		await withGenome("memory-incorporate-wrapper-model", async (root) => {
 			const genome = createTestGenome(root);
 			await genome.init();
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({ id: "old-storage", content: "Sprout memory uses Postgres.", created: 100 }),
 			);
 			let captured: Request | undefined;
@@ -433,7 +509,8 @@ describe("extracted memory incorporation", () => {
 		await withGenome("memory-incorporate-wrapper-missing-model", async (root) => {
 			const genome = createTestGenome(root);
 			await genome.init();
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({ id: "old-model", content: "Old memory has a claim.", created: 100 }),
 			);
 
@@ -460,7 +537,10 @@ describe("extracted memory incorporation", () => {
 		await withGenome("memory-incorporate-wrapper-invalid-json", async (root) => {
 			const genome = createTestGenome(root);
 			await genome.init();
-			await genome.addMemory(memory({ id: "old-json", content: "Old JSON memory.", created: 100 }));
+			await seedMemories(
+				genome,
+				memory({ id: "old-json", content: "Old JSON memory.", created: 100 }),
+			);
 
 			await expect(
 				incorporateExtractedMemories({

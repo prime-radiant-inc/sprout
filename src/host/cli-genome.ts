@@ -1,6 +1,7 @@
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { SyncRootResult } from "../genome/genome.ts";
 
 export type GenomeMaintainScope = "all" | "consolidation" | "entity-gc";
 
@@ -18,6 +19,12 @@ export type GenomeCommand =
 			scope: GenomeMaintainScope;
 			limit?: number;
 			compact?: boolean;
+			/** Run unattended: LLM decisions replace --decision-file, and the
+			 *  24h throttle is ignored (mutually exclusive with --apply /
+			 *  --decision-file). */
+			auto?: boolean;
+			/** Isolated settings.json for --auto's model resolution (see --settings-path). */
+			settingsPath?: string;
 	  };
 
 export function isGenomeCommand<T extends { kind: string }>(
@@ -31,6 +38,27 @@ export function isGenomeCommand<T extends { kind: string }>(
 		command.kind === "genome-sync" ||
 		command.kind === "genome-maintain"
 	);
+}
+
+/** Render the genome-sync outcome, covering agent AND program changes (A-F11). */
+export function renderGenomeSyncResult(result: SyncRootResult): string[] {
+	const lines: string[] = [];
+	if (result.added.length > 0) {
+		lines.push(`Added: ${result.added.join(", ")}`);
+	}
+	if (result.addedPrograms.length > 0) {
+		lines.push(`Added programs: ${result.addedPrograms.join(", ")}`);
+	}
+	if (result.conflicts.length > 0) {
+		lines.push(`Conflicts (genome preserved): ${result.conflicts.join(", ")}`);
+	}
+	if (result.programConflicts.length > 0) {
+		lines.push(`Program conflicts (genome preserved): ${result.programConflicts.join(", ")}`);
+	}
+	if (lines.length === 0) {
+		return ["Genome is up to date with root agents."];
+	}
+	return lines;
 }
 
 export async function runGenomeCommand(command: GenomeCommand): Promise<void> {
@@ -90,16 +118,8 @@ export async function runGenomeCommand(command: GenomeCommand): Promise<void> {
 
 		const result = await genome.syncRoot();
 
-		if (result.added.length === 0 && result.conflicts.length === 0) {
-			console.log("Genome is up to date with root agents.");
-			return;
-		}
-
-		if (result.added.length > 0) {
-			console.log(`Added: ${result.added.join(", ")}`);
-		}
-		if (result.conflicts.length > 0) {
-			console.log(`Conflicts (genome preserved): ${result.conflicts.join(", ")}`);
+		for (const line of renderGenomeSyncResult(result)) {
+			console.log(line);
 		}
 		return;
 	}
@@ -121,6 +141,43 @@ export async function runGenomeCommand(command: GenomeCommand): Promise<void> {
 			await genome.loadFromDisk();
 			if (command.compact) {
 				const result = await genome.compactMemoryLog();
+				console.log(JSON.stringify(result, null, 2));
+				return;
+			}
+			if (command.auto) {
+				const { runMemoryMaintenanceIfDue } = await import("../genome/memory-maintenance-auto.ts");
+				const { createAgentProcessClient } = await import("../bus/agent-process-client.ts");
+				const { createResolverSettings } = await import("../agents/model-resolver.ts");
+				const { SessionLogger } = await import("./logger.ts");
+				const { SettingsStore } = await import("./settings/store.ts");
+
+				const logger = new SessionLogger({
+					logPath: join(command.genomePath, ".cache", "genome-maintain-auto.log.jsonl"),
+					component: "cli",
+				});
+				const client = await createAgentProcessClient(logger, {
+					createSettingsStore: () => new SettingsStore({ settingsPath: command.settingsPath }),
+				});
+				const { settings } = await new SettingsStore({
+					settingsPath: command.settingsPath,
+				}).load();
+				const resolverSettings = createResolverSettings(
+					settings.providers,
+					settings.defaults,
+					settings.memoryModels,
+					settings.agentModelOverrides,
+				);
+				const modelsByProvider = await client.listModelsByProvider();
+				const result = await runMemoryMaintenanceIfDue(genome, {
+					client,
+					resolverSettings,
+					modelsByProvider,
+					...(command.limit !== undefined ? { limit: command.limit } : {}),
+					// CLI --auto is a deliberate one-off invocation, not the
+					// background post-session trigger, so it ignores the 24h throttle.
+					ignoreThrottle: true,
+					logger: { warn: (message) => logger.warn("learn", message) },
+				});
 				console.log(JSON.stringify(result, null, 2));
 				return;
 			}
@@ -166,7 +223,11 @@ export async function runGenomeCommand(command: GenomeCommand): Promise<void> {
 		return;
 	}
 
-	if (result.evolved.length === 0 && result.genomeOnly.length === 0) {
+	if (
+		result.evolved.length === 0 &&
+		result.genomeOnly.length === 0 &&
+		result.programs.length === 0
+	) {
 		console.log("No learnings to export. Genome matches root specs.");
 		return;
 	}
@@ -185,8 +246,15 @@ export async function runGenomeCommand(command: GenomeCommand): Promise<void> {
 		}
 	}
 
+	if (result.programs.length > 0) {
+		console.log("\nGenome programs (spec §7):");
+		for (const program of result.programs) {
+			console.log(`  ${program.name} (v${program.version}) — ${program.description}`);
+		}
+	}
+
 	const stagingDir = await mkdtemp(join(tmpdir(), "sprout-export-"));
 	const written = await stageLearnings(result, stagingDir);
-	console.log(`\nWrote ${written.length} agent spec files to: ${stagingDir}/`);
+	console.log(`\nWrote ${written.length} spec files to: ${stagingDir}/`);
 	console.log("Copy desired files to root/ to incorporate learnings.");
 }

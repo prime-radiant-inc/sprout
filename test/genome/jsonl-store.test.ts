@@ -67,4 +67,20 @@ describe("JsonlStore", () => {
 
 		await expect(store.load()).rejects.toThrow(/bad\.jsonl:2/);
 	});
+
+	test("corrupt-record error names the full path and how to recover from git", async () => {
+		const path = join(tempDir, "memories.jsonl");
+		await writeFile(path, '{"id":"ok"}\n{"torn": \n');
+		const store = new JsonlStore<{ id: string }>(path);
+
+		const error = await store.load().then(
+			() => {
+				throw new Error("load() should have rejected");
+			},
+			(err: unknown) => err as Error,
+		);
+		expect(error.message).toContain(path);
+		expect(error.message).toContain("git");
+		expect(error.message).toContain("restore");
+	});
 });

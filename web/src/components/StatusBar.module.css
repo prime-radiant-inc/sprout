@@ -1,16 +1,38 @@
 .statusBar {
 	display: flex;
 	align-items: center;
-	gap: var(--space-lg);
+	flex-wrap: wrap;
+	gap: var(--space-xs) var(--space-lg);
 	padding: 0 var(--space-lg);
-	height: var(--statusbar-height);
+	min-height: var(--statusbar-height);
 	background: var(--color-surface);
 	border-bottom: 1px solid var(--color-border);
 	color: var(--color-text-secondary);
 	font-size: var(--font-size-xs);
 	white-space: nowrap;
-	overflow: hidden;
 	font-variant-numeric: tabular-nums;
+}
+
+/* Sidebar toggle — hidden on desktop, revealed where the sidebar collapses to an overlay */
+.menuButton {
+	display: none;
+	align-items: center;
+	justify-content: center;
+	background: none;
+	border: none;
+	color: var(--color-text-secondary);
+	cursor: pointer;
+	font-size: var(--font-size-base);
+	line-height: 1;
+	padding: var(--space-xs);
+	margin-left: calc(-1 * var(--space-xs));
+	border-radius: var(--radius-xs);
+	transition: all var(--transition-fast);
+}
+
+.menuButton:hover {
+	color: var(--color-text-primary);
+	background: var(--color-inset);
 }
 
 /* Grouped items with label + value */
@@ -225,4 +247,38 @@
 .sessionId:hover {
 	color: var(--color-text-tertiary);
 	background: var(--color-inset);
+}
+
+/* Narrow viewports: reveal the sidebar toggle and give the wrapped rows breathing room */
+@media (max-width: 1024px) {
+	.statusBar {
+		padding-top: var(--space-xs);
+		padding-bottom: var(--space-xs);
+	}
+
+	.menuButton {
+		display: inline-flex;
+	}
+}
+
+/* Phones: enlarge tap targets now that controls wrap onto their own row */
+@media (max-width: 640px) {
+	.interruptBtn,
+	.settingsButton {
+		padding: 6px 12px;
+	}
+
+	.modelSelect {
+		padding: 6px 24px 6px 10px;
+		max-width: 60vw;
+	}
+
+	.sessionId {
+		padding: 6px var(--space-sm);
+	}
+
+	.themeToggle,
+	.menuButton {
+		padding: 6px;
+	}
 }

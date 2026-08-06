@@ -10,7 +10,12 @@ import {
 	type ToolCall,
 	type Usage,
 } from "../types.ts";
-import { mapOpenAIFinishReason, parseResponsesUsage, safeParseJSON } from "./responses-parse.ts";
+import {
+	mapOpenAIFinishReason,
+	parseResponsesUsage,
+	reasoningStatePart,
+	safeParseJSON,
+} from "./responses-parse.ts";
 
 interface StreamResponsesOptions {
 	stream: AsyncIterable<unknown>;
@@ -145,11 +150,40 @@ export async function* streamResponsesEvents({
 
 	const completeToolCalls = toolCallOrder.filter(isCompleteToolCall);
 	const contentParts: ContentPart[] = [];
-	if (accumulatedText) {
+	// Reassemble parts in the terminal response's true output order so reasoning
+	// items stay adjacent to the call they precede and replay byte-exact.
+	// Encrypted reasoning items only carry their bytes on the terminal response's
+	// output array; streamed text/tool calls are matched back by call_id.
+	const completeCallsByCallId = new Map(completeToolCalls.map((call) => [call.callId, call]));
+	const emittedToolCalls = new Set<ToolCallAccumulator>();
+	let emittedText = false;
+	for (const item of completedResponse?.output ?? []) {
+		const type = (item as { type?: string }).type;
+		if (type === "reasoning") {
+			contentParts.push(reasoningStatePart(item, provider));
+		} else if (type === "message") {
+			if (accumulatedText && !emittedText) {
+				contentParts.push({ kind: ContentKind.TEXT, text: accumulatedText });
+				emittedText = true;
+			}
+		} else if (type === "function_call") {
+			const call = completeCallsByCallId.get((item as { call_id?: string }).call_id ?? "");
+			if (call && !emittedToolCalls.has(call)) {
+				contentParts.push({
+					kind: ContentKind.TOOL_CALL,
+					tool_call: toolCallFromAccumulator(call),
+				});
+				emittedToolCalls.add(call);
+			}
+		}
+	}
+	if (accumulatedText && !emittedText) {
 		contentParts.push({ kind: ContentKind.TEXT, text: accumulatedText });
 	}
 	for (const call of completeToolCalls) {
-		contentParts.push({ kind: ContentKind.TOOL_CALL, tool_call: toolCallFromAccumulator(call) });
+		if (!emittedToolCalls.has(call)) {
+			contentParts.push({ kind: ContentKind.TOOL_CALL, tool_call: toolCallFromAccumulator(call) });
+		}
 	}
 
 	const terminalStatus = completedResponse?.status ?? "completed";

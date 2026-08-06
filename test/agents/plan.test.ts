@@ -34,12 +34,18 @@ const testAgent: AgentSpec = {
 };
 
 describe("buildDelegateTool", () => {
+	test("steers file read+write tasks to a single agent and forbids cross-scope relay", () => {
+		const tool = buildDelegateTool();
+		// A caller with no file tools must hand the whole read+write to one agent
+		// rather than capturing content and relaying it — a value from one child
+		// cannot be re-granted to another, and reading it back to verify leaks it.
+		expect(tool.description).toContain("hand the WHOLE job to ONE file-capable agent");
+		expect(tool.description).toMatch(/cannot be re-granted to another agent/);
+		expect(tool.description).toMatch(/never read a value back to inspect or verify/);
+	});
+
 	test("creates a single delegate tool with standard schema", () => {
-		const agents: AgentSpec[] = [
-			testAgent,
-			{ ...testAgent, name: "code-editor", description: "Edit code files" },
-		];
-		const tool = buildDelegateTool(agents);
+		const tool = buildDelegateTool();
 		expect(tool.name).toBe("delegate");
 		expect(tool.description).toContain("Delegate");
 		const props = (tool.parameters as any).properties;
@@ -54,34 +60,29 @@ describe("buildDelegateTool", () => {
 	});
 
 	test("delegate tool accepts any agent string, not just enum", () => {
-		const agents: AgentSpec[] = [
-			{ ...testAgent, name: "reader" },
-			{ ...testAgent, name: "editor" },
-		];
-		const tool = buildDelegateTool(agents);
+		const tool = buildDelegateTool();
 		const agentNameProp = (tool.parameters as any).properties.agent_name;
 		// Should NOT have an enum — accepts any string
 		expect(agentNameProp.enum).toBeUndefined();
-		// But should list known agents in description
-		expect(agentNameProp.description).toContain("reader");
-		expect(agentNameProp.description).toContain("editor");
+		// No embedded name list (cache stability): names live in <agents> only.
+		expect(agentNameProp.description).not.toContain("reader");
 	});
 
 	test("no known agents listed when agents array is empty", () => {
-		const tool = buildDelegateTool([]);
+		const tool = buildDelegateTool();
 		const agentNameProp = (tool.parameters as any).properties.agent_name;
 		expect(agentNameProp.enum).toBeUndefined();
 	});
 
 	test("delegate tool shared parameter describes cross-caller access", () => {
-		const tool = buildDelegateTool([]);
+		const tool = buildDelegateTool();
 		const sharedDesc = (tool.parameters as any).properties.shared.description;
 		expect(sharedDesc).toContain("other agents");
 		expect(sharedDesc).not.toContain("stays alive");
 	});
 
 	test("includes blocking and shared params", () => {
-		const tool = buildDelegateTool([testAgent]);
+		const tool = buildDelegateTool();
 		const props = (tool.parameters as any).properties;
 		expect(props.blocking).toBeDefined();
 		expect(props.blocking.type).toBe("boolean");
@@ -93,7 +94,7 @@ describe("buildDelegateTool", () => {
 	});
 
 	test("includes description param for short label", () => {
-		const tool = buildDelegateTool([testAgent]);
+		const tool = buildDelegateTool();
 		const props = (tool.parameters as any).properties;
 		expect(props.description).toBeDefined();
 		expect(props.description.type).toBe("string");
@@ -374,7 +375,7 @@ describe("buildSystemPrompt", () => {
 
 describe("buildPlanRequest", () => {
 	test("builds a valid LLM Request", () => {
-		const delegateTool = buildDelegateTool([testAgent]);
+		const delegateTool = buildDelegateTool();
 		const req = buildPlanRequest({
 			systemPrompt: "You are a test agent.",
 			history: [],

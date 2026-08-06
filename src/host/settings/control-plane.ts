@@ -21,6 +21,7 @@ import {
 	type AgentModelOverride,
 	MEMORY_MODEL_DEFAULT_TIERS,
 	MEMORY_MODEL_PURPOSES,
+	type MemoryMaintenanceMode,
 	type MemoryModelPurpose,
 	type ModelRef,
 	type ProviderConfig,
@@ -140,6 +141,10 @@ export type SettingsCommand =
 	| {
 			kind: "set_agent_model_override";
 			data: { agentKey: string; override?: AgentModelOverride };
+	  }
+	| {
+			kind: "set_memory_maintenance";
+			data: { mode: MemoryMaintenanceMode };
 	  };
 
 export type SettingsCommandResult =
@@ -269,6 +274,12 @@ export class SettingsControlPlane {
 		};
 	}
 
+	/** Synchronous read for host wiring that runs outside a command/snapshot
+	 *  round trip (session-controller checks this once per run start). */
+	getMemoryMaintenanceSetting(): MemoryMaintenanceMode {
+		return this.settings.memoryMaintenance ?? "auto";
+	}
+
 	async execute(command: SettingsCommand): Promise<SettingsCommandResult> {
 		switch (command.kind) {
 			case "get_settings":
@@ -301,6 +312,8 @@ export class SettingsControlPlane {
 				return this.setMemoryModel(command.data.purpose, command.data.model);
 			case "set_agent_model_override":
 				return this.setAgentModelOverride(command.data.agentKey, command.data.override);
+			case "set_memory_maintenance":
+				return this.setMemoryMaintenance(command.data.mode);
 		}
 	}
 
@@ -703,6 +716,12 @@ export class SettingsControlPlane {
 		}
 
 		next.agentModelOverrides[agentKey] = override;
+		return this.persistSettings(next, [], true);
+	}
+
+	private async setMemoryMaintenance(mode: MemoryMaintenanceMode): Promise<SettingsCommandResult> {
+		const next = structuredClone(this.settings);
+		next.memoryMaintenance = mode;
 		return this.persistSettings(next, [], true);
 	}
 

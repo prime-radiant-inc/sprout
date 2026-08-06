@@ -21,19 +21,6 @@ export class MemoryStore {
 		this.refreshLoadedFingerprints();
 	}
 
-	/** Append a memory to the in-memory list and to the JSONL file on disk. */
-	async add(memory: Memory): Promise<void> {
-		const normalized = this.stage(memory);
-		try {
-			await this.jsonl.append(normalized);
-			this.refreshLoadedFingerprints();
-		} catch (err) {
-			this.entries = this.entries.filter((entry) => entry !== normalized);
-			this.refreshLoadedFingerprints();
-			throw err;
-		}
-	}
-
 	/** Add a memory only in memory; caller must save/commit the enclosing mutation. */
 	stage(memory: Memory): Memory {
 		const normalized = normalizeMemory(memory);
@@ -165,19 +152,6 @@ export class MemoryStore {
 	effectiveConfidence(memory: Memory): number {
 		const daysSinceLastUse = (Date.now() - memory.last_used) / (24 * 60 * 60 * 1000);
 		return memory.confidence * 0.5 ** (daysSinceLastUse / HALF_LIFE_DAYS);
-	}
-
-	/** Remove entries whose effective confidence is below the threshold, returning their ids. */
-	pruneByConfidence(minConfidence: number): string[] {
-		const pruned: string[] = [];
-		this.entries = this.entries.filter((m) => {
-			if (this.effectiveConfidence(m) < minConfidence) {
-				pruned.push(m.id);
-				return false;
-			}
-			return true;
-		});
-		return pruned;
 	}
 
 	/** Remove lifecycle-inactive entries from the source log during explicit compaction. */

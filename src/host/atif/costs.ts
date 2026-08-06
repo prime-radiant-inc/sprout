@@ -1,6 +1,6 @@
 import type { ModelPricing } from "../../kernel/pricing.ts";
 import {
-	FALLBACK_PRICING_TABLE,
+	EFFECTIVE_FALLBACK_PRICING_TABLE,
 	longestPrefixMatch,
 	withAnthropicCachePricing,
 } from "../../kernel/pricing.ts";
@@ -116,7 +116,7 @@ function resolvePricing(
 		};
 	}
 
-	const fallbackPricing = findPricing(providerId, modelId, FALLBACK_PRICING_TABLE);
+	const fallbackPricing = findPricing(providerId, modelId, EFFECTIVE_FALLBACK_PRICING_TABLE);
 	if (!fallbackPricing) return null;
 	return {
 		pricing: withAnthropicCachePricing(providerId, modelId, fallbackPricing),

@@ -15,13 +15,14 @@ import { join } from "node:path";
 import { parse } from "yaml";
 import { loadRootAgents } from "../../src/agents/loader.ts";
 import { parseAgentMarkdown, serializeAgentMarkdown } from "../../src/agents/markdown-loader.ts";
-import { Genome, git, sanitizeGitEnv } from "../../src/genome/genome.ts";
+import { Genome, git, sanitizeGitEnv, stableStringify } from "../../src/genome/genome.ts";
 import { memoryIndexPath } from "../../src/genome/index-builder.ts";
 import { MemoryIndex } from "../../src/genome/memory-index.ts";
 import { loadManifest } from "../../src/genome/root-manifest.ts";
 import type { MemorySegment } from "../../src/genome/segments.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../../src/kernel/types.ts";
 import type { EmbeddingProvider } from "../../src/llm/embeddings.ts";
+import { seedMemories, seedSegment } from "../helpers/genome-seed.ts";
 import { makeSpec } from "../helpers/make-spec.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
 
@@ -388,7 +389,7 @@ describe("Genome", () => {
 			// Add some data
 			await genome.addAgent(makeSpec({ name: "loader-agent" }));
 			await genome.addRoutingRule(makeRule({ id: "loader-rule" }));
-			await genome.addMemory(makeMemory({ id: "loader-mem", content: "loaded memory" }));
+			await seedMemories(genome, makeMemory({ id: "loader-mem", content: "loaded memory" }));
 
 			// Create a fresh Genome pointing at the same dir and load
 			const genome2 = new Genome(root);
@@ -484,12 +485,12 @@ describe("Genome", () => {
 	// --- Memory CRUD via Genome tests ---
 
 	describe("memory CRUD", () => {
-		test("addMemory writes JSONL and commits", async () => {
+		test("staged memory mutation writes embedded JSONL and commits", async () => {
 			const root = join(tempDir, "mem-add");
 			const genome = await createInitializedGenome(root);
 
 			const mem = makeMemory({ id: "genome-mem-1", content: "important fact" });
-			await genome.addMemory(mem);
+			await seedMemories(genome, mem);
 
 			// Verify file exists
 			const content = await readFile(join(root, "memories", "memories.jsonl"), "utf-8");
@@ -500,8 +501,7 @@ describe("Genome", () => {
 			expect(parsed.embedding?.vector).toHaveLength(768);
 
 			// Git log
-			const log = await git(root, "log", "--oneline");
-			expect(log).toContain("genome: add memory 'genome-mem-1'");
+			expect(await git(root, "status", "--porcelain")).toBe("");
 
 			const index = MemoryIndex.open(memoryIndexPath(root));
 			try {
@@ -511,111 +511,35 @@ describe("Genome", () => {
 			}
 		});
 
-		test("addMemories rolls back in-memory state when batch validation fails", async () => {
-			const root = join(tempDir, "mem-add-batch-rollback");
+		test("retireMemory archives the memory with a reason and commits", async () => {
+			const root = join(tempDir, "mem-retire");
 			const genome = await createInitializedGenome(root);
-			const head = await git(root, "rev-parse", "HEAD");
-			const first = {
-				...makeMemory({ id: "batch-memory-a", content: "batch fact a" }),
-				short_id: "mem_batch",
-			};
-			const second = {
-				...makeMemory({ id: "batch-memory-b", content: "batch fact b" }),
-				short_id: "mem_batch",
-			};
+			await seedMemories(genome, makeMemory({ id: "retire-me", content: "obsolete fact" }));
 
-			await expect(
-				genome.addMemories([first, second], "genome: add invalid memory batch"),
-			).rejects.toThrow("short id collision");
+			await genome.retireMemory("retire-me", "curator-retired");
 
-			expect(genome.memories.getById("batch-memory-a")).toBeUndefined();
-			expect(genome.memories.getById("batch-memory-b")).toBeUndefined();
-			expect(await readOptionalFile(join(root, "memories", "memories.jsonl"))).not.toContain(
-				"batch-memory",
-			);
-			expect(await git(root, "rev-parse", "HEAD")).toBe(head);
+			const retired = genome.memories.getById("retire-me");
+			expect(retired?.archived_at).toBeDefined();
+			expect(retired?.archived_reason).toBe("curator-retired");
+
+			const log = await git(root, "log", "--oneline");
+			expect(log).toContain("genome: retire memory 'retire-me'");
 			expect(await git(root, "status", "--porcelain")).toBe("");
 		});
 
-		test("addMemory restores JSONL when save fails after writing", async () => {
-			const root = join(tempDir, "mem-add-save-fails");
+		test("retireMemory throws for a missing memory", async () => {
+			const root = join(tempDir, "mem-retire-missing");
 			const genome = await createInitializedGenome(root);
-			const originalSave = genome.memories.save.bind(genome.memories);
-			genome.memories.save = async () => {
-				await originalSave();
-				throw new Error("memory save failed after write");
-			};
-
-			try {
-				await expect(
-					genome.addMemory(makeMemory({ id: "write-fail-memory", content: "will not persist" })),
-				).rejects.toThrow("memory save failed after write");
-			} finally {
-				genome.memories.save = originalSave;
-			}
-
-			expect(genome.memories.getById("write-fail-memory")).toBeUndefined();
-			expect(await readOptionalFile(join(root, "memories", "memories.jsonl"))).not.toContain(
-				"write-fail-memory",
-			);
-			expect(await git(root, "status", "--porcelain")).toBe("");
-		});
-
-		test("addMemory restores JSONL and index when commit fails after rebuild", async () => {
-			const root = join(tempDir, "mem-add-commit-fails");
-			const genome = await createInitializedGenome(root);
-			const hookPath = join(root, ".git", "hooks", "pre-commit");
-			await writeFile(hookPath, "#!/bin/sh\nexit 1\n");
-			await chmod(hookPath, 0o755);
-
-			await expect(
-				genome.addMemory(makeMemory({ id: "commit-fail-memory", content: "will not persist" })),
-			).rejects.toThrow("git commit");
-
-			expect(genome.memories.getById("commit-fail-memory")).toBeUndefined();
-			expect(await readOptionalFile(join(root, "memories", "memories.jsonl"))).not.toContain(
-				"commit-fail-memory",
-			);
-			expect(await git(root, "status", "--porcelain")).toBe("");
-			const index = MemoryIndex.open(memoryIndexPath(root));
-			try {
-				expect(index.stats().memoryCount).toBe(0);
-			} finally {
-				index.close();
-			}
-		});
-
-		test("addMemories restores JSONL when save fails after writing", async () => {
-			const root = join(tempDir, "mem-add-many-save-fails");
-			const genome = await createInitializedGenome(root);
-			const originalSave = genome.memories.save.bind(genome.memories);
-			genome.memories.save = async () => {
-				await originalSave();
-				throw new Error("memory batch save failed after write");
-			};
-
-			try {
-				await expect(
-					genome.addMemories(
-						[makeMemory({ id: "batch-write-fail", content: "will not persist" })],
-						"genome: add failing batch",
-					),
-				).rejects.toThrow("memory batch save failed after write");
-			} finally {
-				genome.memories.save = originalSave;
-			}
-
-			expect(genome.memories.getById("batch-write-fail")).toBeUndefined();
-			expect(await readOptionalFile(join(root, "memories", "memories.jsonl"))).not.toContain(
-				"batch-write-fail",
-			);
-			expect(await git(root, "status", "--porcelain")).toBe("");
+			await expect(genome.retireMemory("no-such", "curator-retired")).rejects.toThrow("not found");
 		});
 
 		test("searchMemories reuses a fresh derived index", async () => {
 			const root = join(tempDir, "mem-search-index-fresh");
 			const genome = await createInitializedGenome(root);
-			await genome.addMemory(makeMemory({ id: "indexed-memory", content: "SQLite recall fact" }));
+			await seedMemories(
+				genome,
+				makeMemory({ id: "indexed-memory", content: "SQLite recall fact" }),
+			);
 			const indexPath = memoryIndexPath(root);
 			const before = (await stat(indexPath)).mtimeMs;
 
@@ -633,7 +557,8 @@ describe("Genome", () => {
 			const writer = await createInitializedGenome(root);
 			const staleGenome = createTestGenome(root);
 			await staleGenome.loadFromDisk();
-			await writer.addMemory(
+			await seedMemories(
+				writer,
 				makeMemory({ id: "fresh-recall-memory", content: "Fresh SQLite recall fact" }),
 			);
 
@@ -645,10 +570,9 @@ describe("Genome", () => {
 		test("searchMemories excludes superseded recall candidates", async () => {
 			const root = join(tempDir, "mem-search-superseded");
 			const genome = await createInitializedGenome(root);
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				makeMemory({ id: "old-memory", content: "Obsolete SQLite recall decision" }),
-			);
-			await genome.addMemory(
 				makeMemory({ id: "new-memory", content: "Current memory decision uses SQLite recall" }),
 			);
 			const oldMemory = genome.memories.getById("old-memory")!;
@@ -672,7 +596,7 @@ describe("Genome", () => {
 			const root = join(tempDir, "mem-mutation");
 			const genome = await createInitializedGenome(root);
 
-			await genome.addMemory(makeMemory({ id: "genome-mem-mutate", content: "mutable fact" }));
+			await seedMemories(genome, makeMemory({ id: "genome-mem-mutate", content: "mutable fact" }));
 			const memory = genome.memories.getById("genome-mem-mutate");
 			expect(memory).toBeDefined();
 			memory!.archived_at = 12345;
@@ -697,7 +621,10 @@ describe("Genome", () => {
 		test("saveMemoryMutation restores JSONL when save fails after writing", async () => {
 			const root = join(tempDir, "mem-mutation-save-fails");
 			const genome = await createInitializedGenome(root);
-			await genome.addMemory(makeMemory({ id: "mutation-write-fail", content: "mutable fact" }));
+			await seedMemories(
+				genome,
+				makeMemory({ id: "mutation-write-fail", content: "mutable fact" }),
+			);
 			const before = await readFile(join(root, "memories", "memories.jsonl"), "utf-8");
 			const memory = genome.memories.getById("mutation-write-fail")!;
 			memory.archived_at = 12345;
@@ -724,10 +651,10 @@ describe("Genome", () => {
 		test("saveMemoryMutation preserves memories added by another loaded genome", async () => {
 			const root = join(tempDir, "mem-mutation-merge");
 			const writer = await createInitializedGenome(root);
-			await writer.addMemory(makeMemory({ id: "shared-memory", content: "shared fact" }));
+			await seedMemories(writer, makeMemory({ id: "shared-memory", content: "shared fact" }));
 			const staleGenome = new Genome(root);
 			await staleGenome.loadFromDisk();
-			await writer.addMemory(makeMemory({ id: "newer-memory", content: "newer fact" }));
+			await seedMemories(writer, makeMemory({ id: "newer-memory", content: "newer fact" }));
 
 			const memory = staleGenome.memories.getById("shared-memory")!;
 			memory.archived_at = 12345;
@@ -743,10 +670,10 @@ describe("Genome", () => {
 		test("markMemoriesUsed preserves memories added by another loaded genome", async () => {
 			const root = join(tempDir, "mem-used-merge");
 			const writer = await createInitializedGenome(root);
-			await writer.addMemory(makeMemory({ id: "used-shared", content: "shared fact" }));
+			await seedMemories(writer, makeMemory({ id: "used-shared", content: "shared fact" }));
 			const staleGenome = new Genome(root);
 			await staleGenome.loadFromDisk();
-			await writer.addMemory(makeMemory({ id: "used-newer", content: "newer fact" }));
+			await seedMemories(writer, makeMemory({ id: "used-newer", content: "newer fact" }));
 
 			await staleGenome.markMemoriesUsed(["used-shared"]);
 
@@ -759,7 +686,8 @@ describe("Genome", () => {
 		test("recomputeMemoryScores commits score-based archival mutations", async () => {
 			const root = join(tempDir, "mem-score-archive");
 			const genome = await createInitializedGenome(root);
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				makeMemory({ id: "low-importance-memory", content: "old minor fact" }),
 			);
 
@@ -775,7 +703,8 @@ describe("Genome", () => {
 		test("recomputeMemoryScores commits score-only metadata updates", async () => {
 			const root = join(tempDir, "mem-score-update");
 			const genome = await createInitializedGenome(root);
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				makeMemory({
 					id: "score-only-memory",
 					content: "recent useful fact",
@@ -917,11 +846,11 @@ describe("Genome", () => {
 			});
 		});
 
-		test("addSegment commits and rebuilds the derived index", async () => {
+		test("seeded segment commits and rebuilds the derived index", async () => {
 			const root = join(tempDir, "segment-add-index");
 			const genome = await createInitializedGenome(root);
 
-			await genome.addSegment(makeSegment({ id: "segment-indexed" }));
+			await seedSegment(genome, makeSegment({ id: "segment-indexed" }));
 
 			const status = await git(root, "status", "--porcelain");
 			expect(status).toBe("");
@@ -933,30 +862,6 @@ describe("Genome", () => {
 					segmentCount: 1,
 					segmentEmbeddingCount: 1,
 				});
-			} finally {
-				index.close();
-			}
-		});
-
-		test("addSegment restores JSONL and index when commit fails after rebuild", async () => {
-			const root = join(tempDir, "segment-add-commit-fails");
-			const genome = await createInitializedGenome(root);
-			const hookPath = join(root, ".git", "hooks", "pre-commit");
-			await writeFile(hookPath, "#!/bin/sh\nexit 1\n");
-			await chmod(hookPath, 0o755);
-
-			await expect(genome.addSegment(makeSegment({ id: "segment-commit-fail" }))).rejects.toThrow(
-				"git commit",
-			);
-
-			expect(genome.segments.getById("segment-commit-fail")).toBeUndefined();
-			expect(await readOptionalFile(join(root, "memories", "segments.jsonl"))).not.toContain(
-				"segment-commit-fail",
-			);
-			expect(await git(root, "status", "--porcelain")).toBe("");
-			const index = MemoryIndex.open(memoryIndexPath(root));
-			try {
-				expect(index.stats().segmentCount).toBe(0);
 			} finally {
 				index.close();
 			}
@@ -993,7 +898,10 @@ describe("Genome", () => {
 			const writer = await createInitializedGenome(root);
 			const staleGenome = createTestGenome(root);
 			await staleGenome.loadFromDisk();
-			await writer.addMemory(makeMemory({ id: "fresh-disk-memory", content: "already present" }));
+			await seedMemories(
+				writer,
+				makeMemory({ id: "fresh-disk-memory", content: "already present" }),
+			);
 
 			await expect(
 				staleGenome.addSegmentWithMemories(makeSegment({ id: "stale-segment" }), [
@@ -1013,7 +921,7 @@ describe("Genome", () => {
 			const writer = await createInitializedGenome(root);
 			const staleGenome = createTestGenome(root);
 			await staleGenome.loadFromDisk();
-			await writer.addMemory(makeMemory({ id: "fresh-duplicate", content: "already present" }));
+			await seedMemories(writer, makeMemory({ id: "fresh-duplicate", content: "already present" }));
 
 			const persisted = await staleGenome.addSegmentWithMemories(
 				makeSegment({ id: "dedup-segment" }),
@@ -1059,7 +967,7 @@ describe("Genome", () => {
 			}
 		});
 
-		test("addMemory fails before writing when embedding generation fails", async () => {
+		test("stageMemoryForMutation fails before staging when embedding generation fails", async () => {
 			const root = join(tempDir, "mem-add-embedding-fails");
 			await cp(initTemplateDir, root, { recursive: true });
 			const brokenProvider: EmbeddingProvider = {
@@ -1073,7 +981,9 @@ describe("Genome", () => {
 			const genome = new Genome(root, undefined, { embeddingProvider: brokenProvider });
 
 			await expect(
-				genome.addMemory(makeMemory({ id: "bad-memory", content: "will not persist" })),
+				genome.stageMemoryForMutation(
+					makeMemory({ id: "bad-memory", content: "will not persist" }),
+				),
 			).rejects.toThrow("embedding model unavailable");
 
 			expect(genome.memories.all()).toEqual([]);
@@ -1086,8 +996,7 @@ describe("Genome", () => {
 
 			const mem1 = makeMemory({ id: "used-1", use_count: 0 });
 			const mem2 = makeMemory({ id: "used-2", use_count: 0 });
-			await genome.addMemory(mem1);
-			await genome.addMemory(mem2);
+			await seedMemories(genome, mem1, mem2);
 
 			await genome.markMemoriesUsed(["used-1", "used-2"]);
 
@@ -1109,7 +1018,7 @@ describe("Genome", () => {
 		test("recordMemoryMentions commits mention-count metadata", async () => {
 			const root = join(tempDir, "mem-mentions-commit");
 			const genome = await createInitializedGenome(root);
-			await genome.addMemory(makeMemory({ id: "mention-memory", content: "cited fact" }));
+			await seedMemories(genome, makeMemory({ id: "mention-memory", content: "cited fact" }));
 			const shortId = genome.memories.getById("mention-memory")?.short_id;
 			expect(shortId).toBeTruthy();
 
@@ -1124,7 +1033,7 @@ describe("Genome", () => {
 		test("recordMemoryMentions restores JSONL and index when commit fails after rebuild", async () => {
 			const root = join(tempDir, "mem-mentions-commit-fails");
 			const genome = await createInitializedGenome(root);
-			await genome.addMemory(makeMemory({ id: "mention-fail-memory", content: "cited fact" }));
+			await seedMemories(genome, makeMemory({ id: "mention-fail-memory", content: "cited fact" }));
 			const shortId = genome.memories.getById("mention-fail-memory")?.short_id;
 			const before = await readFile(join(root, "memories", "memories.jsonl"), "utf-8");
 			const hookPath = join(root, ".git", "hooks", "pre-commit");
@@ -1407,6 +1316,204 @@ describe("Genome", () => {
 			// Genome overlay is preserved (not overwritten)
 			expect(genome.getAgent("contested")!.description).toBe("Genome evolved");
 			expect(genome.getAgent("contested")!.version).toBe(2);
+		});
+
+		async function writeRootProgramMd(dir: string, name: string, body: string): Promise<void> {
+			const programsDir = join(dir, "programs");
+			await mkdir(programsDir, { recursive: true });
+			await writeFile(
+				join(programsDir, `${name}.md`),
+				`---\nname: ${name}\ndescription: ${name} program\nversion: 1\n---\n${body}\n`,
+			);
+		}
+
+		test("a root-shipped program syncs into a fresh genome and loads as programs.<name>", async () => {
+			const rootDir = join(tempDir, "sync-programs-add-bs");
+			await mkdir(rootDir, { recursive: true });
+			await writeRootMd(rootDir, "alpha");
+			await writeRootProgramMd(rootDir, "starter", 'return bind("out", args);');
+
+			const root = join(tempDir, "sync-programs-add");
+			const genome = await createInitializedGenome(root, rootDir);
+			await genome.loadRoot();
+
+			const result = await genome.syncRoot();
+			expect(result.addedPrograms).toEqual(["starter"]);
+			expect(result.programConflicts).toEqual([]);
+
+			expect(genome.getProgram("starter")).toBeDefined();
+			expect(genome.allPrograms().some((p) => p.name === "starter")).toBe(true);
+
+			const manifest = await loadManifest(join(root, "bootstrap-manifest.json"));
+			expect(manifest.programs?.starter).toBeDefined();
+		});
+
+		test("an import-bearing root program is rejected loudly and never loads", async () => {
+			const rootDir = join(tempDir, "sync-programs-evil-bs");
+			await mkdir(rootDir, { recursive: true });
+			await writeRootMd(rootDir, "alpha");
+			await writeRootProgramMd(rootDir, "evil", 'await import("node:child_process");');
+
+			const root = join(tempDir, "sync-programs-evil");
+			const genome = await createInitializedGenome(root, rootDir);
+			const warnings: string[] = [];
+			const originalWarn = console.warn;
+			console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+			try {
+				await genome.loadRoot();
+				await genome.syncRoot();
+			} finally {
+				console.warn = originalWarn;
+			}
+
+			expect(genome.getProgram("evil")).toBeUndefined();
+			expect(warnings.some((w) => w.includes("evil"))).toBe(true);
+		});
+
+		test("re-sync with unchanged root programs is a no-op with a clean tree", async () => {
+			const rootDir = join(tempDir, "sync-programs-noop-bs");
+			await mkdir(rootDir, { recursive: true });
+			await writeRootMd(rootDir, "alpha");
+			await writeRootProgramMd(rootDir, "stable_prog", "return size('x');");
+
+			const root = join(tempDir, "sync-programs-noop");
+			const genome = await createInitializedGenome(root, rootDir);
+			await genome.loadRoot();
+
+			const first = await genome.syncRoot();
+			expect(first.addedPrograms).toEqual(["stable_prog"]);
+
+			const second = await genome.syncRoot();
+			expect(second.addedPrograms).toEqual([]);
+			expect(second.programConflicts).toEqual([]);
+			expect(await git(root, "status", "--porcelain")).toBe("");
+		});
+
+		test("root program change conflicts with a genome overlay program; overlay wins", async () => {
+			const rootDir = join(tempDir, "sync-programs-conflict-bs");
+			await mkdir(rootDir, { recursive: true });
+			await writeRootMd(rootDir, "alpha");
+			await writeRootProgramMd(rootDir, "contested_prog", "return get('v1');");
+
+			const root = join(tempDir, "sync-programs-conflict");
+			const genome = await createInitializedGenome(root, rootDir);
+			await genome.loadRoot();
+			await genome.syncRoot();
+
+			// Genome evolves its own version (overlay).
+			await genome.addProgram({
+				name: "contested_prog",
+				description: "genome evolved",
+				params: [],
+				spawns: [],
+				version: 2,
+				body: "return get('evolved');",
+			});
+
+			// Root also changes.
+			await writeRootProgramMd(rootDir, "contested_prog", "return get('v2');");
+
+			const result = await genome.syncRoot();
+			expect(result.programConflicts).toEqual(["contested_prog"]);
+			expect(result.addedPrograms).toEqual([]);
+
+			// Overlay is preserved (overlay wins over root, same as agents).
+			expect(genome.getProgram("contested_prog")!.body).toBe("return get('evolved');");
+		});
+
+		test("root change auto-reflects for a program with no overlay", async () => {
+			const rootDir = join(tempDir, "sync-programs-autoreflect-bs");
+			await mkdir(rootDir, { recursive: true });
+			await writeRootMd(rootDir, "alpha");
+			await writeRootProgramMd(rootDir, "drifting", "return get('old');");
+
+			const root = join(tempDir, "sync-programs-autoreflect");
+			const genome = await createInitializedGenome(root, rootDir);
+			await genome.loadRoot();
+			await genome.syncRoot();
+			expect(genome.getProgram("drifting")!.body).toBe("return get('old');");
+
+			await writeRootProgramMd(rootDir, "drifting", "return get('new');");
+			const result = await genome.syncRoot();
+			expect(result.programConflicts).toEqual([]);
+			expect(genome.getProgram("drifting")!.body).toBe("return get('new');");
+		});
+
+		test("stableStringify distinguishes nested values, not just top-level keys", () => {
+			expect(stableStringify({ a: { hash: "x" } })).not.toBe(stableStringify({ a: { hash: "y" } }));
+			// Key order still doesn't matter, at any depth.
+			expect(stableStringify({ a: { h: 1, v: 2 }, b: 3 })).toBe(
+				stableStringify({ b: 3, a: { v: 2, h: 1 } }),
+			);
+		});
+
+		test("a program conflict is reported once, then the manifest quiets it", async () => {
+			const rootDir = join(tempDir, "sync-programs-conflict-once-bs");
+			await mkdir(rootDir, { recursive: true });
+			await writeRootMd(rootDir, "alpha");
+			await writeRootProgramMd(rootDir, "noisy_prog", "return get('v1');");
+
+			const root = join(tempDir, "sync-programs-conflict-once");
+			const genome = await createInitializedGenome(root, rootDir);
+			await genome.loadRoot();
+			await genome.syncRoot();
+
+			await genome.addProgram({
+				name: "noisy_prog",
+				description: "genome evolved",
+				params: [],
+				spawns: [],
+				version: 2,
+				body: "return get('evolved');",
+			});
+			await writeRootProgramMd(rootDir, "noisy_prog", "return get('v2');");
+
+			const first = await genome.syncRoot();
+			expect(first.programConflicts).toEqual(["noisy_prog"]);
+
+			// The manifest was persisted, so the same unchanged root does not
+			// re-report the conflict forever.
+			const second = await genome.syncRoot();
+			expect(second.programConflicts).toEqual([]);
+			expect(await git(root, "status", "--porcelain")).toBe("");
+		});
+
+		test("an agent conflict is reported once, then the manifest quiets it", async () => {
+			const rootDir = join(tempDir, "sync-agents-conflict-once-bs");
+			await mkdir(rootDir, { recursive: true });
+			await writeRootMd(rootDir, "noisy", { description: "Bootstrap original" });
+
+			const root = join(tempDir, "sync-agents-conflict-once");
+			const genome = await createInitializedGenome(root, rootDir);
+			await genome.loadRoot();
+			await genome.syncRoot();
+
+			await genome.updateAgent(makeSpec({ name: "noisy", description: "Genome evolved" }));
+			await writeRootMd(rootDir, "noisy", { description: "Bootstrap also changed" });
+
+			const first = await genome.syncRoot();
+			expect(first.conflicts).toEqual(["noisy"]);
+
+			const second = await genome.syncRoot();
+			expect(second.conflicts).toEqual([]);
+			expect(await git(root, "status", "--porcelain")).toBe("");
+
+			// Overlay still wins throughout.
+			expect(genome.getAgent("noisy")!.description).toBe("Genome evolved");
+		});
+
+		test("removeProgram refuses to remove a root-only program", async () => {
+			const rootDir = join(tempDir, "sync-programs-remove-bs");
+			await mkdir(rootDir, { recursive: true });
+			await writeRootMd(rootDir, "alpha");
+			await writeRootProgramMd(rootDir, "immovable", "return size('x');");
+
+			const root = join(tempDir, "sync-programs-remove");
+			const genome = await createInitializedGenome(root, rootDir);
+			await genome.loadRoot();
+			await genome.syncRoot();
+
+			await expect(genome.removeProgram("immovable")).rejects.toThrow("root program");
 		});
 
 		test("preserves genome evolution when root unchanged", async () => {

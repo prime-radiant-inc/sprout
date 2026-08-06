@@ -5,6 +5,7 @@ import { Msg, messageText, type ProviderModel } from "../llm/types.ts";
 import { ulid } from "../util/ulid.ts";
 import { trigramDiceSimilarity } from "./dedup.ts";
 import type { Genome } from "./genome.ts";
+import { repairJson, stripCodeFence } from "./llm-json.ts";
 import { isActiveMemoryForRecall } from "./memory-lifecycle.ts";
 import type { ProjectActivityRecord } from "./projects.ts";
 
@@ -69,6 +70,8 @@ export interface ConsolidationMergeResult {
 const DEFAULT_FUZZY_THRESHOLD = 0.82;
 const DEFAULT_VECTOR_THRESHOLD = 0.9;
 const DEFAULT_MAX_REJECTIONS = 2;
+/** Unattended-lane cap on merge draft text; an over-cap draft is unparseable. */
+const MAX_CONSOLIDATION_DRAFT_TEXT_CHARS = 2000;
 const CONSOLIDATION_LINK_TYPES = new Set<RelationshipType>([
 	"corroborates",
 	"supersedes",
@@ -250,13 +253,20 @@ Prior rejection count: ${cluster.rejection_count}
 ${memories}
 
 Return only JSON:
-{"action":"merge","memory":{"text":"single consolidated durable memory","tags":["tag"],"entities":[{"name":"Sprout","type":"PROJECT"}],"confidence":0.9},"reasoning":"why this merge is safe"}
+{"action":"merge","memory":{"text":"single consolidated durable memory","tags":["tag"]},"reasoning":"why this merge is safe"}
 
 or
 
 {"action":"reject","reasoning":"why these memories should remain separate"}`;
 }
 
+/**
+ * Parse an LLM consolidation reply into a decision. Hardened for unattended
+ * use: draft entities and confidence are IGNORED (the merged memory's
+ * entity_links are always the union of source links and confidence derives
+ * from source effective importance in applyConsolidationMerge), and draft
+ * text over the cap throws so the caller skips the cluster.
+ */
 export function normalizeConsolidationDecisionPayload(text: string): ConsolidationDecision {
 	const parsed = parseJsonObject(text);
 	const action = parsed.action;
@@ -272,59 +282,36 @@ export function normalizeConsolidationDecisionPayload(text: string): Consolidati
 	}
 	const textValue = typeof parsed.memory.text === "string" ? parsed.memory.text.trim() : "";
 	if (!textValue) throw new Error("Merge consolidation decision missing memory.text");
+	if (textValue.length > MAX_CONSOLIDATION_DRAFT_TEXT_CHARS) {
+		throw new Error(
+			`Merge consolidation decision memory.text exceeds ${MAX_CONSOLIDATION_DRAFT_TEXT_CHARS} characters`,
+		);
+	}
 	const tags = Array.isArray(parsed.memory.tags)
 		? parsed.memory.tags.filter((tag): tag is string => typeof tag === "string")
 		: [];
-	const entities = Array.isArray(parsed.memory.entities)
-		? parsed.memory.entities
-				.filter(isRecord)
-				.map((entity) => ({
-					name: String(entity.name ?? "").trim(),
-					type: entity.type as EntityLinkEntry["type"],
-					...(typeof entity.uuid === "string" ? { uuid: entity.uuid } : {}),
-				}))
-				.filter((entity) => entity.name && isEntityType(entity.type))
-		: [];
-	const confidence =
-		typeof parsed.memory.confidence === "number" && Number.isFinite(parsed.memory.confidence)
-			? Math.max(0, Math.min(1, parsed.memory.confidence))
-			: undefined;
-	return {
-		action,
-		reasoning,
-		memory: {
-			text: textValue,
-			tags,
-			...(entities.length > 0 ? { entities } : {}),
-			...(confidence !== undefined ? { confidence } : {}),
-		},
-	};
+	return { action, reasoning, memory: { text: textValue, tags } };
 }
 
-export async function applyConsolidationMerge(
-	genome: Genome,
-	cluster: Pick<ConsolidationCluster, "memory_ids">,
+/**
+ * Build the consolidated memory for a merge without touching the genome, so
+ * callers can embed it OUTSIDE the memory write lock (A-F3) and pass it back
+ * through applyConsolidationMerge's preEmbedded option.
+ */
+export function buildConsolidatedMemory(
+	sources: readonly Memory[],
 	draft: ConsolidationMemoryDraft,
 	options: {
 		now?: number;
 		source?: string;
 		id?: string;
 		reasoning?: string;
-		commit?: boolean;
 	} = {},
-): Promise<ConsolidationMergeResult> {
+): Memory {
 	const now = options.now ?? Date.now();
-	const sources = cluster.memory_ids.map((id) => {
-		const memory = genome.memories.getById(id);
-		if (!memory) throw new Error(`Cannot consolidate missing memory '${id}'`);
-		if (memory.archived_at) throw new Error(`Cannot consolidate archived memory '${id}'`);
-		return memory;
-	});
-	if (sources.length < 2) throw new Error("Consolidation merge requires at least two memories");
-
 	const consolidatedId = options.id ?? `memory-consolidated-${ulid().toLowerCase()}`;
 	const reasoning = options.reasoning ?? "memory consolidation";
-	const consolidated: Memory = {
+	return {
 		id: consolidatedId,
 		content: draft.text,
 		tags: unionStrings([...(draft.tags ?? []), ...sources.flatMap((memory) => memory.tags)]),
@@ -364,8 +351,38 @@ export async function applyConsolidationMerge(
 			},
 		],
 	};
+}
 
-	const saved = await genome.stageMemoryForMutation(consolidated);
+export async function applyConsolidationMerge(
+	genome: Genome,
+	cluster: Pick<ConsolidationCluster, "memory_ids">,
+	draft: ConsolidationMemoryDraft,
+	options: {
+		now?: number;
+		source?: string;
+		id?: string;
+		reasoning?: string;
+		commit?: boolean;
+		/** Consolidated memory built and embedded outside the write lock (A-F3). */
+		preEmbedded?: Memory;
+	} = {},
+): Promise<ConsolidationMergeResult> {
+	const now = options.now ?? Date.now();
+	const sources = cluster.memory_ids.map((id) => {
+		const memory = genome.memories.getById(id);
+		if (!memory) throw new Error(`Cannot consolidate missing memory '${id}'`);
+		if (memory.archived_at) throw new Error(`Cannot consolidate archived memory '${id}'`);
+		return memory;
+	});
+	if (sources.length < 2) throw new Error("Consolidation merge requires at least two memories");
+
+	const consolidated = options.preEmbedded ?? buildConsolidatedMemory(sources, draft, options);
+	const consolidatedId = consolidated.id;
+	const reasoning = options.reasoning ?? "memory consolidation";
+
+	const saved = await genome.stageMemoryForMutation(consolidated, {
+		reuseReadyEmbedding: options.preEmbedded !== undefined,
+	});
 
 	for (const memory of sources) {
 		memory.archived_at = now;
@@ -517,32 +534,8 @@ function parseJsonObject(text: string): Record<string, unknown> {
 	return parsed;
 }
 
-function stripCodeFence(text: string): string {
-	const match = text.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/);
-	return match?.[1]?.trim() ?? text;
-}
-
-function repairJson(text: string): string {
-	return text
-		.replace(/[“”]/g, '"')
-		.replace(/[‘’]/g, "'")
-		.replace(/,\s*([}\]])/g, "$1");
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isEntityType(value: unknown): value is EntityLinkEntry["type"] {
-	return (
-		value === "PROJECT" ||
-		value === "LIBRARY" ||
-		value === "FILE_PATH" ||
-		value === "COMMAND" ||
-		value === "ERROR_TYPE" ||
-		value === "TECHNOLOGY" ||
-		value === "PERSON"
-	);
 }
 
 function entityUuid(type: EntityLinkEntry["type"], name: string): string {

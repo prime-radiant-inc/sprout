@@ -1,7 +1,4 @@
-import type { ResolverSettings } from "../agents/model-resolver.ts";
 import type { EntityLinkEntry, Memory } from "../kernel/types.ts";
-import type { Client } from "../llm/client.ts";
-import type { ProviderModel } from "../llm/types.ts";
 import {
 	applyConsolidationMerge,
 	type ConsolidationCluster,
@@ -10,7 +7,6 @@ import {
 	discoverConsolidationClusters,
 	projectDueForConsolidation,
 	rejectConsolidationCluster,
-	requestConsolidationDecisionWithSettings,
 } from "./consolidation.ts";
 import {
 	applyEntityGcDecision,
@@ -18,9 +14,9 @@ import {
 	type EntityGcDecision,
 	type EntityGcGroup,
 	projectDueForEntityGc,
-	requestEntityGcDecisionWithSettings,
 } from "./entity-gc.ts";
 import type { Genome } from "./genome.ts";
+import { isEntityType } from "./memory-schema.ts";
 import { isProtectedManualMemory } from "./memory-write-policy.ts";
 import type { ProjectActivityRecord } from "./projects.ts";
 
@@ -31,6 +27,12 @@ export interface MemoryMaintenanceOptions {
 	includeConsolidation?: boolean;
 	includeEntityGc?: boolean;
 	limit?: number;
+	/**
+	 * Discovery input pool override; defaults to every memory in the genome.
+	 * The automatic lane passes a pool with protected manual/user memories and
+	 * consolidation-generated memories already removed.
+	 */
+	memoryPool?: readonly Memory[];
 }
 
 export interface MemoryMaintenancePlan {
@@ -47,17 +49,6 @@ export type MaintenanceEntityGcDecision = { group_id: string } & EntityGcDecisio
 export interface MemoryMaintenanceDecisionFile {
 	consolidations?: MaintenanceConsolidationDecision[];
 	entity_gc?: MaintenanceEntityGcDecision[];
-}
-
-export interface MemoryMaintenanceReviewSettingsRequest {
-	plan: MemoryMaintenancePlan;
-	client: Client;
-	resolverSettings: ResolverSettings;
-	modelsByProvider: Map<string, ProviderModel[]>;
-	consolidationPrompt: string;
-	entityGcPrompt: string;
-	consolidationMaxTokens?: number;
-	entityGcMaxTokens?: number;
 }
 
 export interface MemoryMaintenanceApplyResult {
@@ -93,7 +84,7 @@ export function discoverMemoryMaintenancePlan(
 ): MemoryMaintenancePlan {
 	const includeConsolidation = options.includeConsolidation ?? true;
 	const includeEntityGc = options.includeEntityGc ?? true;
-	const memories = genome.memories.all();
+	const memories = options.memoryPool ?? genome.memories.all();
 	const projects = genome.projects.all();
 	const globalProject = globalMaintenanceProject(projects);
 	const consolidationProjectIds = new Set(
@@ -121,51 +112,20 @@ export function discoverMemoryMaintenancePlan(
 	};
 }
 
-export async function reviewMemoryMaintenancePlanWithSettings(
-	request: MemoryMaintenanceReviewSettingsRequest,
-): Promise<MemoryMaintenanceDecisionFile> {
-	const consolidations: MaintenanceConsolidationDecision[] = [];
-	for (const cluster of request.plan.consolidationClusters) {
-		const decision = await requestConsolidationDecisionWithSettings({
-			cluster,
-			prompt: request.consolidationPrompt,
-			client: request.client,
-			resolverSettings: request.resolverSettings,
-			modelsByProvider: request.modelsByProvider,
-			maxTokens: request.consolidationMaxTokens,
-		});
-		consolidations.push({
-			cluster_id: cluster.id,
-			...decision,
-		});
-	}
-
-	const entityGc: MaintenanceEntityGcDecision[] = [];
-	for (const group of request.plan.entityGcGroups) {
-		const decision = await requestEntityGcDecisionWithSettings({
-			group,
-			prompt: request.entityGcPrompt,
-			client: request.client,
-			resolverSettings: request.resolverSettings,
-			modelsByProvider: request.modelsByProvider,
-			maxTokens: request.entityGcMaxTokens,
-		});
-		entityGc.push({
-			group_id: group.id,
-			...decision,
-		});
-	}
-
-	return {
-		consolidations,
-		entity_gc: entityGc,
-	};
+export interface MemoryMaintenanceApplyOptions {
+	/**
+	 * Consolidated memories built and embedded outside the write lock, keyed
+	 * by cluster id (A-F3): apply must not make network embedding calls while
+	 * holding the memory write lock.
+	 */
+	preEmbeddedConsolidations?: ReadonlyMap<string, Memory>;
 }
 
 export async function applyMemoryMaintenanceDecisions(
 	genome: Genome,
 	plan: MemoryMaintenancePlan,
 	decisions: MemoryMaintenanceDecisionFile,
+	options: MemoryMaintenanceApplyOptions = {},
 ): Promise<MemoryMaintenanceApplyResult> {
 	return genome.applyMemoryAndProjectActivityMutation(
 		"genome: apply memory maintenance decisions",
@@ -184,10 +144,12 @@ export async function applyMemoryMaintenanceDecisions(
 					consolidatedProjectIds.add(projectId);
 				}
 				if (decision.action === "merge") {
+					const preEmbedded = options.preEmbeddedConsolidations?.get(cluster.id);
 					const merge = await applyConsolidationMerge(genome, cluster, decision.memory, {
 						reasoning: decision.reasoning,
 						source: "memory-maintenance",
 						commit: false,
+						...(preEmbedded ? { preEmbedded } : {}),
 					});
 					result.consolidation.merged++;
 					result.consolidation.archived_memory_ids.push(...merge.archived_ids);
@@ -557,16 +519,4 @@ function sortedUnique(values: string[]): string[] {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isEntityType(value: unknown): value is EntityLinkEntry["type"] {
-	return (
-		value === "PROJECT" ||
-		value === "LIBRARY" ||
-		value === "FILE_PATH" ||
-		value === "COMMAND" ||
-		value === "ERROR_TYPE" ||
-		value === "TECHNOLOGY" ||
-		value === "PERSON"
-	);
 }

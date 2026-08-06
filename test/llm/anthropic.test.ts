@@ -167,6 +167,22 @@ describe("AnthropicAdapter", () => {
 		expect(params.temperature).toBeUndefined();
 	});
 
+	test("build request omits temperature for claude-sonnet-5 (rejects the param)", () => {
+		const params = buildAnthropicRequest(
+			{
+				model: "claude-sonnet-5",
+				messages: [],
+				max_tokens: 30,
+				temperature: 0.9,
+				tool_choice: "none",
+			},
+			undefined,
+			[{ role: "user", content: [{ kind: ContentKind.TEXT, text: "Name this agent." }] }],
+		);
+
+		expect(params.temperature).toBeUndefined();
+	});
+
 	test("build request preserves temperature for Anthropic models that accept it", () => {
 		const params = buildAnthropicRequest(
 			{

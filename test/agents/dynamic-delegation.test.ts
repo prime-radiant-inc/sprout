@@ -69,6 +69,7 @@ describe("Dynamic delegation list refresh", () => {
 		// Create initial child agent
 		const childSpec = makeSpec("child-agent", {
 			description: "A child worker agent",
+			tools: ["read_file"],
 		});
 		await writeFile(join(genomeDir, "agents", "child-agent.md"), serializeAgentMarkdown(childSpec));
 
@@ -170,7 +171,10 @@ describe("Dynamic delegation list refresh", () => {
 
 		// Now add a new agent to the genome (simulating fabricator creating an agent)
 		await genome.addAgent(
-			makeSpec("new-dynamic-agent", { description: "A dynamically created agent" }),
+			makeSpec("new-dynamic-agent", {
+				description: "A dynamically created agent",
+				tools: ["read_file"],
+			}),
 		);
 
 		// Continue — the refresh should detect the new agent
@@ -239,18 +243,21 @@ describe("Dynamic delegation list refresh", () => {
 		expect(delegateToolBefore).toBeDefined();
 
 		// Add new agent to genome
-		await genome.addAgent(makeSpec("tools-test-agent", { description: "Tools test agent" }));
+		await genome.addAgent(
+			makeSpec("tools-test-agent", { description: "Tools test agent", tools: ["read_file"] }),
+		);
 
 		// Continue — should trigger tool rebuild
 		await agent.continue("keep going", undefined);
 
 		const toolsAfter = agent.resolvedTools();
-		const delegateToolAfter = toolsAfter.find((t) => t.name === "delegate");
-		expect(delegateToolAfter).toBeDefined();
+		expect(toolsAfter.find((t) => t.name === "delegate")).toBeDefined();
 
-		// The delegate tool schema should now reference the new agent
-		const schemaStr = JSON.stringify(delegateToolAfter!.parameters);
-		expect(schemaStr).toContain("tools-test-agent");
+		// The delegable SET refreshes with the genome; the tool schema stays
+		// cache-stable by design and never embeds names.
+		expect((agent as any).getDelegatableAgents().map((a: any) => a.name)).toContain(
+			"tools-test-agent",
+		);
 	});
 
 	test("no steering when genome.generation unchanged between turns", async () => {

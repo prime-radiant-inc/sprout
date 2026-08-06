@@ -23,7 +23,12 @@ function memory(overrides: Partial<Memory> = {}): Memory {
 	};
 }
 
-function makeContext(memories: Memory[] = [memory()]): MemoryToolContext {
+/** The production context plus a getById the assertions use to inspect the fixture. */
+type TestMemoryToolContext = MemoryToolContext & {
+	genome: { memories: { getById(id: string): Memory | undefined } };
+};
+
+function makeContext(memories: Memory[] = [memory()]): TestMemoryToolContext {
 	const allowedMemoryIds = memories.map((item) => item.short_id ?? item.id);
 	const segments = [
 		{
@@ -57,21 +62,16 @@ function makeContext(memories: Memory[] = [memory()]): MemoryToolContext {
 			searchMemories: async () => memories,
 			memories: {
 				all: () => memories,
-				getById: (id) => memories.find((item) => item.id === id),
+				getById: (id: string) => memories.find((item) => item.id === id),
 			},
 			segments: {
-				all: () => segments,
-				getById: (id) => segments.find((segment) => segment.id === id),
-			},
-			addMemory: async (item) => {
-				memories.push(item);
+				getById: (id: string) => segments.find((segment) => segment.id === id),
 			},
 			stageMemoryForMutation: async (item) => {
 				memories.push(item);
 				return item;
 			},
 			saveMemoryMutation: async () => {},
-			recordMemoryMentions: async () => [],
 		},
 	};
 }

@@ -1,10 +1,18 @@
-import { stat } from "node:fs/promises";
+import { appendFile, mkdir, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { formatDelegationGoal, normalizeTaskPayload } from "../agents/delegation-payload.ts";
 import type { ResolverSettings } from "../agents/model-resolver.ts";
+import type { HandleRegistrar } from "../host/handle-registrar.ts";
+import { hashToken, mintToken, type ObserverRemit } from "../host/handle-registry.ts";
+import type { SessionEvent } from "../kernel/types.ts";
+import { type Message, Msg } from "../llm/types.ts";
+import type { LivenessProbe } from "../shared/liveness.ts";
+import type { StoreAccess } from "../store/store-access.ts";
 import { buildInternalSproutCommand } from "../util/self-command.ts";
 import { ulid } from "../util/ulid.ts";
 import type { BusClient } from "./client.ts";
-import { readHandleResult } from "./resume.ts";
+import { prepareResultOutput } from "./result-gate.ts";
+import { readHandleResult, replayHandleLog, sessionLogDir } from "./resume.ts";
 import { agentInbox, agentMessageAck, agentReady, agentResult, sessionEvents } from "./topics.ts";
 import type {
 	AgentAddress,
@@ -44,17 +52,59 @@ export interface SpawnAgentOptions {
 	/** Mnemonic codename for this agent (historical figure surname). */
 	mnemonicName?: string;
 	evalMode?: boolean;
+	/** When false, exec is stripped in the child subprocess (and its descendants). Default true. */
+	allowExec?: boolean;
+	/** Data-plane session flag (spec §6): inherited by the child. Default true. */
+	dataPlaneEnabled?: boolean;
+	/**
+	 * Per-spawn model override (spec §5): a tier ("fast") or a "provider:model"
+	 * selection string. Travels on the StartMessage and resolves as the child's
+	 * modelOverride; recorded on the handle so respawn re-applies it.
+	 */
+	model?: string;
 	/** Selected provider context inherited from the caller. */
 	providerIdOverride?: string;
 	/** Provider tier defaults and enabled-provider state inherited from the caller. */
 	resolverSettings?: ResolverSettings;
+	/**
+	 * Run this spawn in the owner's process instead of a subprocess (spec §5
+	 * featherweight placement). The caller sets it only for featherweight-eligible
+	 * specs; honored only when the spawner holds a featherweight executor.
+	 */
+	featherweight?: boolean;
 	/** Original user instruction, trusted for deterministic runtime policy gates. */
 	trustedUserInstruction?: string;
 	/** Precomputed memory context inherited from the root session. Empty string suppresses it. */
 	surfacedMemoryBlock?: string;
+	/**
+	 * Env grants for the child: alias → a value name or ulid in the CALLER's
+	 * scope. The spawner registers each grant over the authenticated store
+	 * before launch and sends alias → resolved ULID on the StartMessage.
+	 */
+	env?: Record<string, string>;
 }
 
 export type HandleVisibility = "private" | "shared";
+
+/**
+ * Authenticated-channel context for a spawner (sap spec §1 Transport, §3
+ * Identity). When present, every child handle is registered with the host
+ * before its process launches and receives per-handle credentials in its
+ * environment. When absent (tests, spawnerless runs), spawning is unchanged.
+ */
+export interface SpawnerAuthChannel {
+	/** ws:// URL of the host's authenticated channel, passed to children. */
+	url: string;
+	/** Registration authority: trusted-direct on the host, over-channel in children. */
+	registrar: HandleRegistrar;
+	/**
+	 * How this process asks about a counterparty's liveness — used by the
+	 * agent's inactivity-timer suspension as its net during blocking waits.
+	 */
+	probe?: LivenessProbe;
+	/** Caller-scoped store surface (sap spec §1) for the value primitives. */
+	store?: StoreAccess;
+}
 
 export interface DeliverObserverFrameOptions {
 	agentName: string;
@@ -67,6 +117,8 @@ export interface DeliverObserverFrameOptions {
 	workDir: string;
 	rootDir?: string;
 	evalMode?: boolean;
+	allowExec?: boolean;
+	dataPlaneEnabled?: boolean;
 	resolverSettings?: ResolverSettings;
 	surfacedMemoryBlock?: string;
 }
@@ -108,11 +160,19 @@ export interface AgentHandle {
 	/** Mnemonic codename assigned at delegation time. */
 	mnemonicName?: string;
 	evalMode?: boolean;
+	/** When false, exec is stripped on the respawn StartMessage too. Default true. */
+	allowExec?: boolean;
+	/** Data-plane session flag (spec §6): re-applied on the respawn StartMessage. */
+	dataPlaneEnabled?: boolean;
+	/** Per-spawn model override, re-applied on the respawn StartMessage. */
+	model?: string;
 	providerIdOverride?: string;
 	resolverSettings?: ResolverSettings;
 	trustedUserInstruction?: string;
 	surfacedMemoryBlock?: string;
 	resultRecoveryLogOffset?: number | null;
+	/** This handle ran in-process (spec §5 featherweight); respawn re-runs in-process. */
+	featherweight?: boolean;
 }
 
 /**
@@ -123,6 +183,60 @@ export type SpawnFn = (
 	handleId: string,
 	env: Record<string, string>,
 ) => { kill: (signal?: "SIGTERM" | "SIGKILL") => void; exited: Promise<number> };
+
+/**
+ * Input to a featherweight in-process execution (spec §5). Mirrors the subset
+ * of a StartMessage a single-turn no-tool leaf needs, plus any prior history for
+ * a follow-up message_agent re-run (respawn-with-history equivalent).
+ */
+export interface FeatherweightExecInput {
+	agentName: string;
+	/** The child goal, already formatted (hints/payload/env announcement included). */
+	goal: string;
+	self: AgentAddress;
+	caller: AgentAddress;
+	evalMode?: boolean;
+	model?: string;
+	resolverSettings?: ResolverSettings;
+	/** The caller-surfaced memory block, exactly as a subprocess child receives it. */
+	surfacedMemoryBlock?: string;
+	/** Prior conversation replayed from the handle log for a re-run. */
+	history?: Message[];
+}
+
+/** One registered env grant, enough to synthesize the child's announcement line. */
+interface EnvGrantAnnouncement {
+	alias: string;
+	preview: string;
+}
+
+/**
+ * The announcement text a subprocess child derives by claiming its grants
+ * (agent-process claimEnvGrants). A featherweight child cannot claim — the
+ * store keys claims by recipient scope, and the child has none of its own —
+ * so the owner synthesizes the identical text from the registrations.
+ */
+function renderEnvAnnouncement(granted: EnvGrantAnnouncement[] | undefined): string | undefined {
+	if (!granted || granted.length === 0) return undefined;
+	const lines = granted.map((grant) => `⟦${grant.alias}⟧ (${grant.preview.split("\n", 1)[0]})`);
+	return `Values now in your scope:\n${lines.join("\n")}`;
+}
+
+/** Result of a featherweight execution — the run outcome the owner synthesizes into events/log. */
+export interface FeatherweightExecResult {
+	output: string;
+	success: boolean;
+	stumbles: number;
+	turns: number;
+	timed_out: boolean;
+}
+
+/**
+ * Runs a featherweight-eligible agent in the owner's process (spec §5). Injected
+ * by the owning Agent, which holds the LLM client. When absent, featherweight
+ * spawns fall back to the ordinary subprocess path.
+ */
+export type FeatherweightFn = (input: FeatherweightExecInput) => Promise<FeatherweightExecResult>;
 
 /** Default spawn function using Bun.spawn() */
 function defaultSpawnFn(
@@ -195,6 +309,21 @@ async function forceKillAfterGrace(
 	);
 }
 
+/** Build a SessionEvent record with the standard envelope. */
+function logEvent(
+	kind: SessionEvent["kind"],
+	agentId: string,
+	depth: number,
+	data: Record<string, unknown>,
+): SessionEvent {
+	return { kind, timestamp: Date.now(), agent_id: agentId, depth, data };
+}
+
+/** Stable event identity for a handle (agentId, falling back to the handle id). */
+function agentIdOf(handle: AgentHandle): string {
+	return handle.agentId ?? handle.handleId;
+}
+
 function isFileNotFound(error: unknown): boolean {
 	return (
 		typeof error === "object" &&
@@ -215,8 +344,10 @@ export class AgentSpawner {
 	private readonly busUrl: string;
 	private sessionId: string;
 	private readonly spawnFn: SpawnFn;
+	private featherweightFn?: FeatherweightFn;
 	private readonly waitTimeoutMs: number;
 	private readonly agentMessageAckTimeoutMs: number;
+	private readonly authChannel?: SpawnerAuthChannel;
 	private readonly handles = new Map<string, AgentHandle>();
 	private readonly observerDeliveryChains = new Map<string, Promise<void>>();
 	private readonly sessionEventsCallbacks = new Set<(event: EventMessage) => void>();
@@ -299,7 +430,7 @@ export class AgentSpawner {
 		if (handle.resultRecoveryLogOffset == null) {
 			return null;
 		}
-		const handleLogDir = join(handle.projectDataDir ?? handle.genomePath, "logs", this.sessionId);
+		const handleLogDir = sessionLogDir(handle.projectDataDir ?? handle.genomePath, this.sessionId);
 		return readHandleResult(handleLogDir, handle.handleId, {
 			afterByteOffset: handle.resultRecoveryLogOffset,
 		});
@@ -309,7 +440,7 @@ export class AgentSpawner {
 		dataDir: string,
 		handleId: string,
 	): Promise<number | null> {
-		const logPath = join(dataDir, "logs", this.sessionId, `${handleId}.jsonl`);
+		const logPath = join(sessionLogDir(dataDir, this.sessionId), `${handleId}.jsonl`);
 		try {
 			return (await stat(logPath)).size;
 		} catch (error) {
@@ -361,14 +492,27 @@ export class AgentSpawner {
 		spawnFn?: SpawnFn,
 		waitTimeoutMs?: number,
 		agentMessageAckTimeoutMs?: number,
+		authChannel?: SpawnerAuthChannel,
+		featherweightFn?: FeatherweightFn,
 	) {
 		this.bus = bus;
 		this.busUrl = busUrl;
 		this.sessionId = sessionId;
 		this.spawnFn = spawnFn ?? defaultSpawnFn;
+		this.featherweightFn = featherweightFn;
+		this.authChannel = authChannel;
 		this.waitTimeoutMs = waitTimeoutMs ?? 900_000;
 		this.agentMessageAckTimeoutMs =
 			agentMessageAckTimeoutMs ?? DEFAULT_AGENT_MESSAGE_ACK_TIMEOUT_MS;
+	}
+
+	/**
+	 * Wire the featherweight in-process executor (spec §5). The owning Agent calls
+	 * this after construction, since it holds the LLM client the executor needs.
+	 * Without it, featherweight-flagged spawns fall back to the subprocess path.
+	 */
+	setFeatherweightExecutor(fn: FeatherweightFn): void {
+		this.featherweightFn = fn;
 	}
 
 	/**
@@ -429,15 +573,24 @@ export class AgentSpawner {
 	 * and kill any running processes. Called on session reset (/clear).
 	 */
 	async clearHandles(): Promise<void> {
+		await this.stopAllHandles("Session cleared");
+		this.handles.clear();
+	}
+
+	/**
+	 * Tear down every tracked handle: reject pending waiters (so they don't
+	 * hang for the timeout duration), SIGTERM live processes (SIGKILL after a
+	 * grace period), and unsubscribe from result topics.
+	 */
+	private async stopAllHandles(reason: string): Promise<void> {
 		const processesToStop: Array<{
 			process: AgentHandle["process"];
 			exited: Promise<number>;
 		}> = [];
 		for (const handle of this.handles.values()) {
-			// Reject pending waiters so they don't hang for the timeout duration
 			for (const waiter of handle.pendingWaiters) {
 				if (waiter.timer) clearTimeout(waiter.timer);
-				waiter.reject(new Error("Session cleared"));
+				waiter.reject(new Error(reason));
 			}
 			handle.pendingWaiters = [];
 
@@ -450,7 +603,6 @@ export class AgentSpawner {
 			}
 		}
 		await forceKillAfterGrace(processesToStop, PROCESS_SHUTDOWN_GRACE_MS);
-		this.handles.clear();
 	}
 
 	private async subscribeToSessionTopic(): Promise<void> {
@@ -517,6 +669,220 @@ export class AgentSpawner {
 		});
 	}
 
+	/** Liveness probe from the auth channel, if this spawner has one. */
+	get livenessProbe(): LivenessProbe | undefined {
+		return this.authChannel?.probe;
+	}
+
+	/** Caller-scoped store access from the auth channel, if this spawner has one. */
+	get storeAccess(): StoreAccess | undefined {
+		return this.authChannel?.store;
+	}
+
+	/**
+	 * Register a handle with the host ahead of its process launch and return
+	 * the env vars carrying its credentials. Registration must precede launch
+	 * so the child's very first connection can authenticate. Without an auth
+	 * channel this is a no-op returning no env. A rejected registration aborts
+	 * the launch — an unregistered child could never authenticate anyway.
+	 */
+	private async registerHandleForLaunch(input: {
+		handleId: string;
+		ownerId: string;
+		depth: number;
+		isObserver: boolean;
+	}): Promise<Record<string, string>> {
+		if (!this.authChannel) return {};
+		const token = mintToken();
+		// An observer's read scope is fixed at spawn: session-wide when root
+		// spawns it, otherwise limited to the spawning owner's delegations.
+		const observerRemit: ObserverRemit | undefined = input.isObserver
+			? input.ownerId === "root"
+				? { kind: "session" }
+				: { kind: "delegate", ownerId: input.ownerId }
+			: undefined;
+		await this.authChannel.registrar.registerChild({
+			handleId: input.handleId,
+			tokenHash: hashToken(token),
+			ownerId: input.ownerId,
+			depth: input.depth,
+			...(observerRemit ? { observerRemit } : {}),
+		});
+		// INVARIANT: every child of an auth-channel spawner gets its OWN token
+		// here. defaultSpawnFn merges over process.env, so if a child were ever
+		// spawned without this override while the parent's env held a token,
+		// the child would inherit the parent's token and could authenticate as
+		// the parent.
+		return { SPROUT_AUTH_URL: this.authChannel.url, SPROUT_HANDLE_TOKEN: token };
+	}
+
+	/**
+	 * Register env grants for a recipient over the authenticated store BEFORE
+	 * the bus message that carries them (spec §3: registered, not asserted).
+	 * Returns the wire env — alias → the granted value's resolved ULID — for
+	 * the recipient's claim to verify. A rejected grant (alias collision,
+	 * foreign value) throws, failing the spawn/message loudly so the sender can
+	 * re-alias. Env without an authenticated store is a loud error too: an
+	 * unregistered env could never bind.
+	 */
+	private async registerEnvGrants(
+		recipientHandleId: string,
+		env: Record<string, string> | undefined,
+	): Promise<{ wire: Record<string, string>; granted: EnvGrantAnnouncement[] } | undefined> {
+		if (env === undefined || Object.keys(env).length === 0) return undefined;
+		const store = this.authChannel?.store;
+		if (!store) {
+			throw new Error("env grants require the authenticated store, but none is available");
+		}
+		const wire: Record<string, string> = {};
+		const granted: EnvGrantAnnouncement[] = [];
+		for (const [alias, ref] of Object.entries(env)) {
+			const metadata = await store.registerEnvGrant(recipientHandleId, alias, ref);
+			wire[alias] = metadata.ulid;
+			granted.push({ alias, preview: metadata.preview });
+		}
+		return { wire, granted };
+	}
+
+	/**
+	 * The AgentHandle shape shared by every registration path (subprocess
+	 * spawn, featherweight, resume). Callers spread the result and override
+	 * what their path knows better (process, status, result, featherweight,
+	 * resultRecoveryLogOffset).
+	 */
+	private buildHandle(
+		spawn: Pick<
+			SpawnAgentOptions,
+			| "agentName"
+			| "genomePath"
+			| "caller"
+			| "workDir"
+			| "rootDir"
+			| "projectDataDir"
+			| "mnemonicName"
+			| "evalMode"
+			| "allowExec"
+			| "dataPlaneEnabled"
+			| "model"
+			| "providerIdOverride"
+			| "resolverSettings"
+			| "trustedUserInstruction"
+			| "surfacedMemoryBlock"
+		>,
+		identity: {
+			handleId: string;
+			agentId: string;
+			self: AgentAddress;
+			visibility: HandleVisibility;
+			keepAlive: boolean;
+			isObserver: boolean;
+		},
+	): AgentHandle {
+		return {
+			handleId: identity.handleId,
+			agentId: identity.agentId,
+			address: identity.self,
+			process: { kill: () => {}, exited: Promise.resolve(0) },
+			status: "running",
+			keepAlive: identity.keepAlive,
+			visibility: identity.visibility,
+			isObserver: identity.isObserver,
+			pendingWaiters: [],
+			owner: spawn.caller,
+			agentName: spawn.agentName,
+			genomePath: spawn.genomePath,
+			caller: spawn.caller,
+			workDir: spawn.workDir,
+			rootDir: spawn.rootDir,
+			projectDataDir: spawn.projectDataDir,
+			mnemonicName: spawn.mnemonicName,
+			evalMode: spawn.evalMode,
+			allowExec: spawn.allowExec,
+			dataPlaneEnabled: spawn.dataPlaneEnabled,
+			model: spawn.model,
+			providerIdOverride: spawn.providerIdOverride,
+			resolverSettings: spawn.resolverSettings,
+			trustedUserInstruction: spawn.trustedUserInstruction,
+			surfacedMemoryBlock: spawn.surfacedMemoryBlock,
+		};
+	}
+
+	/**
+	 * Env for a handle's subprocess launch, including the freshly minted
+	 * per-handle credentials from registerHandleForLaunch.
+	 */
+	private async buildLaunchEnv(handle: AgentHandle): Promise<Record<string, string>> {
+		return {
+			SPROUT_BUS_URL: this.busUrl,
+			SPROUT_HANDLE_ID: handle.handleId,
+			SPROUT_SESSION_ID: this.sessionId,
+			SPROUT_GENOME_PATH: handle.genomePath,
+			SPROUT_WORK_DIR: handle.workDir,
+			SPROUT_PARENT_PID: String(process.pid),
+			...(handle.rootDir ? { SPROUT_ROOT_DIR: handle.rootDir } : {}),
+			...(handle.projectDataDir ? { SPROUT_PROJECT_DATA_DIR: handle.projectDataDir } : {}),
+			...(await this.registerHandleForLaunch({
+				handleId: handle.handleId,
+				ownerId: handle.owner.handleId,
+				depth: handle.address.depth,
+				isObserver: handle.isObserver,
+			})),
+		};
+	}
+
+	/**
+	 * Launch (or relaunch) a handle's subprocess and run the shared post-spawn
+	 * sequence: track the process, watch its exit, subscribe to results, wait
+	 * for ready, and publish the StartMessage built from the handle's fields.
+	 */
+	private async launchHandleProcess(
+		handle: AgentHandle,
+		env: Record<string, string>,
+		start: {
+			goal: string;
+			hints?: string[];
+			payload?: Record<string, unknown>;
+			wireEnv?: Record<string, string>;
+		},
+	): Promise<void> {
+		const proc = this.spawnFn(handle.handleId, env);
+		handle.process = proc;
+		handle.result = undefined;
+		handle.status = "running";
+		this.handles.set(handle.handleId, handle);
+		this.monitorProcessExit(handle.handleId, proc);
+
+		// Subscribe to result topic to track status
+		await this.subscribeToResultTopic(handle);
+
+		// Wait for the agent process to signal it's ready (subscribed to inbox)
+		await this.waitForReadyOrExit(handle.handleId, proc);
+
+		// Publish start message to the agent's inbox
+		const startMsg: StartMessage = {
+			kind: "start",
+			handle_id: handle.handleId,
+			genome_path: handle.genomePath,
+			session_id: this.sessionId,
+			self: handle.address,
+			caller: handle.caller,
+			goal: start.goal,
+			hints: start.hints,
+			payload: start.payload,
+			shared: handle.keepAlive,
+			eval_mode: handle.evalMode,
+			allow_exec: handle.allowExec,
+			data_plane_enabled: handle.dataPlaneEnabled,
+			model: handle.model,
+			provider_id: handle.providerIdOverride,
+			resolver_settings: handle.resolverSettings,
+			trusted_user_instruction: handle.trustedUserInstruction,
+			surfaced_memory_block: handle.surfacedMemoryBlock,
+			env: start.wireEnv,
+		};
+		await this.bus.publish(agentInbox(this.sessionId, handle.handleId), JSON.stringify(startMsg));
+	}
+
 	/**
 	 * Spawn a new agent process.
 	 *
@@ -536,79 +902,38 @@ export class AgentSpawner {
 			...(opts.isObserver ? { role: "observer" as const } : {}),
 		};
 
-		const env: Record<string, string> = {
-			SPROUT_BUS_URL: this.busUrl,
-			SPROUT_HANDLE_ID: handleId,
-			SPROUT_SESSION_ID: this.sessionId,
-			SPROUT_GENOME_PATH: opts.genomePath,
-			SPROUT_WORK_DIR: opts.workDir,
-			SPROUT_PARENT_PID: String(process.pid),
-			...(opts.rootDir ? { SPROUT_ROOT_DIR: opts.rootDir } : {}),
-			...(opts.projectDataDir ? { SPROUT_PROJECT_DATA_DIR: opts.projectDataDir } : {}),
-		};
+		// Featherweight placement (spec §5): a single-turn no-tool no-spawn leaf runs
+		// in this process, producing a synthetic handle, session events, and log so
+		// wait_agent/message_agent/resume behave identically to a subprocess child.
+		if (opts.featherweight && this.featherweightFn) {
+			return this.spawnFeatherweight(opts, handleId, agentId, self, visibility, keepAlive);
+		}
 
-		const resultRecoveryLogOffset = await this.captureResultRecoveryLogOffset(
+		const handle = this.buildHandle(opts, {
+			handleId,
+			agentId,
+			self,
+			visibility,
+			keepAlive,
+			isObserver: opts.isObserver === true,
+		});
+		const env = await this.buildLaunchEnv(handle);
+
+		// Grants register before launch so the child's claims find them pending;
+		// a rejection aborts the spawn before any process exists.
+		const wireEnv = (await this.registerEnvGrants(handleId, opts.env))?.wire;
+
+		handle.resultRecoveryLogOffset = await this.captureResultRecoveryLogOffset(
 			opts.projectDataDir ?? opts.genomePath,
 			handleId,
 		);
 
-		// Spawn the process
-		const proc = this.spawnFn(handleId, env);
-
-		const handle: AgentHandle = {
-			handleId,
-			agentId,
-			address: self,
-			process: proc,
-			status: "running",
-			keepAlive,
-			visibility,
-			isObserver: opts.isObserver === true,
-			pendingWaiters: [],
-			owner: opts.caller,
-			agentName: opts.agentName,
-			genomePath: opts.genomePath,
-			caller: opts.caller,
-			workDir: opts.workDir,
-			rootDir: opts.rootDir,
-			projectDataDir: opts.projectDataDir,
-			mnemonicName: opts.mnemonicName,
-			evalMode: opts.evalMode,
-			providerIdOverride: opts.providerIdOverride,
-			resolverSettings: opts.resolverSettings,
-			trustedUserInstruction: opts.trustedUserInstruction,
-			surfacedMemoryBlock: opts.surfacedMemoryBlock,
-			resultRecoveryLogOffset,
-		};
-		this.handles.set(handleId, handle);
-		this.monitorProcessExit(handleId, proc);
-
-		// Subscribe to result topic to track status
-		await this.subscribeToResultTopic(handle);
-
-		// Wait for the agent process to signal it's ready (subscribed to inbox)
-		await this.waitForReadyOrExit(handleId, proc);
-
-		// Publish start message to the agent's inbox
-		const inboxTopic = agentInbox(this.sessionId, handleId);
-		const startMsg: StartMessage = {
-			kind: "start",
-			handle_id: handleId,
-			genome_path: opts.genomePath,
-			session_id: this.sessionId,
-			self,
-			caller: opts.caller,
+		await this.launchHandleProcess(handle, env, {
 			goal: opts.goal,
 			hints: opts.hints,
 			payload: opts.payload,
-			shared: keepAlive,
-			eval_mode: opts.evalMode,
-			provider_id: opts.providerIdOverride,
-			resolver_settings: opts.resolverSettings,
-			trusted_user_instruction: opts.trustedUserInstruction,
-			surfaced_memory_block: opts.surfacedMemoryBlock,
-		};
-		await this.bus.publish(inboxTopic, JSON.stringify(startMsg));
+			wireEnv,
+		});
 
 		if (opts.blocking) {
 			return this.waitForBlockingSpawn(handleId);
@@ -617,23 +942,155 @@ export class AgentSpawner {
 		return handleId;
 	}
 
-	private waitForBlockingSpawn(handleId: string): Promise<ResultMessage> {
-		const handle = this.handles.get(handleId);
-		if (!handle) {
-			throw new Error(`Unknown handle: ${handleId}`);
-		}
+	/**
+	 * Run a featherweight-eligible spawn in this process (spec §5). Registers a
+	 * synthetic completed handle, publishes session_start/session_end on the
+	 * session-wide topic, and writes a perceive/plan_end/session_end per-handle
+	 * log — the minimal records resume registration and respawn-with-history need.
+	 */
+	private async spawnFeatherweight(
+		opts: SpawnAgentOptions,
+		handleId: string,
+		agentId: string,
+		self: AgentAddress,
+		visibility: HandleVisibility,
+		keepAlive: boolean,
+	): Promise<ResultMessage | string> {
+		const handle: AgentHandle = {
+			...this.buildHandle(opts, {
+				handleId,
+				agentId,
+				self,
+				visibility,
+				keepAlive,
+				isObserver: false,
+			}),
+			featherweight: true,
+		};
+		this.handles.set(handleId, handle);
 
-		if (handle.result) {
-			return Promise.resolve(handle.result);
-		}
-
-		return new Promise<ResultMessage>((resolve, reject) => {
-			const waiter: PendingWaiter = {
-				resolve,
-				reject,
-			};
-			handle.pendingWaiters.push(waiter);
+		// Parity with the subprocess path (spec §5): grants register before the
+		// run — a rejection aborts the spawn — and hints/payload format into the
+		// child goal exactly as the subprocess child formats its StartMessage.
+		const registration = await this.registerEnvGrants(handleId, opts.env);
+		const baseGoal = formatDelegationGoal({
+			goal: opts.goal,
+			hints: opts.hints,
+			payload: opts.payload ? normalizeTaskPayload(opts.payload, "agent start message") : undefined,
 		});
+		const announcement = renderEnvAnnouncement(registration?.granted);
+		const goal = announcement ? `${baseGoal}\n\n${announcement}` : baseGoal;
+
+		const result = await this.runFeatherweight(handle, goal);
+		this.settleHandleResult(handle, result, keepAlive ? "idle" : "completed");
+
+		if (opts.blocking) {
+			return result;
+		}
+		return handleId;
+	}
+
+	/**
+	 * Execute one featherweight turn and produce the equivalent observable state
+	 * (spec §5): the run outcome via the injected executor, session events on the
+	 * session-wide topic, and the three-record per-handle log. Re-runs (a
+	 * follow-up message_agent) replay the prior log so history is present.
+	 */
+	private async runFeatherweight(handle: AgentHandle, goal: string): Promise<ResultMessage> {
+		const dataDir = handle.projectDataDir ?? handle.genomePath;
+		const handleLogDir = sessionLogDir(dataDir, this.sessionId);
+		const logPath = join(handleLogDir, `${handle.handleId}.jsonl`);
+		const priorHistory = await replayHandleLog(logPath);
+
+		const exec = await this.featherweightFn!({
+			agentName: handle.agentName,
+			goal,
+			self: handle.address,
+			caller: handle.caller,
+			evalMode: handle.evalMode,
+			model: handle.model,
+			resolverSettings: handle.resolverSettings,
+			surfacedMemoryBlock: handle.surfacedMemoryBlock,
+			history: priorHistory.length > 0 ? priorHistory : undefined,
+		});
+
+		const depth = handle.address.depth;
+		const startData = {
+			goal,
+			session_id: this.sessionId,
+			...(handle.model ? { model: handle.model } : {}),
+		};
+		const endData = {
+			session_id: this.sessionId,
+			success: exec.success,
+			stumbles: exec.stumbles,
+			turns: exec.turns,
+			timed_out: exec.timed_out,
+			output: exec.output,
+		};
+
+		// Session-wide topic: a subprocess child publishes session_start/session_end
+		// itself; the owner synthesizes them so featherweight fan-out stays visible.
+		this.publishSessionEvent(handle.handleId, "session_start", agentIdOf(handle), depth, startData);
+
+		// Per-handle log: perceive + plan_end rebuild history on a follow-up
+		// message_agent; session_end registers the completed handle on resume.
+		await mkdir(handleLogDir, { recursive: true });
+		const records: SessionEvent[] = [
+			logEvent("perceive", agentIdOf(handle), depth, { goal }),
+			logEvent("plan_end", agentIdOf(handle), depth, {
+				assistant_message: Msg.assistant(exec.output),
+			}),
+			logEvent("session_end", agentIdOf(handle), depth, endData),
+		];
+		await appendFile(logPath, records.map((r) => `${JSON.stringify(r)}\n`).join(""));
+
+		this.publishSessionEvent(handle.handleId, "session_end", agentIdOf(handle), depth, endData);
+
+		// Featherweight capture (capture-all spec v10): the live result gates
+		// through the shared boundary — parent-scope bind, NO publish (the value
+		// is already in the parent's scope). PRIVATE handles only: a shared
+		// handle's future waiter could not reach a parent-scope value, so shared
+		// results keep the raw path. The durable log above stays full-fidelity
+		// raw (child-facing replay must not lose its own prior answer).
+		const gatedOutput =
+			handle.visibility !== "shared" && this.storeAccess !== undefined
+				? await prepareResultOutput(this.storeAccess, handle.handleId, goal, exec.output, {
+						publish: false,
+					})
+				: exec.output;
+
+		return {
+			kind: "result",
+			handle_id: handle.handleId,
+			output: gatedOutput,
+			success: exec.success,
+			stumbles: exec.stumbles,
+			turns: exec.turns,
+			timed_out: exec.timed_out,
+		};
+	}
+
+	private publishSessionEvent(
+		handleId: string,
+		kind: SessionEvent["kind"],
+		agentId: string,
+		depth: number,
+		data: Record<string, unknown>,
+	): void {
+		if (!this.bus.connected) return;
+		const eventMsg: EventMessage = {
+			kind: "event",
+			handle_id: handleId,
+			event: logEvent(kind, agentId, depth, data),
+		};
+		void this.bus.publish(sessionEvents(this.sessionId), JSON.stringify(eventMsg));
+	}
+
+	private waitForBlockingSpawn(handleId: string): Promise<ResultMessage> {
+		// The spec's timer-less blocking-wait path: exactly waitAgent with no
+		// caller (internal waits skip access checks) and no timeout.
+		return this.waitAgent(handleId, undefined, { untimed: true });
 	}
 
 	/**
@@ -644,8 +1101,15 @@ export class AgentSpawner {
 	 * When caller is provided, access control is enforced:
 	 * non-shared handles reject callers other than the owner.
 	 * Internal calls (e.g. the blocking path in spawnAgent) omit caller to skip the check.
+	 *
+	 * `untimed` drops the waiter cap (sap spec §4): the ambient handle.wait()
+	 * path uses the timer-less blocking wait; the wait_agent TOOL keeps its cap.
 	 */
-	waitAgent(handleId: string, caller?: AgentAddress): Promise<ResultMessage> {
+	waitAgent(
+		handleId: string,
+		caller?: AgentAddress,
+		opts: { untimed?: boolean } = {},
+	): Promise<ResultMessage> {
 		const handle = this.handles.get(handleId);
 		if (!handle) {
 			throw new Error(`Unknown handle: ${handleId}`);
@@ -670,13 +1134,17 @@ export class AgentSpawner {
 
 		return new Promise<ResultMessage>((resolve, reject) => {
 			const waiter: PendingWaiter = {
-				resolve: (result) => resolve(result as ResultMessage),
+				resolve,
 				reject,
-				timer: setTimeout(() => {
-					const idx = handle.pendingWaiters.indexOf(waiter);
-					if (idx !== -1) handle.pendingWaiters.splice(idx, 1);
-					reject(new Error(`waitAgent timed out for handle ${handleId}`));
-				}, this.waitTimeoutMs),
+				...(opts.untimed
+					? {}
+					: {
+							timer: setTimeout(() => {
+								const idx = handle.pendingWaiters.indexOf(waiter);
+								if (idx !== -1) handle.pendingWaiters.splice(idx, 1);
+								reject(new Error(`waitAgent timed out for handle ${handleId}`));
+							}, this.waitTimeoutMs),
+						}),
 			};
 			handle.pendingWaiters.push(waiter);
 		});
@@ -696,9 +1164,16 @@ export class AgentSpawner {
 		message: string,
 		caller: AgentAddress,
 		blocking: boolean,
-		trustedUserInstruction?: string,
-		callerTarget?: AgentAddress,
+		options: {
+			/** Original user instruction, trusted for deterministic policy gates. */
+			trustedUserInstruction?: string;
+			/** Runtime caller address, required for the "caller" alias. */
+			callerTarget?: AgentAddress;
+			/** Env grants: alias → a value name or ulid in the CALLER's scope. */
+			envGrants?: Record<string, string>;
+		} = {},
 	): Promise<ResultMessage | undefined> {
+		const { trustedUserInstruction, callerTarget, envGrants } = options;
 		if (handleId === "root") {
 			if (caller.handleId !== "root") {
 				throw new Error('raw message_agent to root is only valid from root; use handle "caller"');
@@ -711,6 +1186,7 @@ export class AgentSpawner {
 				message,
 				from: caller,
 				to: caller,
+				env: (await this.registerEnvGrants("root", envGrants))?.wire,
 			};
 			await this.bus.publish(agentInbox(this.sessionId, "root"), JSON.stringify(rootMsg));
 			return undefined;
@@ -728,6 +1204,7 @@ export class AgentSpawner {
 				message,
 				from: caller,
 				to: callerTarget,
+				env: (await this.registerEnvGrants(callerTarget.handleId, envGrants))?.wire,
 			};
 			await this.publishAgentMessageWithAck(
 				agentInbox(this.sessionId, callerTarget.handleId),
@@ -754,6 +1231,22 @@ export class AgentSpawner {
 			);
 		}
 
+		// A completed/idle featherweight handle re-runs in-process with its prior
+		// history replayed (spec §5 respawn-with-history equivalent).
+		if (handle.featherweight && this.featherweightFn && handle.status !== "running") {
+			handle.trustedUserInstruction = trustedUserInstruction;
+			handle.result = undefined;
+			handle.status = "running";
+			const registration = await this.registerEnvGrants(handleId, envGrants);
+			const announcement = renderEnvAnnouncement(registration?.granted);
+			const result = await this.runFeatherweight(
+				handle,
+				announcement ? `${message}\n\n${announcement}` : message,
+			);
+			this.settleHandleResult(handle, result, handle.keepAlive ? "idle" : "completed");
+			return blocking ? result : undefined;
+		}
+
 		const inboxTopic = agentInbox(this.sessionId, handleId);
 
 		if (handle.status === "running") {
@@ -765,6 +1258,7 @@ export class AgentSpawner {
 				message,
 				from: caller,
 				to: handle.address,
+				env: (await this.registerEnvGrants(handleId, envGrants))?.wire,
 			};
 
 			await this.bus.publish(inboxTopic, JSON.stringify(agentMsg));
@@ -772,6 +1266,8 @@ export class AgentSpawner {
 		}
 
 		if (handle.status === "idle") {
+			// Grants register before the continue publishes (spec §3).
+			const wireEnv = (await this.registerEnvGrants(handleId, envGrants))?.wire;
 			handle.trustedUserInstruction = trustedUserInstruction;
 			// Agent process is alive — send continue message
 			handle.resultRecoveryLogOffset = await this.captureResultRecoveryLogOffset(
@@ -786,6 +1282,7 @@ export class AgentSpawner {
 				message,
 				caller,
 				trusted_user_instruction: trustedUserInstruction,
+				env: wireEnv,
 			};
 			await this.bus.publish(inboxTopic, JSON.stringify(continueMsg));
 
@@ -797,47 +1294,15 @@ export class AgentSpawner {
 
 		// Agent process has exited — re-spawn with the message as the new goal.
 		// The agent process auto-resumes from its prior event log.
-		const resultRecoveryLogOffset = await this.captureResultRecoveryLogOffset(
+		// Grants register before the fresh StartMessage carries them.
+		const respawnWireEnv = (await this.registerEnvGrants(handleId, envGrants))?.wire;
+		handle.resultRecoveryLogOffset = await this.captureResultRecoveryLogOffset(
 			handle.projectDataDir ?? handle.genomePath,
 			handleId,
 		);
-		const env: Record<string, string> = {
-			SPROUT_BUS_URL: this.busUrl,
-			SPROUT_HANDLE_ID: handleId,
-			SPROUT_SESSION_ID: this.sessionId,
-			SPROUT_GENOME_PATH: handle.genomePath,
-			SPROUT_WORK_DIR: handle.workDir,
-			SPROUT_PARENT_PID: String(process.pid),
-			...(handle.rootDir ? { SPROUT_ROOT_DIR: handle.rootDir } : {}),
-			...(handle.projectDataDir ? { SPROUT_PROJECT_DATA_DIR: handle.projectDataDir } : {}),
-		};
-
-		const proc = this.spawnFn(handleId, env);
-		handle.process = proc;
-		handle.result = undefined;
-		handle.status = "running";
-		handle.resultRecoveryLogOffset = resultRecoveryLogOffset;
-		this.monitorProcessExit(handleId, proc);
-		await this.subscribeToResultTopic(handle);
-
-		await this.waitForReadyOrExit(handleId, proc);
-
-		const startMsg: StartMessage = {
-			kind: "start",
-			handle_id: handleId,
-			genome_path: handle.genomePath,
-			session_id: this.sessionId,
-			self: handle.address,
-			caller: handle.caller,
-			goal: message,
-			shared: handle.keepAlive,
-			eval_mode: handle.evalMode,
-			provider_id: handle.providerIdOverride,
-			resolver_settings: handle.resolverSettings,
-			trusted_user_instruction: handle.trustedUserInstruction,
-			surfaced_memory_block: handle.surfacedMemoryBlock,
-		};
-		await this.bus.publish(inboxTopic, JSON.stringify(startMsg));
+		// Tokens are never journaled, so a re-spawn mints and registers anew.
+		const env = await this.buildLaunchEnv(handle);
+		await this.launchHandleProcess(handle, env, { goal: message, wireEnv: respawnWireEnv });
 
 		if (blocking) {
 			return this.waitAgent(handleId);
@@ -881,6 +1346,8 @@ export class AgentSpawner {
 				agentId: opts.agentId,
 				rootDir: opts.rootDir,
 				evalMode: opts.evalMode,
+				allowExec: opts.allowExec,
+				dataPlaneEnabled: opts.dataPlaneEnabled,
 				resolverSettings: opts.resolverSettings,
 				surfacedMemoryBlock: opts.surfacedMemoryBlock,
 			});
@@ -930,12 +1397,16 @@ export class AgentSpawner {
 			workDir: string;
 			agentId?: string;
 			evalMode?: boolean;
+			allowExec?: boolean;
+			dataPlaneEnabled?: boolean;
 			rootDir?: string;
 			projectDataDir?: string;
+			model?: string;
 			providerIdOverride?: string;
 			resolverSettings?: ResolverSettings;
 			trustedUserInstruction?: string;
 			surfacedMemoryBlock?: string;
+			featherweight?: boolean;
 		},
 	): void {
 		// Skip if the handle already exists (e.g. re-spawned since the
@@ -943,46 +1414,48 @@ export class AgentSpawner {
 		// live handle with stale completed data.
 		if (this.handles.has(handleId)) return;
 
+		const agentId = spawnInfo?.agentId ?? handleId;
+		const caller: AgentAddress = spawnInfo?.caller ?? {
+			agentName: ownerId,
+			depth: 0,
+			handleId: ownerId,
+			agentId: ownerId,
+		};
 		const handle: AgentHandle = {
-			handleId,
-			agentId: spawnInfo?.agentId ?? handleId,
-			address: {
-				agentName: spawnInfo?.agentName ?? "",
-				depth: (spawnInfo?.caller.depth ?? 0) + 1,
-				handleId,
-				agentId: spawnInfo?.agentId ?? handleId,
-			},
-			process: { kill: () => {}, exited: Promise.resolve(0) },
+			...this.buildHandle(
+				{
+					agentName: spawnInfo?.agentName ?? "",
+					genomePath: spawnInfo?.genomePath ?? "",
+					caller,
+					workDir: spawnInfo?.workDir ?? "",
+					rootDir: spawnInfo?.rootDir,
+					projectDataDir: spawnInfo?.projectDataDir,
+					evalMode: spawnInfo?.evalMode,
+					allowExec: spawnInfo?.allowExec,
+					dataPlaneEnabled: spawnInfo?.dataPlaneEnabled,
+					model: spawnInfo?.model,
+					providerIdOverride: spawnInfo?.providerIdOverride,
+					resolverSettings: spawnInfo?.resolverSettings,
+					trustedUserInstruction: spawnInfo?.trustedUserInstruction,
+					surfacedMemoryBlock: spawnInfo?.surfacedMemoryBlock,
+				},
+				{
+					handleId,
+					agentId,
+					self: {
+						agentName: spawnInfo?.agentName ?? "",
+						depth: (spawnInfo?.caller.depth ?? 0) + 1,
+						handleId,
+						agentId,
+					},
+					visibility: "private",
+					keepAlive: false,
+					isObserver: false,
+				},
+			),
 			status: "completed",
 			result,
-			keepAlive: false,
-			visibility: "private",
-			isObserver: false,
-			pendingWaiters: [],
-			owner: spawnInfo?.caller ?? {
-				agentName: ownerId,
-				depth: 0,
-				handleId: ownerId,
-				agentId: ownerId,
-			},
-			agentName: spawnInfo?.agentName ?? "",
-			genomePath: spawnInfo?.genomePath ?? "",
-			caller:
-				spawnInfo?.caller ??
-				({
-					agentName: ownerId,
-					depth: 0,
-					handleId: ownerId,
-					agentId: ownerId,
-				} satisfies AgentAddress),
-			workDir: spawnInfo?.workDir ?? "",
-			rootDir: spawnInfo?.rootDir,
-			projectDataDir: spawnInfo?.projectDataDir,
-			evalMode: spawnInfo?.evalMode,
-			providerIdOverride: spawnInfo?.providerIdOverride,
-			resolverSettings: spawnInfo?.resolverSettings,
-			trustedUserInstruction: spawnInfo?.trustedUserInstruction,
-			surfacedMemoryBlock: spawnInfo?.surfacedMemoryBlock,
+			featherweight: spawnInfo?.featherweight,
 		};
 		this.handles.set(handleId, handle);
 	}
@@ -999,26 +1472,7 @@ export class AgentSpawner {
 
 	/** Kill all running agent processes and clean up bus subscriptions. */
 	async shutdown(): Promise<void> {
-		const processesToStop: Array<{
-			process: AgentHandle["process"];
-			exited: Promise<number>;
-		}> = [];
-		for (const handle of this.handles.values()) {
-			for (const waiter of handle.pendingWaiters) {
-				if (waiter.timer) clearTimeout(waiter.timer);
-				waiter.reject(new Error("Spawner shutting down"));
-			}
-			handle.pendingWaiters = [];
-
-			if (handle.status === "running" || handle.status === "idle") {
-				handle.process.kill("SIGTERM");
-				processesToStop.push({ process: handle.process, exited: handle.process.exited });
-			}
-			if (handle.resultTopic && this.bus.connected) {
-				this.bus.unsubscribe(handle.resultTopic).catch(() => {});
-			}
-		}
-		await forceKillAfterGrace(processesToStop, PROCESS_SHUTDOWN_GRACE_MS);
+		await this.stopAllHandles("Spawner shutting down");
 		if (this.currentSessionEventsTopic && this.bus.connected) {
 			this.bus.unsubscribe(this.currentSessionEventsTopic).catch(() => {});
 		}

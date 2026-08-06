@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { git } from "../../src/genome/genome.ts";
 import type { Memory } from "../../src/kernel/types.ts";
+import { seedMemories } from "../helpers/genome-seed.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
 
 function memory(overrides: Partial<Memory> = {}): Memory {
@@ -26,9 +27,9 @@ describe("memory log compaction", () => {
 		try {
 			const genome = createTestGenome(root);
 			await genome.init();
-			await genome.addMemory(memory({ id: "active" }));
-			await genome.addMemory(memory({ id: "archived", archived_at: 1000 }));
-			await genome.addMemory(memory({ id: "superseded", superseded_by: "active" }));
+			await seedMemories(genome, memory({ id: "active" }));
+			await seedMemories(genome, memory({ id: "archived", archived_at: 1000 }));
+			await seedMemories(genome, memory({ id: "superseded", superseded_by: "active" }));
 			const active = genome.memories.getById("active")!;
 			active.inbound_links = [
 				{
@@ -68,7 +69,7 @@ describe("memory log compaction", () => {
 		try {
 			const genome = createTestGenome(root);
 			await genome.init();
-			await genome.addMemory(memory({ id: "active" }));
+			await seedMemories(genome, memory({ id: "active" }));
 
 			const first = await genome.compactMemoryLogIfDue(1000);
 			const second = await genome.compactMemoryLogIfDue(1000 + 60_000);

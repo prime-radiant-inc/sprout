@@ -1,20 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { memoryIndexPath } from "../../src/genome/index-builder.ts";
 import {
 	applyMemoryLinks,
-	discoverLinkCandidates,
 	discoverLinkCandidatesForNewMemories,
-	healMemoryLinks,
-	persistMemoryLinks,
 	traverseMemoryLinks,
 } from "../../src/genome/linking.ts";
-import { MemoryIndex } from "../../src/genome/memory-index.ts";
 import { memoryShortId } from "../../src/genome/memory-schema.ts";
 import type { Memory } from "../../src/kernel/types.ts";
-import { createTestGenome } from "../helpers/test-genome.ts";
 
 function memory(overrides: Partial<Memory> = {}): Memory {
 	return {
@@ -32,8 +23,8 @@ function memory(overrides: Partial<Memory> = {}): Memory {
 
 describe("memory link graph", () => {
 	test("discovers candidates across vector, entity, and tfidf axes", () => {
-		const candidates = discoverLinkCandidates(
-			[
+		const candidates = discoverLinkCandidatesForNewMemories({
+			memories: [
 				memory({
 					id: "new-sqlite",
 					created: 300,
@@ -73,8 +64,9 @@ describe("memory link graph", () => {
 					},
 				}),
 			],
-			{ minVectorSimilarity: 0.95, minTfIdfSimilarity: 0.01 },
-		);
+			newMemoryIds: new Set(["new-sqlite"]),
+			options: { minVectorSimilarity: 0.95, minTfIdfSimilarity: 0.01 },
+		});
 
 		const sqlitePair = candidates.find((candidate) => candidate.target_id === "old-sqlite");
 		expect(sqlitePair).toMatchObject({
@@ -86,7 +78,7 @@ describe("memory link graph", () => {
 		expect(sqlitePair?.axes).toContain("tfidf");
 	});
 
-	test("discovery and traversal ignore superseded memories", () => {
+	test("traversal ignores superseded memories", () => {
 		const active = memory({
 			id: "active",
 			created: 300,
@@ -148,17 +140,6 @@ describe("memory link graph", () => {
 			},
 			entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
 		});
-
-		const candidates = discoverLinkCandidates([active, detail, staleField, staleInbound], {
-			minVectorSimilarity: 0.95,
-			minTfIdfSimilarity: 0.01,
-		});
-		const candidateIds = candidates.flatMap((candidate) => [
-			candidate.source_id,
-			candidate.target_id,
-		]);
-		expect(candidateIds).not.toContain("stale-field");
-		expect(candidateIds).not.toContain("stale-inbound");
 
 		const traversed = traverseMemoryLinks([active, detail, staleField, staleInbound], "active");
 		expect(traversed.map((result) => result.memory.id)).toEqual(["detail"]);
@@ -559,97 +540,6 @@ describe("memory link graph", () => {
 		expect(target.superseded_by).toBe("new-memory");
 	});
 
-	test("persists classified relationships to JSONL and the SQLite index", async () => {
-		const root = await mkdtemp(join(tmpdir(), "sprout-linking-"));
-		try {
-			const genome = createTestGenome(root);
-			await genome.init();
-			await genome.addMemory(memory({ id: "new-memory", created: 200 }));
-			await genome.addMemory(memory({ id: "old-memory", created: 100 }));
-
-			const added = await persistMemoryLinks(
-				genome,
-				[
-					{
-						source_id: "new-memory",
-						target_id: "old-memory",
-						relationship_type: "refines",
-						reasoning: "The newer memory adds implementation detail.",
-					},
-				],
-				{ now: 1234 },
-			);
-
-			expect(added).toBe(1);
-			expect(genome.memories.getById("new-memory")?.outbound_links?.[0]).toMatchObject({
-				uuid: "old-memory",
-				type: "refines",
-			});
-			expect(genome.memories.getById("old-memory")?.inbound_links?.[0]).toMatchObject({
-				uuid: "new-memory",
-				type: "refines",
-			});
-			const content = await readFile(join(root, "memories", "memories.jsonl"), "utf-8");
-			expect(content).toContain('"outbound_links"');
-
-			const index = MemoryIndex.open(memoryIndexPath(root));
-			try {
-				expect(index.stats().linkCount).toBe(1);
-			} finally {
-				index.close();
-			}
-		} finally {
-			await rm(root, { recursive: true, force: true });
-		}
-	});
-
-	test("persists reciprocal and superseded repairs when outbound link already exists", async () => {
-		const root = await mkdtemp(join(tmpdir(), "sprout-link-repair-"));
-		try {
-			const genome = createTestGenome(root);
-			await genome.init();
-			await genome.addMemory(memory({ id: "old-memory", created: 100 }));
-			await genome.addMemory(
-				memory({
-					id: "new-memory",
-					created: 200,
-					outbound_links: [
-						{
-							uuid: "old-memory",
-							type: "supersedes",
-							reasoning: "existing outbound",
-							created_at: 1,
-						},
-					],
-				}),
-			);
-
-			const added = await persistMemoryLinks(
-				genome,
-				[
-					{
-						source_id: "new-memory",
-						target_id: "old-memory",
-						relationship_type: "supersedes",
-						reasoning: "existing outbound",
-					},
-				],
-				{ now: 1234 },
-			);
-
-			expect(added).toBe(0);
-			const reloaded = createTestGenome(root);
-			await reloaded.loadFromDisk();
-			expect(reloaded.memories.getById("old-memory")?.superseded_by).toBe("new-memory");
-			expect(reloaded.memories.getById("old-memory")?.inbound_links?.[0]).toMatchObject({
-				uuid: "new-memory",
-				type: "supersedes",
-			});
-		} finally {
-			await rm(root, { recursive: true, force: true });
-		}
-	});
-
 	test("traverses linked memories by relationship weight and ignores dead refs", () => {
 		const start = memory({
 			id: "start",
@@ -670,26 +560,5 @@ describe("memory link graph", () => {
 
 		expect(results.map((result) => result.memory.id)).toEqual(["conflict", "detail"]);
 		expect(results[0]?.type).toBe("conflicts");
-	});
-
-	test("heals dead JSONL link references and commits the mutation", async () => {
-		const root = await mkdtemp(join(tmpdir(), "sprout-link-heal-"));
-		try {
-			const genome = createTestGenome(root);
-			await genome.init();
-			await genome.addMemory(
-				memory({
-					id: "alive",
-					outbound_links: [{ uuid: "missing", type: "refines", reasoning: "dead", created_at: 1 }],
-				}),
-			);
-
-			const removed = await healMemoryLinks(genome);
-
-			expect(removed).toBe(1);
-			expect(genome.memories.getById("alive")?.outbound_links).toEqual([]);
-		} finally {
-			await rm(root, { recursive: true, force: true });
-		}
 	});
 });

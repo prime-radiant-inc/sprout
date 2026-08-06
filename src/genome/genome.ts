@@ -7,12 +7,16 @@ import {
 	readRootDir,
 	resolveRootToolsDir,
 } from "../agents/loader.ts";
-import { parseAgentMarkdown, serializeAgentMarkdown } from "../agents/markdown-loader.ts";
+import {
+	parseAgentMarkdown,
+	serializeAgentMarkdown,
+	validateAgentSpec,
+} from "../agents/markdown-loader.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../kernel/types.ts";
 import type { EmbeddingProvider } from "../llm/embeddings.ts";
 import { getToolDisplayName } from "../shared/tool-display.ts";
 import { filterDuplicateMemories } from "./dedup.ts";
-import { acquireDirectoryLock } from "./file-lock.ts";
+import { acquireDirectoryLock, type DirectoryLockOptions } from "./file-lock.ts";
 import { sanitizeGitEnv } from "./git-env.ts";
 import {
 	ensureMemoryIndexFresh,
@@ -32,8 +36,16 @@ import { MemoryIndex } from "./memory-index.ts";
 import { isActiveMemoryForRecall } from "./memory-lifecycle.ts";
 import { memoryShortId } from "./memory-schema.ts";
 import { MemoryStore } from "./memory-store.ts";
+import {
+	type Program,
+	parseProgramMarkdown,
+	serializeProgramMarkdown,
+	validateProgram,
+} from "./program.ts";
 import { type DetectedProject, ProjectActivityStore } from "./projects.ts";
 import {
+	loadMemoryConsolidationPrompt,
+	loadMemoryEntityGcPrompt,
 	loadMemoryExtractionPrompts,
 	loadRelationshipClassificationPrompt,
 	loadSegmentSummaryPrompts,
@@ -51,6 +63,10 @@ import { attachReadySegmentEmbedding, type MemorySegment, SegmentStore } from ".
 export interface SyncRootResult {
 	added: string[];
 	conflicts: string[];
+	/** Root-shipped programs new since the last sync. */
+	addedPrograms: string[];
+	/** Programs where root changed AND the genome has an overlay (overlay wins). */
+	programConflicts: string[];
 }
 
 export interface GenomeOptions {
@@ -98,6 +114,12 @@ export { sanitizeGitEnv } from "./git-env.ts";
 
 const MEMORY_LOG_COMPACTION_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 
+/**
+ * How long usage-marking waits for the memory write lock before dropping the
+ * refresh: recall must stay fast under contention (A-F3).
+ */
+const MARK_USED_LOCK_TIMEOUT_MS = 2_000;
+
 /** Run a git command in the given directory, returning trimmed stdout. */
 export async function git(cwd: string, ...args: string[]): Promise<string> {
 	const proc = Bun.spawn(["git", ...args], {
@@ -128,6 +150,7 @@ const DIRS = [
 	"logs",
 	"postscripts",
 	"prompts",
+	"programs",
 	".cache",
 ] as const;
 
@@ -137,6 +160,8 @@ export class Genome {
 	private embeddingProvider?: EmbeddingProvider;
 	private readonly agents = new Map<string, AgentSpec>();
 	private readonly rootAgents = new Map<string, AgentSpec>();
+	private readonly programs = new Map<string, Program>();
+	private readonly rootPrograms = new Map<string, Program>();
 	readonly memories: MemoryStore;
 	readonly segments: SegmentStore;
 	readonly projects: ProjectActivityStore;
@@ -155,6 +180,11 @@ export class Genome {
 
 	get generation(): number {
 		return this._generation;
+	}
+
+	/** Absolute genome root directory (memories, prompts, and .cache state live under it). */
+	get path(): string {
+		return this.rootPath;
 	}
 
 	/** Initialize the genome directory with subdirectories and a git repo. */
@@ -189,13 +219,18 @@ export class Genome {
 		}
 	}
 
-	/** Load root agents from the rootDir. No-op if rootDir was not set. */
+	/** Load root agents and root programs from the rootDir. No-op if rootDir was not set. */
 	async loadRoot(): Promise<void> {
 		if (!this.rootDir) return;
 		const specs = await loadRootAgents(this.rootDir);
 		this.rootAgents.clear();
 		for (const spec of specs) {
 			this.rootAgents.set(spec.name, spec);
+		}
+		const { programs } = await readRootProgramsDir(this.rootDir);
+		this.rootPrograms.clear();
+		for (const program of programs) {
+			this.rootPrograms.set(program.name, program);
 		}
 	}
 
@@ -229,6 +264,65 @@ export class Genome {
 		return this.rootAgents.get(name);
 	}
 
+	// --- Programs (sap spec §7) ---
+
+	/** Look up a loaded, validated program by name. Checks overlay first, then root. */
+	getProgram(name: string): Program | undefined {
+		return this.programs.get(name) ?? this.rootPrograms.get(name);
+	}
+
+	/** Return a copy of all loaded, validated programs (root + overlay merged, overlay wins). */
+	allPrograms(): Program[] {
+		const merged = new Map<string, Program>(this.rootPrograms);
+		for (const [name, program] of this.programs) {
+			merged.set(name, program);
+		}
+		return [...merged.values()];
+	}
+
+	/**
+	 * Add a fabricated/repaired program to the genome: run the SAME lexical
+	 * import/require scan programs face at load (so a body carrying an import
+	 * never becomes runnable), then write markdown to programs/, commit, and
+	 * load it into the live library. This is a genome (evolvable) write — it is
+	 * reachable only through the gated Learn adoption path (mutation-gate.ts).
+	 */
+	async addProgram(program: Program): Promise<void> {
+		const check = validateProgram(program);
+		if (!check.ok) {
+			throw new Error(`Cannot add program '${program.name}': ${check.reason}`);
+		}
+		const programsDir = join(this.rootPath, "programs");
+		await mkdir(programsDir, { recursive: true });
+		const mdPath = join(programsDir, `${program.name}.md`);
+		await writeFile(mdPath, serializeProgramMarkdown(program));
+		await git(this.rootPath, "add", mdPath);
+		await git(this.rootPath, "commit", "-m", `genome: add program '${program.name}'`);
+		this.programs.set(program.name, program);
+		this._generation++;
+	}
+
+	/**
+	 * Remove an overlay program: delete its markdown file, commit, and drop it
+	 * from the library. Only overlay programs can be removed — root-only programs
+	 * are immutable (mirroring removeAgent). If the overlay shadowed a root
+	 * program, the root version re-appears.
+	 */
+	async removeProgram(name: string): Promise<void> {
+		if (!this.programs.has(name)) {
+			if (this.rootPrograms.has(name)) {
+				throw new Error(`Cannot remove program '${name}': it is a root program (not in overlay)`);
+			}
+			throw new Error(`Cannot remove program '${name}': not found`);
+		}
+		const mdPath = join(this.rootPath, "programs", `${name}.md`);
+		await rm(mdPath);
+		await git(this.rootPath, "add", mdPath);
+		await git(this.rootPath, "commit", "-m", `genome: remove program '${name}'`);
+		this.programs.delete(name);
+		this._generation++;
+	}
+
 	/** Returns true if the agent exists in the genome's overlay (modified or genome-created). */
 	isOverlay(name: string): boolean {
 		return this.agents.has(name);
@@ -242,6 +336,7 @@ export class Genome {
 	/** Add a new agent spec, writing markdown to disk and committing.
 	 *  If an agent with the same name exists in root or overlay, bumps version above the highest. */
 	async addAgent(spec: AgentSpec): Promise<void> {
+		validateAgentSpec(spec);
 		const rootVersion = this.rootAgents.get(spec.name)?.version ?? 0;
 		const overlayVersion = this.agents.get(spec.name)?.version ?? 0;
 		const baseVersion = Math.max(rootVersion, overlayVersion);
@@ -256,6 +351,7 @@ export class Genome {
 
 	/** Update an existing agent, bumping its version. Promotes root agents to overlay on first mutation. */
 	async updateAgent(spec: AgentSpec): Promise<void> {
+		validateAgentSpec(spec);
 		const existing = this.agents.get(spec.name) ?? this.rootAgents.get(spec.name);
 		if (!existing) {
 			throw new Error(`Cannot update agent '${spec.name}': not found`);
@@ -340,143 +436,40 @@ export class Genome {
 
 	// --- Memory CRUD (delegates to MemoryStore) ---
 
-	/** Add a memory, committing the JSONL file. */
-	async addMemory(memory: Memory): Promise<void> {
+	/**
+	 * Stage a new memory for callers that commit it together with other memory
+	 * mutations. reuseReadyEmbedding lets callers that embedded the memory
+	 * outside the write lock (A-F3) stage it without a network embedding call;
+	 * a memory without a ready embedding is embedded here regardless.
+	 */
+	async stageMemoryForMutation(
+		memory: Memory,
+		options: { reuseReadyEmbedding?: boolean } = {},
+	): Promise<Memory> {
 		stampMemoryActivitySnapshots(memory, this.projects.all());
-		const embeddedMemory = await attachReadyMemoryEmbedding(
-			memory,
-			await this.getEmbeddingProvider(),
-		);
-		const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
-		await this.withMemoryWriteLock(async () => {
-			const snapshots = await snapshotTextFiles([memoriesPath]);
-			let committed = false;
-			try {
-				await this.memories.load();
-				assertCanStageMemoryBatch(this.memories.all(), [embeddedMemory]);
-				this.memories.stage(embeddedMemory);
-				await this.memories.save();
-				await git(this.rootPath, "add", memoriesPath);
-				await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
-				await git(this.rootPath, "commit", "-m", `genome: add memory '${embeddedMemory.id}'`);
-				committed = true;
-			} catch (error) {
-				if (!committed) {
-					await restoreUncommittedMemoryMutation(this.rootPath, snapshots, [memoriesPath]);
-					await this.memories.load();
-				}
-				throw error;
-			}
-		});
-	}
-
-	/** Add multiple memories in a single commit. */
-	async addMemories(memories: Memory[], commitMessage: string): Promise<void> {
-		if (memories.length === 0) return;
-		const provider = await this.getEmbeddingProvider();
-		const embeddedMemories: Memory[] = [];
-		for (const memory of memories) {
-			stampMemoryActivitySnapshots(memory, this.projects.all());
-			embeddedMemories.push(await attachReadyMemoryEmbedding(memory, provider));
-		}
-		await this.withMemoryWriteLock(async () => {
-			await this.memories.load();
-			const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
-			const snapshots = await snapshotTextFiles([memoriesPath]);
-			let committed = false;
-			try {
-				assertCanStageMemoryBatch(this.memories.all(), embeddedMemories);
-				for (const memory of embeddedMemories) {
-					this.memories.stage(memory);
-				}
-				await this.memories.mergeLatestFromDisk();
-				await this.memories.save();
-				await git(this.rootPath, "add", memoriesPath);
-				const status = await git(this.rootPath, "status", "--porcelain", "--", memoriesPath);
-				if (!status) {
-					throw new Error("memory mutation produced no changes");
-				}
-				await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
-				await git(this.rootPath, "commit", "-m", commitMessage);
-				committed = true;
-			} catch (error) {
-				if (!committed) {
-					await restoreUncommittedMemoryMutation(this.rootPath, snapshots, [memoriesPath]);
-					await this.memories.load();
-				}
-				throw error;
-			}
-		});
-	}
-
-	/** Stage a new memory for callers that commit it together with other memory mutations. */
-	async stageMemoryForMutation(memory: Memory): Promise<Memory> {
-		stampMemoryActivitySnapshots(memory, this.projects.all());
-		const embeddedMemory = await attachReadyMemoryEmbedding(
-			memory,
-			await this.getEmbeddingProvider(),
-		);
+		const embeddedMemory =
+			options.reuseReadyEmbedding && memory.embedding?.status === "ready"
+				? memory
+				: await attachReadyMemoryEmbedding(memory, await this.getEmbeddingProvider());
 		return this.memories.stage(embeddedMemory);
 	}
 
 	/** Persist memory metadata mutations, committing JSONL and rebuilding the derived index. */
 	async saveMemoryMutation(commitMessage: string): Promise<void> {
 		const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
-		await this.withMemoryWriteLock(async () => {
-			const snapshots = await snapshotTextFiles([memoriesPath]);
-			let committed = false;
-			try {
-				await this.memories.mergeLatestFromDisk();
-				await this.memories.save();
-				await git(this.rootPath, "add", memoriesPath);
-				const status = await git(this.rootPath, "status", "--porcelain", "--", memoriesPath);
-				if (!status) {
-					throw new Error("memory mutation produced no changes");
-				}
-				await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
-				await git(this.rootPath, "commit", "-m", commitMessage);
-				committed = true;
-			} catch (error) {
-				if (!committed) {
-					await restoreUncommittedMemoryMutation(this.rootPath, snapshots, [memoriesPath]);
-					await this.memories.load();
-				}
-				throw error;
-			}
-		});
-	}
-
-	/** Add a collapsed session segment, committing the JSONL file. */
-	async addSegment(segment: MemorySegment): Promise<void> {
-		const embeddedSegment = await attachReadySegmentEmbedding(
-			segment,
-			await this.getEmbeddingProvider(),
+		await this.withMemoryWriteLock(() =>
+			this.runCommittedFileMutation({
+				paths: [memoriesPath],
+				mutate: async () => {
+					await this.memories.mergeLatestFromDisk();
+					await this.memories.save();
+				},
+				commitMessage: () => commitMessage,
+				onNoChanges: "throw",
+				rebuildIndex: true,
+				reloadAfterRestore: () => this.memories.load(),
+			}),
 		);
-		const segmentsPath = join(this.rootPath, "memories", "segments.jsonl");
-		await this.withMemoryWriteLock(async () => {
-			const snapshots = await snapshotTextFiles([segmentsPath]);
-			let committed = false;
-			try {
-				await this.segments.load();
-				this.segments.stage(embeddedSegment);
-				await this.segments.save();
-				await git(this.rootPath, "add", segmentsPath);
-				await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
-				await git(
-					this.rootPath,
-					"commit",
-					"-m",
-					`genome: add memory segment '${embeddedSegment.id}'`,
-				);
-				committed = true;
-			} catch (error) {
-				if (!committed) {
-					await restoreUncommittedMemoryMutation(this.rootPath, snapshots, [segmentsPath]);
-					await this.segments.load();
-				}
-				throw error;
-			}
-		});
 	}
 
 	/** Add a collapsed segment and extracted memories in one verified genome mutation. */
@@ -497,35 +490,28 @@ export class Genome {
 			const memoriesToStage = await filterDuplicateMemories(embeddedMemories, this.memories.all());
 			this.assertCanAddSegmentWithMemories(embeddedSegment, memoriesToStage);
 			const filesToAdd = memoriesToStage.length > 0 ? [segmentsPath, memoriesPath] : [segmentsPath];
-			const snapshots = await snapshotTextFiles(filesToAdd);
-			let committed = false;
-			try {
-				this.segments.stage(embeddedSegment);
-				const savedMemories: Memory[] = [];
-				for (const memory of memoriesToStage) {
-					savedMemories.push(this.memories.stage(memory));
-				}
-				if (memoriesToStage.length > 0) await this.memories.mergeLatestFromDisk();
-				await this.segments.save();
-				if (memoriesToStage.length > 0) await this.memories.save();
-				await git(this.rootPath, "add", ...filesToAdd);
-				await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
-				await git(
-					this.rootPath,
-					"commit",
-					"-m",
+			return this.runCommittedFileMutation({
+				paths: filesToAdd,
+				mutate: async () => {
+					this.segments.stage(embeddedSegment);
+					const savedMemories: Memory[] = [];
+					for (const memory of memoriesToStage) {
+						savedMemories.push(this.memories.stage(memory));
+					}
+					if (memoriesToStage.length > 0) await this.memories.mergeLatestFromDisk();
+					await this.segments.save();
+					if (memoriesToStage.length > 0) await this.memories.save();
+					return savedMemories;
+				},
+				commitMessage: () =>
 					`genome: add memory segment '${embeddedSegment.id}' with ${memoriesToStage.length} memories`,
-				);
-				committed = true;
-				return savedMemories;
-			} catch (err) {
-				if (!committed) {
-					await restoreUncommittedMemoryMutation(this.rootPath, snapshots, filesToAdd);
+				onNoChanges: "commit",
+				rebuildIndex: true,
+				reloadAfterRestore: async () => {
 					await this.segments.load();
 					await this.memories.load();
-				}
-				throw err;
-			}
+				},
+			});
 		});
 	}
 
@@ -549,6 +535,44 @@ export class Genome {
 
 		const segmentsPath = join(this.rootPath, "memories", "segments.jsonl");
 		const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
+
+		// Phase 1 — discover and classify OUTSIDE the memory write lock (A-F3):
+		// classification is up to a dozen serial LLM calls, and holding the lock
+		// through them starved every other acquirer past its timeout. A throwaway
+		// snapshot store keeps shared in-memory state untouched; the JSONL file
+		// is rewritten atomically, so a lockless read is consistent.
+		const snapshotStore = new MemoryStore(memoriesPath);
+		await snapshotStore.load();
+		const snapshot = snapshotStore.all();
+		const provisional = await filterDuplicateMemories(embeddedMemories, snapshot);
+		const explicitReferencesByNewMemoryId = explicitReferenceMapForNewMemories(
+			provisional,
+			input.explicitReferenceIds ?? [],
+		);
+		const candidates =
+			embeddedSegment || provisional.length > 0
+				? discoverLinkCandidatesForNewMemories({
+						memories: [...snapshot, ...provisional],
+						newMemoryIds: new Set(provisional.map((memory) => memory.id)),
+						...(explicitReferencesByNewMemoryId ? { explicitReferencesByNewMemoryId } : {}),
+						options: input.discovery,
+					})
+				: [];
+		const classified =
+			candidates.length > 0
+				? [
+						...(await input.classifyRelationships({
+							candidates,
+							memoriesById: new Map(
+								[...snapshot, ...provisional].map((memory) => [memory.id, memory]),
+							),
+						})),
+					]
+				: [];
+
+		// Phase 2 — re-validate and apply under the lock. Memories added or
+		// removed while classification ran simply miss this round's links; a
+		// relationship whose endpoint vanished (or deduped out) is dropped.
 		return this.withMemoryWriteLock(async () => {
 			await this.segments.load();
 			await this.memories.load();
@@ -568,69 +592,48 @@ export class Genome {
 			const filesToAdd = embeddedSegment
 				? [segmentsPath, ...(memoriesToStage.length > 0 ? [memoriesPath] : [])]
 				: [memoriesPath];
-			const snapshots = await snapshotTextFiles(filesToAdd);
-			let committed = false;
-			try {
-				const savedMemories: Memory[] = [];
-				if (embeddedSegment) {
-					this.segments.stage(embeddedSegment);
-				}
-				for (const memory of memoriesToStage) {
-					savedMemories.push(this.memories.stage(memory));
-				}
+			return this.runCommittedFileMutation({
+				paths: filesToAdd,
+				mutate: async () => {
+					const savedMemories: Memory[] = [];
+					if (embeddedSegment) {
+						this.segments.stage(embeddedSegment);
+					}
+					for (const memory of memoriesToStage) {
+						savedMemories.push(this.memories.stage(memory));
+					}
 
-				const explicitReferencesByNewMemoryId = explicitReferenceMapForNewMemories(
-					savedMemories,
-					input.explicitReferenceIds ?? [],
-				);
-				const candidates = discoverLinkCandidatesForNewMemories({
-					memories: this.memories.all(),
-					newMemoryIds: new Set(savedMemories.map((memory) => memory.id)),
-					...(explicitReferencesByNewMemoryId ? { explicitReferencesByNewMemoryId } : {}),
-					options: input.discovery,
-				});
-				const relationships =
-					candidates.length > 0
-						? [
-								...(await input.classifyRelationships({
-									candidates,
-									memoriesById: new Map(this.memories.all().map((memory) => [memory.id, memory])),
-								})),
-							]
-						: [];
-				const { added: linksAdded } = applyMemoryLinks(this.memories.all(), relationships, {
-					now: input.now,
-				});
+					const currentById = new Map(this.memories.all().map((memory) => [memory.id, memory]));
+					const relationships = classified.filter(
+						(relationship) =>
+							currentById.has(relationship.source_id) && currentById.has(relationship.target_id),
+					);
+					const { added: linksAdded } = applyMemoryLinks(this.memories.all(), relationships, {
+						now: input.now,
+					});
 
-				if (embeddedSegment) await this.segments.save();
-				if (memoriesToStage.length > 0) await this.memories.save();
-				await git(this.rootPath, "add", ...filesToAdd);
-				await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
-				await git(
-					this.rootPath,
-					"commit",
-					"-m",
+					if (embeddedSegment) await this.segments.save();
+					if (memoriesToStage.length > 0) await this.memories.save();
+					return {
+						...(embeddedSegment ? { segment: embeddedSegment } : {}),
+						memories: savedMemories,
+						candidates,
+						relationships,
+						linksAdded,
+					};
+				},
+				commitMessage: (result) =>
 					input.commitMessage ??
-						`genome: incorporate ${savedMemories.length} extracted memor${
-							savedMemories.length === 1 ? "y" : "ies"
-						}`,
-				);
-				committed = true;
-				return {
-					...(embeddedSegment ? { segment: embeddedSegment } : {}),
-					memories: savedMemories,
-					candidates,
-					relationships,
-					linksAdded,
-				};
-			} catch (err) {
-				if (!committed) {
-					await restoreUncommittedMemoryMutation(this.rootPath, snapshots, filesToAdd);
+					`genome: incorporate ${result.memories.length} extracted memor${
+						result.memories.length === 1 ? "y" : "ies"
+					}`,
+				onNoChanges: "commit",
+				rebuildIndex: true,
+				reloadAfterRestore: async () => {
 					await this.segments.load();
 					await this.memories.load();
-				}
-				throw err;
-			}
+				},
+			});
 		});
 	}
 
@@ -739,16 +742,32 @@ export class Genome {
 	/** Mark memories as used by id, saving to disk. No git commit — this is operational metadata. */
 	async markMemoriesUsed(ids: string[]): Promise<void> {
 		if (ids.length === 0) return;
-		await this.withMemoryWriteLock(async () => {
-			await this.memories.load();
-			for (const id of ids) {
-				this.memories.markUsed(id);
-				const memory = this.memories.getById(id);
-				if (memory) markMemoryAccessActivity(memory, this.projects.all());
+		try {
+			await this.withMemoryWriteLock(
+				async () => {
+					await this.memories.load();
+					for (const id of ids) {
+						this.memories.markUsed(id);
+						const memory = this.memories.getById(id);
+						if (memory) markMemoryAccessActivity(memory, this.projects.all());
+					}
+					await this.memories.save();
+					await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
+				},
+				{ timeoutMs: MARK_USED_LOCK_TIMEOUT_MS },
+			);
+		} catch (error) {
+			// Usage marking is best-effort telemetry: a busy write lock must not
+			// stall recall for the full lock timeout or kill the session's run
+			// (A-F3). The contended refresh is simply dropped this round.
+			if (
+				error instanceof Error &&
+				error.message.includes("Timed out waiting for directory lock")
+			) {
+				return;
 			}
-			await this.memories.save();
-			await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
-		});
+			throw error;
+		}
 	}
 
 	async recordProjectActivity(project: DetectedProject, date = new Date()): Promise<boolean> {
@@ -757,29 +776,19 @@ export class Genome {
 	}
 
 	async saveProjectActivityMutation(commitMessage: string): Promise<void> {
-		await this.withMemoryWriteLock(async () => {
+		await this.withMemoryWriteLock(() => {
 			const projectsPath = join(this.rootPath, "memories", "projects.jsonl");
-			const snapshots = await snapshotTextFiles([projectsPath]);
-			let committed = false;
-			try {
-				await this.projects.mergeLatestFromDisk();
-				await this.projects.save();
-				await git(this.rootPath, "add", projectsPath);
-				const status = await git(this.rootPath, "status", "--porcelain", "--", projectsPath);
-				if (!status.trim()) {
-					committed = true;
-					return;
-				}
-				await git(this.rootPath, "commit", "-m", commitMessage);
-				committed = true;
-			} catch (error) {
-				if (!committed) {
-					await restoreTextFiles(snapshots);
-					await git(this.rootPath, "reset", "--", projectsPath);
-					await this.projects.load();
-				}
-				throw error;
-			}
+			return this.runCommittedFileMutation({
+				paths: [projectsPath],
+				mutate: async () => {
+					await this.projects.mergeLatestFromDisk();
+					await this.projects.save();
+				},
+				commitMessage: () => commitMessage,
+				onNoChanges: "skip",
+				rebuildIndex: false,
+				reloadAfterRestore: () => this.projects.load(),
+			});
 		});
 	}
 
@@ -795,37 +804,26 @@ export class Genome {
 		const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
 		const projectsPath = join(this.rootPath, "memories", "projects.jsonl");
 		const paths = [memoriesPath, projectsPath];
-		return this.withMemoryWriteLock(async () => {
-			const snapshots = await snapshotTextFiles(paths);
-			let committed = false;
-			try {
-				const result = await mutate();
-				await this.memories.mergeLatestFromDisk();
-				await this.projects.mergeLatestFromDisk();
-				await this.memories.save();
-				await this.projects.save();
-				await git(this.rootPath, "add", ...paths);
-				const status = await git(this.rootPath, "status", "--porcelain", "--", ...paths);
-				if (!status.trim()) {
-					committed = true;
+		return this.withMemoryWriteLock(() =>
+			this.runCommittedFileMutation({
+				paths,
+				mutate: async () => {
+					const result = await mutate();
+					await this.memories.mergeLatestFromDisk();
+					await this.projects.mergeLatestFromDisk();
+					await this.memories.save();
+					await this.projects.save();
 					return result;
-				}
-				const memoryStatus = await git(this.rootPath, "status", "--porcelain", "--", memoriesPath);
-				if (memoryStatus.trim()) {
-					await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
-				}
-				await git(this.rootPath, "commit", "-m", commitMessage);
-				committed = true;
-				return result;
-			} catch (error) {
-				if (!committed) {
-					await restoreUncommittedMemoryMutation(this.rootPath, snapshots, paths);
+				},
+				commitMessage: () => commitMessage,
+				onNoChanges: "skip",
+				rebuildIndex: { onlyIfChanged: memoriesPath },
+				reloadAfterRestore: async () => {
 					await this.memories.load();
 					await this.projects.load();
-				}
-				throw error;
-			}
-		});
+				},
+			}),
+		);
 	}
 
 	async recomputeMemoryScores(options: { now?: number; minImportance?: number } = {}): Promise<{
@@ -851,35 +849,135 @@ export class Genome {
 			await this.memories.load();
 			const mentioned = this.memories.markMentioned(shortIds);
 			if (mentioned.length === 0) return [];
-			const snapshots = await snapshotTextFiles([memoriesPath]);
-			let committed = false;
-			try {
-				await this.memories.save();
-				await git(this.rootPath, "add", memoriesPath);
-				const status = await git(this.rootPath, "status", "--porcelain", "--", memoriesPath);
-				if (!status.trim()) return mentioned;
-				await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
-				await git(this.rootPath, "commit", "-m", "genome: record memory mentions");
-				committed = true;
-			} catch (error) {
-				if (!committed) {
-					await restoreUncommittedMemoryMutation(this.rootPath, snapshots, [memoriesPath]);
-					await this.memories.load();
-				}
-				throw error;
-			}
+			await this.runCommittedFileMutation({
+				paths: [memoriesPath],
+				mutate: () => this.memories.save(),
+				commitMessage: () => "genome: record memory mentions",
+				onNoChanges: "skip",
+				rebuildIndex: true,
+				reloadAfterRestore: () => this.memories.load(),
+			});
 			return mentioned;
 		});
 	}
 
-	private async withMemoryWriteLock<T>(fn: () => Promise<T>): Promise<T> {
+	/**
+	 * Retire a memory: archive it (the memory lifecycle's retirement idiom —
+	 * physical removal happens later via compactMemoryLog) and commit. This is a
+	 * genome (evolvable) write reachable only through the gated Learn adoption
+	 * path (retire_memory in learn-process.ts).
+	 */
+	async retireMemory(id: string, reason: string): Promise<void> {
+		const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
+		await this.withMemoryWriteLock(async () => {
+			await this.memories.load();
+			const memory = this.memories.getById(id);
+			if (!memory) {
+				throw new Error(`Cannot retire memory '${id}': not found`);
+			}
+			if (memory.archived_at !== undefined) return;
+			const now = Date.now();
+			memory.archived_at = now;
+			memory.archived_reason = reason;
+			memory.updated_at = now;
+			await this.runCommittedFileMutation({
+				paths: [memoriesPath],
+				mutate: () => this.memories.save(),
+				commitMessage: () => `genome: retire memory '${id}'`,
+				onNoChanges: "commit",
+				rebuildIndex: true,
+				reloadAfterRestore: () => this.memories.load(),
+			});
+		});
+	}
+
+	private async withMemoryWriteLock<T>(
+		fn: () => Promise<T>,
+		options?: DirectoryLockOptions,
+	): Promise<T> {
 		const lockDir = join(this.rootPath, ".cache", "memory-write.lock");
 		await mkdir(join(this.rootPath, ".cache"), { recursive: true });
-		const release = await acquireDirectoryLock(lockDir);
+		const release = await acquireDirectoryLock(lockDir, options);
 		try {
 			return await fn();
 		} finally {
 			await release();
+		}
+	}
+
+	/**
+	 * The genome's commit-or-restore envelope shared by every JSONL mutation:
+	 * snapshot the files, run the staged mutation, `git add`, optionally guard
+	 * on a clean status, rebuild the derived memory index, and commit. If
+	 * anything fails before the commit lands, the files are restored, the add
+	 * is reset, and the in-memory stores reload. Callers hold the memory write
+	 * lock and do any pure staging/validation before entering the envelope.
+	 */
+	private async runCommittedFileMutation<T>(input: {
+		/** Files the mutation touches — snapshotted, added, and restored as a unit. */
+		paths: readonly string[];
+		/** Stage and save the mutation. Its return value is the mutation's result. */
+		mutate: () => Promise<T>;
+		/** Commit message, derived from the mutation result. */
+		commitMessage: (result: T) => string;
+		/**
+		 * How to treat a clean `git status` after add: "commit" doesn't check,
+		 * "throw" fails the mutation, "skip" returns the result without a commit.
+		 */
+		onNoChanges: "commit" | "throw" | "skip";
+		/**
+		 * Rebuild the derived memory index before committing. `true` always
+		 * rebuilds; `{ onlyIfChanged }` rebuilds when that file has staged
+		 * changes; `false` skips it entirely — including on restore, for
+		 * mutations whose files are not in the index.
+		 */
+		rebuildIndex: boolean | { onlyIfChanged: string };
+		/** Reload the in-memory stores after a failed, restored mutation. */
+		reloadAfterRestore: () => Promise<void>;
+	}): Promise<T> {
+		const snapshots = await snapshotTextFiles(input.paths);
+		let committed = false;
+		try {
+			const result = await input.mutate();
+			await git(this.rootPath, "add", ...input.paths);
+			if (input.onNoChanges !== "commit") {
+				const status = await git(this.rootPath, "status", "--porcelain", "--", ...input.paths);
+				if (!status.trim()) {
+					if (input.onNoChanges === "throw") {
+						throw new Error("memory mutation produced no changes");
+					}
+					committed = true;
+					return result;
+				}
+			}
+			if (input.rebuildIndex === true) {
+				await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
+			} else if (input.rebuildIndex !== false) {
+				const indexStatus = await git(
+					this.rootPath,
+					"status",
+					"--porcelain",
+					"--",
+					input.rebuildIndex.onlyIfChanged,
+				);
+				if (indexStatus.trim()) {
+					await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
+				}
+			}
+			await git(this.rootPath, "commit", "-m", input.commitMessage(result));
+			committed = true;
+			return result;
+		} catch (error) {
+			if (!committed) {
+				if (input.rebuildIndex === false) {
+					await restoreTextFiles(snapshots);
+					await git(this.rootPath, "reset", "--", ...input.paths);
+				} else {
+					await restoreUncommittedMemoryMutation(this.rootPath, snapshots, input.paths);
+				}
+				await input.reloadAfterRestore();
+			}
+			throw error;
 		}
 	}
 
@@ -888,41 +986,6 @@ export class Genome {
 	}
 
 	// --- Pruning ---
-
-	/** Remove memories whose effective confidence is below the threshold. */
-	async pruneMemories(minConfidence = 0.2): Promise<string[]> {
-		const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
-		return this.withMemoryWriteLock(async () => {
-			await this.memories.load();
-			const pruned = this.memories.pruneByConfidence(minConfidence);
-			if (pruned.length > 0) {
-				removeLinksReferencingMemoryIds(this.memories.all(), new Set(pruned), Date.now());
-				const snapshots = await snapshotTextFiles([memoriesPath]);
-				let committed = false;
-				try {
-					await this.memories.save();
-					await git(this.rootPath, "add", memoriesPath);
-					const status = await git(this.rootPath, "status", "--porcelain", "--", memoriesPath);
-					if (!status.trim()) return pruned;
-					await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
-					await git(
-						this.rootPath,
-						"commit",
-						"-m",
-						`genome: prune ${pruned.length} low-confidence memories`,
-					);
-					committed = true;
-				} catch (error) {
-					if (!committed) {
-						await restoreUncommittedMemoryMutation(this.rootPath, snapshots, [memoriesPath]);
-						await this.memories.load();
-					}
-					throw error;
-				}
-			}
-			return pruned;
-		});
-	}
 
 	/** Physically remove archived/superseded memories from JSONL after their audit trail is in git. */
 	async compactMemoryLog(): Promise<MemoryLogCompactionResult> {
@@ -936,33 +999,17 @@ export class Genome {
 			}
 
 			removeLinksReferencingMemoryIds(this.memories.all(), new Set(removedIds), Date.now());
-			const snapshots = await snapshotTextFiles([memoriesPath]);
-			let committed = false;
-			try {
-				await this.memories.save();
-				await git(this.rootPath, "add", memoriesPath);
-				const status = await git(this.rootPath, "status", "--porcelain", "--", memoriesPath);
-				const afterCount = this.memories.all().length;
-				if (!status.trim()) {
-					committed = true;
-					return { beforeCount, afterCount, removedIds };
-				}
-				await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
-				await git(
-					this.rootPath,
-					"commit",
-					"-m",
-					`genome: compact ${removedIds.length} inactive memories`,
-				);
-				committed = true;
-				return { beforeCount, afterCount, removedIds };
-			} catch (error) {
-				if (!committed) {
-					await restoreUncommittedMemoryMutation(this.rootPath, snapshots, [memoriesPath]);
-					await this.memories.load();
-				}
-				throw error;
-			}
+			return this.runCommittedFileMutation({
+				paths: [memoriesPath],
+				mutate: async () => {
+					await this.memories.save();
+					return { beforeCount, afterCount: this.memories.all().length, removedIds };
+				},
+				commitMessage: () => `genome: compact ${removedIds.length} inactive memories`,
+				onNoChanges: "skip",
+				rebuildIndex: true,
+				reloadAfterRestore: () => this.memories.load(),
+			});
 		});
 	}
 
@@ -1069,10 +1116,55 @@ export class Genome {
 		for (const file of mdFiles) {
 			const filePath = join(agentsDir, file);
 			const content = await readFile(filePath, "utf-8");
-			const spec = parseAgentMarkdown(content, filePath);
-			this.agents.set(spec.name, spec);
+			// Validate at LOAD too (F2): agents/ is git-editable outside mutation
+			// paths, so a hand-committed hybrid code-mode spec granting exec must be
+			// caught here. Non-fatal per spec — log + skip the offending spec rather
+			// than failing the whole genome load (matching existing tolerance).
+			try {
+				const spec = parseAgentMarkdown(content, filePath);
+				validateAgentSpec(spec);
+				this.agents.set(spec.name, spec);
+			} catch (err) {
+				console.warn(
+					`genome: skipping invalid agent spec ${filePath}: ${
+						err instanceof Error ? err.message : String(err)
+					}`,
+				);
+			}
 		}
 		this._knownAgentFiles = new Set(mdFiles);
+
+		// Load programs (sap spec §7). Each is parsed and passed the SAME lexical
+		// import/require scan as cell source — at LOAD, because programs/ is
+		// git-editable outside mutation paths and exempting them from the scan
+		// would void the code-mode no-exec invariant. A program failing parse or
+		// the scan is rejected loudly (log + skip) so it never loads as runnable.
+		this.programs.clear();
+		const programsDir = join(this.rootPath, "programs");
+		let programFiles: string[];
+		try {
+			programFiles = (await readdir(programsDir)).filter((f) => f.endsWith(".md"));
+		} catch {
+			programFiles = [];
+		}
+		for (const file of programFiles) {
+			const filePath = join(programsDir, file);
+			const content = await readFile(filePath, "utf-8");
+			try {
+				const program = parseProgramMarkdown(content, filePath);
+				const check = validateProgram(program);
+				if (!check.ok) {
+					throw new Error(check.reason);
+				}
+				this.programs.set(program.name, program);
+			} catch (err) {
+				console.warn(
+					`genome: skipping invalid program ${filePath}: ${
+						err instanceof Error ? err.message : String(err)
+					}`,
+				);
+			}
+		}
 
 		// Load memories
 		await this.memories.load();
@@ -1103,14 +1195,24 @@ export class Genome {
 			throw new Error("Cannot initFromRoot: root agents already loaded");
 		}
 		const { specs, rawContentByName } = await readRootDir(this.rootDir);
+		const rootProgramRead = await readRootProgramsDir(this.rootDir);
 
 		// Populate rootAgents so getAgent/allAgents resolve from root
 		for (const spec of specs) {
 			this.rootAgents.set(spec.name, spec);
 		}
+		// Populate rootPrograms so getProgram/allPrograms resolve from root
+		this.rootPrograms.clear();
+		for (const program of rootProgramRead.programs) {
+			this.rootPrograms.set(program.name, program);
+		}
 
 		// Build and save manifest (tracks root state for future syncRoot)
-		const manifest = buildManifestFromSpecs(specs, rawContentByName);
+		const manifest = buildManifestFromSpecs(
+			specs,
+			rawContentByName,
+			rootProgramEntries(rootProgramRead),
+		);
 		const manifestPath = join(this.rootPath, "bootstrap-manifest.json");
 		await saveManifest(manifestPath, manifest);
 
@@ -1132,16 +1234,41 @@ export class Genome {
 		const manifestPath = join(this.rootPath, "bootstrap-manifest.json");
 		const oldManifest = await loadManifest(manifestPath);
 		const { specs, rawContentByName } = await readRootDir(this.rootDir);
-		const newManifest = buildManifestFromSpecs(specs, rawContentByName);
+		const rootProgramRead = await readRootProgramsDir(this.rootDir);
+		const newManifest = buildManifestFromSpecs(
+			specs,
+			rawContentByName,
+			rootProgramEntries(rootProgramRead),
+		);
 
 		// Refresh rootAgents from the already-read specs (avoids re-reading root dir)
 		this.rootAgents.clear();
 		for (const spec of specs) {
 			this.rootAgents.set(spec.name, spec);
 		}
+		// Refresh rootPrograms the same way (unmodified programs auto-resolve from root)
+		this.rootPrograms.clear();
+		for (const program of rootProgramRead.programs) {
+			this.rootPrograms.set(program.name, program);
+		}
 
 		const added: string[] = [];
 		const conflicts: string[] = [];
+		const addedPrograms: string[] = [];
+		const programConflicts: string[] = [];
+
+		for (const program of rootProgramRead.programs) {
+			const oldEntry = oldManifest.programs?.[program.name];
+			const newEntry = newManifest.programs?.[program.name];
+			if (!newEntry) continue;
+			if (!oldEntry) {
+				addedPrograms.push(program.name);
+			} else if (newEntry.hash !== oldEntry.hash && this.programs.has(program.name)) {
+				// Root changed AND genome has an overlay program — conflict (overlay wins)
+				programConflicts.push(program.name);
+			}
+			// All other cases: root auto-reflects (no overlay), or root unchanged.
+		}
 
 		for (const spec of specs) {
 			const overlayAgent = this.agents.get(spec.name);
@@ -1172,6 +1299,7 @@ export class Genome {
 		// Use sorted keys for agents object since readdir order isn't deterministic.
 		const manifestChanged =
 			stableStringify(oldManifest.agents) !== stableStringify(newManifest.agents) ||
+			stableStringify(oldManifest.programs ?? {}) !== stableStringify(newManifest.programs ?? {}) ||
 			JSON.stringify(oldManifest.rootTools) !== JSON.stringify(newManifest.rootTools) ||
 			JSON.stringify(oldManifest.rootAgents) !== JSON.stringify(newManifest.rootAgents);
 
@@ -1189,8 +1317,11 @@ export class Genome {
 
 		const parts: string[] = [];
 		if (added.length > 0) parts.push(`added: ${added.join(", ")}`);
+		if (addedPrograms.length > 0) parts.push(`added programs: ${addedPrograms.join(", ")}`);
 		if (toolsAgentsMerged) parts.push("tools/agents merged");
 		if (conflicts.length > 0) parts.push(`conflicts: ${conflicts.join(", ")}`);
+		if (programConflicts.length > 0)
+			parts.push(`program conflicts: ${programConflicts.join(", ")}`);
 
 		if (filesToStage.length > 0) {
 			await git(this.rootPath, "add", ...filesToStage);
@@ -1199,7 +1330,7 @@ export class Genome {
 			await git(this.rootPath, "commit", "-m", commitMsg);
 		}
 
-		return { added, conflicts };
+		return { added, conflicts, addedPrograms, programConflicts };
 	}
 
 	/**
@@ -1253,6 +1384,7 @@ export class Genome {
 
 	/** Save an executable tool script to an agent's workspace. */
 	async saveAgentTool(agentName: string, opts: SaveAgentToolOptions): Promise<void> {
+		assertWorkspaceFilename(opts.name);
 		const interpreter = opts.interpreter ?? "bash";
 		const toolDir = join(this.agentDir(agentName), "tools");
 		await mkdir(toolDir, { recursive: true });
@@ -1279,6 +1411,7 @@ export class Genome {
 
 	/** Save a reference file to an agent's workspace. */
 	async saveAgentFile(agentName: string, opts: SaveAgentFileOptions): Promise<void> {
+		assertWorkspaceFilename(opts.name);
 		const fileDir = join(this.agentDir(agentName), "files");
 		await mkdir(fileDir, { recursive: true });
 
@@ -1425,6 +1558,14 @@ export class Genome {
 		return loadRelationshipClassificationPrompt(this.rootPath, this.rootDir);
 	}
 
+	async loadMemoryConsolidationPrompt(): Promise<string> {
+		return loadMemoryConsolidationPrompt(this.rootPath, this.rootDir);
+	}
+
+	async loadMemoryEntityGcPrompt(): Promise<string> {
+		return loadMemoryEntityGcPrompt(this.rootPath, this.rootDir);
+	}
+
 	async loadSubcorticalRecallPrompt(): Promise<string> {
 		return loadSubcorticalRecallPrompt(this.rootPath, this.rootDir);
 	}
@@ -1473,6 +1614,27 @@ export interface AgentFileInfo {
 interface TextFileSnapshot {
 	existed: boolean;
 	content: string;
+}
+
+/**
+ * Guard a model-authored workspace filename before it is joined into the
+ * agent's tools/files directory: a name with a path separator or `..` segment
+ * would escape the workspace and clobber a sibling agent's files or other
+ * genome paths. The name must be a single, plain path component.
+ */
+function assertWorkspaceFilename(name: string): void {
+	if (
+		name.length === 0 ||
+		name.includes("/") ||
+		name.includes("\\") ||
+		name === "." ||
+		name === ".." ||
+		name.startsWith("..")
+	) {
+		throw new Error(
+			`invalid workspace name '${name}': must be a plain filename with no path separators or '..'`,
+		);
+	}
 }
 
 function assertCanStageMemoryBatch(
@@ -1587,9 +1749,78 @@ async function readTextFileSnapshot(path: string): Promise<TextFileSnapshot> {
 	}
 }
 
-/** JSON.stringify with sorted keys for deterministic comparison regardless of key insertion order. */
-function stableStringify(obj: unknown): string {
-	return JSON.stringify(obj, Object.keys(obj as Record<string, unknown>).sort());
+interface RootProgramsRead {
+	programs: Program[];
+	rawContentByName: Map<string, string>;
+}
+
+/**
+ * Read root-shipped starter programs from <rootDir>/programs/*.md. Every
+ * program passes the SAME parse + validateProgram (incl. the lexical
+ * import/require scan) as genome-loaded programs — root shipping is not an
+ * exemption from the code-mode no-exec invariant. An invalid program is
+ * rejected loudly (warn + skip, matching agent-load tolerance) and excluded
+ * from both the live library and the manifest.
+ */
+async function readRootProgramsDir(rootDir: string): Promise<RootProgramsRead> {
+	const programsDir = join(rootDir, "programs");
+	let files: string[];
+	try {
+		files = (await readdir(programsDir)).filter((f) => f.endsWith(".md"));
+	} catch {
+		return { programs: [], rawContentByName: new Map() };
+	}
+
+	const programs: Program[] = [];
+	const rawContentByName = new Map<string, string>();
+	for (const file of files) {
+		const filePath = join(programsDir, file);
+		const content = await readFile(filePath, "utf-8");
+		try {
+			const program = parseProgramMarkdown(content, filePath);
+			const check = validateProgram(program);
+			if (!check.ok) {
+				throw new Error(check.reason);
+			}
+			programs.push(program);
+			rawContentByName.set(program.name, content);
+		} catch (err) {
+			console.warn(
+				`genome: skipping invalid root program ${filePath}: ${
+					err instanceof Error ? err.message : String(err)
+				}`,
+			);
+		}
+	}
+	return { programs, rawContentByName };
+}
+
+/** Shape root program reads for buildManifestFromSpecs' program hash tracking. */
+function rootProgramEntries(
+	read: RootProgramsRead,
+): Array<{ name: string; version: number; content: string }> {
+	return read.programs.map((program) => ({
+		name: program.name,
+		version: program.version,
+		content: read.rawContentByName.get(program.name) ?? "",
+	}));
+}
+
+/**
+ * Deterministic JSON for comparison: object keys are sorted recursively at
+ * EVERY depth. (A replacer ARRAY would filter keys at every depth instead —
+ * nested manifest entries would serialize as `{}` and hash-only changes would
+ * compare equal.)
+ */
+export function stableStringify(obj: unknown): string {
+	if (obj === null || typeof obj !== "object") return JSON.stringify(obj) ?? "null";
+	if (Array.isArray(obj)) return `[${obj.map((v) => stableStringify(v)).join(",")}]`;
+	const record = obj as Record<string, unknown>;
+	const entries = Object.keys(record)
+		.sort()
+		.filter((key) => record[key] !== undefined)
+		.map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`);
+	return `{${entries.join(",")}}`;
 }
 
 function arraysEqual(a: string[], b: string[]): boolean {

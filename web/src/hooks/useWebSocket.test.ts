@@ -123,6 +123,23 @@ describe("WebSocketClient", () => {
 			await waitFor(() => !client.connected);
 			expect(client.connected).toBe(false);
 		});
+
+		test("connect() after dispose() re-establishes the connection (StrictMode remount)", async () => {
+			await server.start();
+			const client = createClient();
+			client.connect();
+			await waitFor(() => client.connected);
+
+			// StrictMode mounts, disposes on the simulated unmount, then mounts
+			// the same memoized client again.
+			client.dispose();
+			await waitFor(() => !client.connected);
+
+			client.connect();
+			await waitFor(() => client.connected);
+			expect(client.lastMessage).not.toBeNull();
+			expect(client.lastMessage!.type).toBe("snapshot");
+		});
 	});
 
 	describe("receiving messages", () => {

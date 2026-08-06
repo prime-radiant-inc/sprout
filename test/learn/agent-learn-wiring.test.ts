@@ -74,7 +74,6 @@ describe("Agent-Learn wiring", () => {
 			events,
 			client,
 			modelsByProvider: resolverContext.modelsByProvider,
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 		});
 		const registry = createPrimitiveRegistry(env);
@@ -92,7 +91,6 @@ describe("Agent-Learn wiring", () => {
 			events,
 			learnProcess,
 			modelsByProvider: resolverContext.modelsByProvider,
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 		});
 
@@ -113,7 +111,6 @@ describe("Agent-Learn wiring", () => {
 			rootDir: join(import.meta.dir, "../../root"),
 			workDir: tempDir,
 			client,
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 		});
 

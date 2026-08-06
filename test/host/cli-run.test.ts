@@ -186,6 +186,121 @@ describe("runCli", () => {
 		expect(cleanupCount).toBe(1);
 	});
 
+	test("forwards settingsPath to headless mode options", async () => {
+		let capturedSettingsPath: string | undefined;
+
+		await runCli(
+			{
+				kind: "headless",
+				goal: "fix tests",
+				genomePath: "/tmp/genome",
+				settingsPath: "/custom/settings.json",
+			},
+			{
+				loadDotenv: () => {},
+				resolveProjectDir: async () => "/tmp/project",
+				runHeadlessMode: async (opts) => {
+					capturedSettingsPath = opts.settingsPath;
+					return {
+						sessionId: "01HEADLESS",
+						output: "done",
+						success: true,
+						stumbles: 0,
+						turns: 1,
+						timedOut: false,
+					};
+				},
+			},
+		);
+
+		expect(capturedSettingsPath).toBe("/custom/settings.json");
+	});
+
+	test("forwards settingsPath to the shared runtime bootstrap for interactive sessions", async () => {
+		let capturedSettingsPath: string | undefined;
+
+		await runCli(
+			{
+				kind: "interactive",
+				genomePath: "/tmp/genome",
+				settingsPath: "/custom/settings.json",
+			},
+			{
+				loadDotenv: () => {},
+				resolveProjectDir: async () => "/tmp/project",
+				startBusInfrastructure: async () => ({
+					server: {} as any,
+					bus: {} as any,
+					spawner: {} as any,
+					genome: {} as any,
+					cleanup: async () => {},
+				}),
+				bootstrapRuntime: async (opts) => {
+					capturedSettingsPath = opts.settingsPath;
+					return {
+						bus: {} as any,
+						logger: {} as any,
+						llmClient: {} as any,
+						settingsControlPlane: {} as any,
+						controller: {} as any,
+						availableModels: [],
+						setOpenAICodexOAuthReturnUrl: () => {},
+					};
+				},
+				runInteractiveMode: async () => {},
+			},
+		);
+
+		expect(capturedSettingsPath).toBe("/custom/settings.json");
+	});
+
+	test("preserves settingsPath when resuming a session through the picker", async () => {
+		let capturedSettingsPath: string | undefined;
+
+		await runCli(
+			{
+				kind: "list",
+				genomePath: "/tmp/genome",
+				settingsPath: "/custom/settings.json",
+			},
+			{
+				loadDotenv: () => {},
+				resolveProjectDir: async () => "/tmp/project",
+				runListMode: async (opts) => {
+					await opts.onResume("01PICKED");
+				},
+				loadResumeState: async () => ({
+					sessionId: "01PICKED",
+					history: [],
+					events: [],
+					completedHandles: [],
+				}),
+				startBusInfrastructure: async () => ({
+					server: {} as any,
+					bus: {} as any,
+					spawner: {} as any,
+					genome: {} as any,
+					cleanup: async () => {},
+				}),
+				bootstrapRuntime: async (opts) => {
+					capturedSettingsPath = opts.settingsPath;
+					return {
+						bus: {} as any,
+						logger: {} as any,
+						llmClient: {} as any,
+						settingsControlPlane: {} as any,
+						controller: {} as any,
+						availableModels: [],
+						setOpenAICodexOAuthReturnUrl: () => {},
+					};
+				},
+				runInteractiveMode: async () => {},
+			},
+		);
+
+		expect(capturedSettingsPath).toBe("/custom/settings.json");
+	});
+
 	test("does not print env-key warnings before shared runtime bootstrap", async () => {
 		const errors: string[] = [];
 		const savedEnv = {

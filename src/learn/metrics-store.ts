@@ -16,6 +16,25 @@ interface ActionEntry {
 
 type MetricsEntry = StumbleEntry | ActionEntry;
 
+/**
+ * Parse a metrics JSONL blob into entries, tolerating a torn trailing line.
+ * The file is append-only telemetry, not a source of truth — a crash mid-append
+ * leaves a partial last line, and one unparseable line must never brick agent
+ * startup (createAgent awaits load()). Blank lines skip; unparseable lines skip.
+ */
+function parseMetricsEntries(raw: string): MetricsEntry[] {
+	const entries: MetricsEntry[] = [];
+	for (const line of raw.split("\n")) {
+		if (line.trim().length === 0) continue;
+		try {
+			entries.push(JSON.parse(line) as MetricsEntry);
+		} catch {
+			// A torn/partial line (crash mid-append) is skipped, not fatal.
+		}
+	}
+	return entries;
+}
+
 export class MetricsStore {
 	private stumbles = new Map<string, number>();
 	private totalStumbles = new Map<string, number>();
@@ -46,9 +65,7 @@ export class MetricsStore {
 		this.totalStumbles.clear();
 		this.actions.clear();
 
-		for (const line of raw.split("\n")) {
-			if (line.trim().length === 0) continue;
-			const entry = JSON.parse(line) as MetricsEntry;
+		for (const entry of parseMetricsEntries(raw)) {
 			if (entry.type === "stumble") {
 				this.incrementStumble(entry.agent_name, entry.kind);
 			} else if (entry.type === "action") {
@@ -108,9 +125,7 @@ export class MetricsStore {
 		}
 
 		let count = 0;
-		for (const line of raw.split("\n")) {
-			if (line.trim().length === 0) continue;
-			const entry = JSON.parse(line) as MetricsEntry;
+		for (const entry of parseMetricsEntries(raw)) {
 			if (entry.type !== "action") continue;
 			if (entry.agent_name !== agentName) continue;
 			if (entry.timestamp >= since) count++;
@@ -131,9 +146,7 @@ export class MetricsStore {
 		let stumbles = 0;
 		let actions = 0;
 
-		for (const line of raw.split("\n")) {
-			if (line.trim().length === 0) continue;
-			const entry = JSON.parse(line) as MetricsEntry;
+		for (const entry of parseMetricsEntries(raw)) {
 			if (entry.timestamp < since || entry.timestamp > end) continue;
 			if (entry.agent_name !== agentName) continue;
 

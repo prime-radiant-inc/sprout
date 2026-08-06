@@ -1,5 +1,5 @@
 import type { Memory, MemoryLinkEntry, RelationshipType } from "../kernel/types.ts";
-import type { Genome } from "./genome.ts";
+import { cosineSimilarity } from "./memory-embedding.ts";
 import { isActiveMemoryForRecall } from "./memory-lifecycle.ts";
 import { memoryShortId } from "./memory-schema.ts";
 
@@ -65,39 +65,6 @@ const RELATIONSHIP_WEIGHTS: Record<RelationshipType, number> = {
 	extraction_ref: 0.5,
 	null: 0,
 };
-
-export function discoverLinkCandidates(
-	memories: readonly Memory[],
-	options: LinkDiscoveryOptions = {},
-): LinkCandidate[] {
-	const active = memories.filter(isActiveMemoryForRecall);
-	const candidates = new Map<string, LinkCandidate>();
-	const minVectorSimilarity = options.minVectorSimilarity ?? DEFAULT_MIN_VECTOR_SIMILARITY;
-	const minEntityScore = options.minEntityScore ?? DEFAULT_MIN_ENTITY_SCORE;
-	const minTfIdfSimilarity = options.minTfIdfSimilarity ?? DEFAULT_MIN_TFIDF_SIMILARITY;
-
-	forEachMemoryPair(active, (left, right) => {
-		const vectorScore = vectorSimilarity(left, right);
-		if (vectorScore !== undefined && vectorScore >= minVectorSimilarity) {
-			addCandidate(candidates, left, right, "vector", vectorScore);
-		}
-
-		const entityScore = entityOverlapScore(left, right);
-		if (entityScore >= minEntityScore) {
-			addCandidate(candidates, left, right, "entity", entityScore);
-		}
-	});
-
-	for (const { left, right, score } of tfidfPairs(active)) {
-		if (score >= minTfIdfSimilarity) {
-			addCandidate(candidates, left, right, "tfidf", score);
-		}
-	}
-
-	return [...candidates.values()]
-		.sort((a, b) => b.score - a.score || a.source_id.localeCompare(b.source_id))
-		.slice(0, options.limit ?? DEFAULT_LIMIT);
-}
 
 export function discoverLinkCandidatesForNewMemories(
 	input: NewMemoryLinkDiscoveryInput,
@@ -173,24 +140,6 @@ export function discoverLinkCandidatesForNewMemories(
 	return sortedCandidates(candidates);
 }
 
-export async function persistMemoryLinks(
-	genome: Genome,
-	relationships: readonly ClassifiedMemoryRelationship[],
-	options: { source?: string; now?: number } = {},
-): Promise<number> {
-	const { added, changed } = applyMemoryLinks(genome.memories.all(), relationships, {
-		now: options.now,
-	});
-	if (changed) {
-		await genome.saveMemoryMutation(
-			added > 0
-				? `genome: link ${added} memory relationship${added === 1 ? "" : "s"}`
-				: "genome: repair memory link metadata",
-		);
-	}
-	return added;
-}
-
 export function applyMemoryLinks(
 	memories: readonly Memory[],
 	relationships: readonly ClassifiedMemoryRelationship[],
@@ -235,32 +184,6 @@ export function applyMemoryLinks(
 	}
 
 	return { added, changed };
-}
-
-export async function healMemoryLinks(genome: Genome): Promise<number> {
-	const memories = genome.memories.all();
-	const validIds = new Set(memories.map((memory) => memory.id));
-	let removed = 0;
-
-	for (const memory of memories) {
-		const outbound = memory.outbound_links ?? [];
-		const inbound = memory.inbound_links ?? [];
-		const healedOutbound = outbound.filter((link) => validIds.has(link.uuid));
-		const healedInbound = inbound.filter((link) => validIds.has(link.uuid));
-		removed += outbound.length - healedOutbound.length;
-		removed += inbound.length - healedInbound.length;
-		if (healedOutbound.length !== outbound.length) memory.outbound_links = healedOutbound;
-		if (healedInbound.length !== inbound.length) memory.inbound_links = healedInbound;
-		if (memory.superseded_by && !validIds.has(memory.superseded_by)) {
-			memory.superseded_by = undefined;
-			removed++;
-		}
-	}
-
-	if (removed > 0) {
-		await genome.saveMemoryMutation(`genome: heal ${removed} dead memory link refs`);
-	}
-	return removed;
 }
 
 export function traverseMemoryLinks(
@@ -498,21 +421,6 @@ function memoryVector(memory: Memory): number[] | undefined {
 		throw new Error(`Memory '${memory.id}' has ready embedding metadata without a vector`);
 	}
 	return memory.embedding.vector;
-}
-
-function cosineSimilarity(left: readonly number[], right: readonly number[]): number {
-	let dot = 0;
-	let leftMagnitude = 0;
-	let rightMagnitude = 0;
-	for (let index = 0; index < left.length; index++) {
-		const a = left[index] ?? 0;
-		const b = right[index] ?? 0;
-		dot += a * b;
-		leftMagnitude += a * a;
-		rightMagnitude += b * b;
-	}
-	if (leftMagnitude === 0 || rightMagnitude === 0) return 0;
-	return dot / (Math.sqrt(leftMagnitude) * Math.sqrt(rightMagnitude));
 }
 
 function entityOverlapScore(left: Memory, right: Memory): number {

@@ -128,9 +128,9 @@ export async function retryLLMCall<T>(
 				throw error;
 			}
 
-			// Check for Retry-After header value (in seconds). Spec-compliant:
-			// adapters should populate `retry_after` when extracting Retry-After
-			// headers from provider responses (e.g. 429 rate-limit responses).
+			// Retry-After support (seconds): honored when the thrown error carries
+			// `retry_after`. NOTE: no adapter extracts Retry-After headers yet —
+			// today this only fires for callers that set the field themselves.
 			const retryAfter = (error as { retry_after?: number }).retry_after;
 			let delayMs: number;
 			if (retryAfter !== undefined && retryAfter > 0) {

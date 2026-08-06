@@ -21,12 +21,19 @@ export interface HeadlessInfrastructure {
 export interface RunHeadlessOptions {
 	goal: string;
 	genomePath: string;
+	/** Isolated settings.json path (providers, model tiers). See SessionBootstrapOptions.settingsPath. */
+	settingsPath?: string;
 	projectDataDir: string;
 	rootDir: string;
 	sessionId?: string;
 	workDir?: string;
 	atifPath?: string;
 	evalMode?: boolean;
+	/** When false, the exec primitive is stripped tree-wide (root + delegates). Defaults true. */
+	allowExec?: boolean;
+	/** When false, the sap data plane (cell/code-mode, capture/splice) is OFF —
+	 * the pre-code-mode traditional agent (spec primitives only). Defaults true. */
+	dataPlaneEnabled?: boolean;
 	initialHistory?: Message[];
 	initialMemorySurface?: SessionMemorySurfaceSnapshot;
 	initialSelectionRequest?: SessionSelectionRequest;
@@ -125,12 +132,15 @@ export async function runHeadlessMode(
 	try {
 		const runtime = await d.bootstrapRuntime({
 			genomePath: opts.genomePath,
+			settingsPath: opts.settingsPath,
 			projectDataDir: opts.projectDataDir,
 			rootDir: opts.rootDir,
 			sessionId,
 			workDir: opts.workDir,
 			atifPath: opts.atifPath,
 			evalMode: opts.evalMode,
+			allowExec: opts.allowExec,
+			dataPlaneEnabled: opts.dataPlaneEnabled,
 			nonInteractive: true,
 			initialHistory: opts.initialHistory,
 			initialMemorySurface: opts.initialMemorySurface,

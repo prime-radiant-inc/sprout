@@ -14,7 +14,21 @@ import type { Memory } from "../../src/kernel/types.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { Request, Response } from "../../src/llm/types.ts";
 import { Msg } from "../../src/llm/types.ts";
+import { seedMemories } from "../helpers/genome-seed.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
+
+function sproutAliasGroup() {
+	return discoverEntityGcGroups([
+		memory({
+			id: "a",
+			entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
+		}),
+		memory({
+			id: "b",
+			entity_links: [{ uuid: "entity_sprout_alias", type: "PROJECT", name: "sprout" }],
+		}),
+	])[0]!;
+}
 
 function memory(overrides: Partial<Memory> = {}): Memory {
 	return {
@@ -123,6 +137,103 @@ describe("entity GC", () => {
 		expect(captured?.metadata?.purpose).toBe("memory.entityGc");
 	});
 
+	test("rejects merge decisions with absent or empty aliases", () => {
+		const group = sproutAliasGroup();
+
+		for (const aliases of [undefined, []]) {
+			expect(() =>
+				normalizeEntityGcDecisionPayload(
+					group,
+					JSON.stringify({
+						action: "merge",
+						canonical: { uuid: "entity_sprout", name: "Sprout" },
+						...(aliases !== undefined ? { aliases } : {}),
+						reasoning: "Only capitalization differs.",
+					}),
+				),
+			).toThrow("no aliases");
+		}
+	});
+
+	test("filters canonical entity and out-of-group uuids from explicit merge aliases", () => {
+		const group = sproutAliasGroup();
+
+		const decision = normalizeEntityGcDecisionPayload(
+			group,
+			JSON.stringify({
+				action: "merge",
+				canonical: { uuid: "entity_sprout", name: "Sprout" },
+				aliases: [
+					{ uuid: "entity_sprout", name: "Sprout" },
+					{ uuid: "entity_outside_group", name: "outsider" },
+					{ uuid: "entity_sprout_alias", name: "sprout" },
+				],
+				reasoning: "Only capitalization differs.",
+			}),
+		);
+
+		expect(decision.aliases).toEqual([{ uuid: "entity_sprout_alias", name: "sprout" }]);
+		expect(() =>
+			normalizeEntityGcDecisionPayload(
+				group,
+				JSON.stringify({
+					action: "merge",
+					canonical: { uuid: "entity_sprout", name: "Sprout" },
+					aliases: [{ uuid: "entity_sprout", name: "Sprout" }],
+					reasoning: "Only capitalization differs.",
+				}),
+			),
+		).toThrow("no aliases");
+	});
+
+	test("rejects merge decisions with invented canonical entities", () => {
+		const group = sproutAliasGroup();
+
+		expect(() =>
+			normalizeEntityGcDecisionPayload(
+				group,
+				JSON.stringify({
+					action: "merge",
+					canonical: { uuid: "entity_invented", name: "Invented" },
+					aliases: [{ uuid: "entity_sprout_alias", name: "sprout" }],
+					reasoning: "Only capitalization differs.",
+				}),
+			),
+		).toThrow("canonical is not in the candidate group");
+	});
+
+	test("rejects merge decisions that rename the canonical entity", () => {
+		const group = sproutAliasGroup();
+
+		expect(() =>
+			normalizeEntityGcDecisionPayload(
+				group,
+				JSON.stringify({
+					action: "merge",
+					canonical: { uuid: "entity_sprout", name: "Sprout Renamed" },
+					aliases: [{ uuid: "entity_sprout_alias", name: "sprout" }],
+					reasoning: "Only capitalization differs.",
+				}),
+			),
+		).toThrow("canonical name");
+	});
+
+	test("merge decisions default the canonical from the group suggestion", () => {
+		const group = sproutAliasGroup();
+		const alias = group.candidates.find((candidate) => candidate.uuid !== group.canonical.uuid)!;
+
+		const decision = normalizeEntityGcDecisionPayload(
+			group,
+			JSON.stringify({
+				action: "merge",
+				aliases: [{ uuid: alias.uuid, name: alias.name }],
+				reasoning: "Only capitalization differs.",
+			}),
+		);
+
+		expect(decision.canonical).toEqual({ uuid: group.canonical.uuid, name: group.canonical.name });
+	});
+
 	test("ignores superseded memories during discovery and apply", async () => {
 		expect(
 			discoverEntityGcGroups([
@@ -142,19 +253,16 @@ describe("entity GC", () => {
 		try {
 			const genome = createTestGenome(root);
 			await genome.init();
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({
 					id: "canonical-memory",
 					entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
 				}),
-			);
-			await genome.addMemory(
 				memory({
 					id: "alias-memory",
 					entity_links: [{ uuid: "entity_sprout_alias", type: "PROJECT", name: "sprout" }],
 				}),
-			);
-			await genome.addMemory(
 				memory({
 					id: "stale-alias",
 					inbound_links: [
@@ -186,110 +294,25 @@ describe("entity GC", () => {
 		}
 	});
 
-	test("normalizes LLM merge decisions and defaults aliases from group", () => {
-		const group = discoverEntityGcGroups([
-			memory({
-				id: "a",
-				entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
-			}),
-			memory({
-				id: "b",
-				entity_links: [{ uuid: "entity_sprout_alias", type: "PROJECT", name: "sprout" }],
-			}),
-		])[0]!;
-
-		const decision = normalizeEntityGcDecisionPayload(
-			group,
-			`{"action":"merge","canonical":{"uuid":"entity_sprout","name":"Sprout"},"reasoning":"Only capitalization differs."}`,
-		);
-
-		expect(decision.action).toBe("merge");
-		expect(decision.aliases).toEqual([{ uuid: "entity_sprout_alias", name: "sprout" }]);
-	});
-
-	test("filters canonical entity from explicit merge aliases", () => {
-		const group = discoverEntityGcGroups([
-			memory({
-				id: "a",
-				entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
-			}),
-			memory({
-				id: "b",
-				entity_links: [{ uuid: "entity_sprout_alias", type: "PROJECT", name: "sprout" }],
-			}),
-		])[0]!;
-
-		const decision = normalizeEntityGcDecisionPayload(
-			group,
-			JSON.stringify({
-				action: "merge",
-				canonical: { uuid: "entity_sprout", name: "Sprout" },
-				aliases: [
-					{ uuid: "entity_sprout", name: "Sprout" },
-					{ uuid: "entity_sprout_alias", name: "sprout" },
-				],
-				reasoning: "Only capitalization differs.",
-			}),
-		);
-
-		expect(decision.aliases).toEqual([{ uuid: "entity_sprout_alias", name: "sprout" }]);
-		expect(() =>
-			normalizeEntityGcDecisionPayload(
-				group,
-				JSON.stringify({
-					action: "merge",
-					canonical: { uuid: "entity_sprout", name: "Sprout" },
-					aliases: [{ uuid: "entity_sprout", name: "Sprout" }],
-					reasoning: "Only capitalization differs.",
-				}),
-			),
-		).toThrow("no aliases");
-	});
-
-	test("rejects merge decisions with invented canonical entities", () => {
-		const group = discoverEntityGcGroups([
-			memory({
-				id: "a",
-				entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
-			}),
-			memory({
-				id: "b",
-				entity_links: [{ uuid: "entity_sprout_alias", type: "PROJECT", name: "sprout" }],
-			}),
-		])[0]!;
-
-		expect(() =>
-			normalizeEntityGcDecisionPayload(
-				group,
-				JSON.stringify({
-					action: "merge",
-					canonical: { uuid: "entity_invented", name: "Invented" },
-					aliases: [{ uuid: "entity_sprout_alias", name: "sprout" }],
-					reasoning: "Only capitalization differs.",
-				}),
-			),
-		).toThrow("canonical is not in the candidate group");
-	});
-
 	test("merge rewrites aliases to canonical entity and archives alias metadata", async () => {
 		const root = await mkdtemp(join(tmpdir(), "sprout-entity-gc-"));
 		try {
 			const genome = createTestGenome(root);
 			await genome.init();
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({
 					id: "canonical-memory",
 					entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
 				}),
-			);
-			await genome.addMemory(
 				memory({
 					id: "alias-memory",
 					entity_links: [{ uuid: "entity_sprout_alias", type: "PROJECT", name: "sprout" }],
 				}),
 			);
 			const group = discoverEntityGcGroups(genome.memories.all())[0]!;
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({
 					id: "out-of-scope-alias",
 					entity_links: [{ uuid: "entity_sprout_alias", type: "PROJECT", name: "sprout" }],
@@ -336,20 +359,20 @@ describe("entity GC", () => {
 		try {
 			const genome = createTestGenome(root);
 			await genome.init();
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({
 					id: "canonical-memory",
 					entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
 				}),
-			);
-			await genome.addMemory(
 				memory({
 					id: "alias-memory",
 					entity_links: [{ uuid: "entity_sprout_alias", type: "PROJECT", name: "sprout" }],
 				}),
 			);
 			const group = discoverEntityGcGroups(genome.memories.all())[0]!;
-			await genome.addMemory(
+			await seedMemories(
+				genome,
 				memory({
 					id: "out-of-scope-alias",
 					entity_links: [{ uuid: "entity_sprout_alias", type: "PROJECT", name: "sprout" }],

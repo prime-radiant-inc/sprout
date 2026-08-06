@@ -12,9 +12,11 @@ import type { AgentSpec } from "../../src/kernel/types.ts";
 import { Client } from "../../src/llm/client.ts";
 import { ContentKind, type Message, Msg, type Response } from "../../src/llm/types.ts";
 import "../helpers/test-env.ts";
+import { seedMemories } from "../helpers/genome-seed.ts";
 import { buildTestResolverContext } from "../helpers/resolver-context.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
 import { createVcr } from "../helpers/vcr.ts";
+import { createInProcessSpawner } from "./fixtures.ts";
 
 const VCR_FIXTURE_DIR = join(import.meta.dir, "../fixtures/vcr/agent-integration");
 
@@ -67,7 +69,6 @@ describe("Agent Integration", () => {
 			availableAgents: rootAgents,
 			depth: 1,
 			events,
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 			modelsByProvider: resolverContext.modelsByProvider,
 		});
@@ -144,6 +145,13 @@ describe("Agent Integration", () => {
 			stream: async function* () {},
 		} as unknown as Client;
 		const resolverContext = await buildTestResolverContext(mockClient);
+		const { spawner } = createInProcessSpawner({
+			client: mockClient,
+			events,
+			availableAgents: rootAgents,
+			agentTree: rootTree,
+			modelsByProvider: resolverContext.modelsByProvider,
+		});
 
 		const agent = new Agent({
 			spec: rootSpec,
@@ -156,9 +164,9 @@ describe("Agent Integration", () => {
 			agentTree: rootTree,
 			agentTreeChildren: rootTreeChildren,
 			agentTreeSelfPath: "",
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 			modelsByProvider: resolverContext.modelsByProvider,
+			spawner,
 		});
 
 		const result = await agent.run(
@@ -235,6 +243,21 @@ describe("Agent with Genome Integration", () => {
 		const events = new AgentEventEmitter();
 		const rootSpec = genome.getAgent("root")!;
 
+		// Root needs the agent tree to reach a file-capable delegate
+		// (root → tech-lead → editor); without it root has no write path — its
+		// own tool surface is delegation-only, and ungranted primitive dispatch
+		// is denied (Phase 7 hardening).
+		const rootDir = join(import.meta.dir, "../../root");
+		const agentTree = await scanAgentTree(rootDir);
+		const { spawner } = createInProcessSpawner({
+			client: vcr.client,
+			events,
+			availableAgents: genome.allAgents(),
+			genome,
+			rootDir,
+			agentTree,
+			modelsByProvider: resolverContext.modelsByProvider,
+		});
 		const agent = new Agent({
 			spec: rootSpec,
 			env,
@@ -244,9 +267,13 @@ describe("Agent with Genome Integration", () => {
 			genome,
 			events,
 			depth: 0,
-			providerIdOverride: resolverContext.providerId,
+			rootDir,
+			agentTree,
+			agentTreeChildren: [...agentTree.keys()].filter((p) => !p.includes("/")),
+			agentTreeSelfPath: "",
 			resolverSettings: resolverContext.resolverSettings,
 			modelsByProvider: resolverContext.modelsByProvider,
+			spawner,
 		});
 
 		const result = await agent.run(
@@ -275,7 +302,7 @@ describe("Agent with Genome Integration", () => {
 		const resolverContext = await buildTestResolverContext(vcr.client);
 
 		// Add a memory to the genome
-		await genome.addMemory({
+		await seedMemories(genome, {
 			id: "int-test-mem",
 			content: "This project uses Python 3.12 with type hints",
 			tags: ["python", "style"],
@@ -298,7 +325,6 @@ describe("Agent with Genome Integration", () => {
 			genome,
 			events,
 			depth: 0,
-			providerIdOverride: resolverContext.providerId,
 			resolverSettings: resolverContext.resolverSettings,
 			modelsByProvider: resolverContext.modelsByProvider,
 		});

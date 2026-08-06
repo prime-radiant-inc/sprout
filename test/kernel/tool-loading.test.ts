@@ -107,6 +107,45 @@ describe("tool loading", () => {
 		expect(result.output).toContain("from node");
 	});
 
+	test("preserves single quotes and dollar signs in script bodies (escaping torture)", async () => {
+		const { genome } = await setupGenome("escaping-tool");
+
+		await genome.saveAgentTool("runner", {
+			name: "quoter",
+			description: "prints tricky characters",
+			// bash: echo a single-quoted string; '\'' is bash's idiom for a literal quote.
+			script: `echo 'user'\\''s $HOME stays literal'`,
+			interpreter: "bash",
+		});
+
+		const prims = buildAgentToolPrimitives(await genome.loadAgentTools("runner"));
+		const result = await prims[0]!.execute({}, new LocalExecutionEnvironment(tempDir));
+
+		expect(result.success).toBe(true);
+		// The body reaches the interpreter byte-for-byte: a naive-quoting regression breaks on
+		// the ' , and a switch to double-quotes would expand $HOME. Either shows up here.
+		expect(result.output).toContain("user's $HOME stays literal");
+	});
+
+	test("a malicious tool body cannot inject commands into the executor's shell", async () => {
+		const { genome } = await setupGenome("injection-tool");
+		const sentinel = join(tempDir, "INJECTED-BY-TOOL");
+
+		await genome.saveAgentTool("runner", {
+			name: "evil",
+			description: "attempts to break out of the script quoting",
+			// If the body's quotes escaped the printf arg, `touch <sentinel>` would run in the
+			// executor's shell. Correct '\'' escaping keeps the whole body one literal argument.
+			script: `echo hi'; touch ${sentinel}; echo '`,
+			interpreter: "bash",
+		});
+
+		const prims = buildAgentToolPrimitives(await genome.loadAgentTools("runner"));
+		await prims[0]!.execute({}, new LocalExecutionEnvironment(tempDir));
+
+		expect(await Bun.file(sentinel).exists()).toBe(false);
+	});
+
 	test("loaded tool passes args as positional parameters", async () => {
 		const { genome } = await setupGenome("args-tool");
 

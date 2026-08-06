@@ -103,6 +103,7 @@ export async function runCli(command: CliCommand, deps: Partial<CliRunDeps> = {}
 							sessionId: selectedId,
 							genomePath: command.genomePath,
 							...(command.cwd !== undefined ? { cwd: command.cwd } : {}),
+							...(command.settingsPath !== undefined ? { settingsPath: command.settingsPath } : {}),
 						},
 						deps,
 					);
@@ -153,6 +154,7 @@ export async function runCli(command: CliCommand, deps: Partial<CliRunDeps> = {}
 			const result = await d.runHeadlessMode({
 				goal: command.goal,
 				genomePath: command.genomePath,
+				settingsPath: command.settingsPath,
 				projectDataDir: projectDataDirPath,
 				rootDir,
 				sessionId: resumeState?.sessionId ?? command.sessionId,
@@ -185,6 +187,7 @@ export async function runCli(command: CliCommand, deps: Partial<CliRunDeps> = {}
 	try {
 		const runtime = await d.bootstrapRuntime({
 			genomePath: command.genomePath,
+			settingsPath: command.settingsPath,
 			projectDataDir: projectDataDirPath,
 			rootDir,
 			sessionId,
