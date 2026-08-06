@@ -5,7 +5,7 @@ metadata:
   description: "Experimental self-improving multi-agent coding system that recursively decomposes goals and mutates a git-backed agent genome, supporting Claude, GPT, and Gemini."
   annotations:
     backstage.io/techdocs-ref: dir:.
-    prime-radiant.com/repo-map-rev: "38c8a30babc3ecc005533a73a3841b6dc88b9cda"
+    prime-radiant.com/repo-map-rev: "8c573eb2b18e67ffb4dc3df89b8a0b575694dc35"
   tags: [typescript, multi-agent]
 spec:
   type: tool
