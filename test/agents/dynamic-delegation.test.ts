@@ -10,7 +10,7 @@ import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
 import { createPrimitiveRegistry, type PrimitiveRegistry } from "../../src/kernel/primitives.ts";
 import type { AgentSpec } from "../../src/kernel/types.ts";
 import type { Client } from "../../src/llm/client.ts";
-import { Msg } from "../../src/llm/types.ts";
+import { ContentKind, Msg, messageText, type Request, type Response } from "../../src/llm/types.ts";
 import { withDefaultResolverContext } from "./fixtures.ts";
 
 class Agent extends RawAgent {
@@ -122,10 +122,48 @@ describe("Dynamic delegation list refresh", () => {
 		expect(delegationSteering).toHaveLength(0);
 	});
 
-	test("steering message emitted when new agent added to genome mid-session", async () => {
+	test("live delegate additions are one-turn runtime context, not user steering", async () => {
 		const genome = new Genome(genomeDir);
 		await genome.loadFromDisk();
 		const events = new AgentEventEmitter();
+		const capturedRequests: Request[] = [];
+		const client = {
+			providers: () => ["anthropic"],
+			complete: async (request: Request): Promise<Response> => {
+				capturedRequests.push(request);
+				if (capturedRequests.length === 2) {
+					return {
+						id: "test-tool-call",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: {
+							role: "assistant",
+							content: [
+								{
+									kind: ContentKind.TOOL_CALL,
+									tool_call: {
+										id: "call-1",
+										name: "exec",
+										arguments: { command: "true" },
+									},
+								},
+							],
+						},
+						finish_reason: { reason: "tool_calls" },
+						usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+					};
+				}
+				return {
+					id: "test-id",
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("DONE"),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
 
 		const rootSpec = makeSpec("root", {
 			constraints: {
@@ -135,6 +173,7 @@ describe("Dynamic delegation list refresh", () => {
 				can_learn: false,
 			},
 			agents: ["child-agent"],
+			tools: ["exec"],
 		});
 
 		const agentTree = new Map();
@@ -154,7 +193,7 @@ describe("Dynamic delegation list refresh", () => {
 		const agent = new Agent({
 			spec: rootSpec,
 			env,
-			client: makeDoneClient(),
+			client,
 			primitiveRegistry: registry,
 			availableAgents: genome.allAgents(),
 			genome,
@@ -165,7 +204,6 @@ describe("Dynamic delegation list refresh", () => {
 			agentTreeSelfPath: "",
 		});
 
-		// Run initial turn — should complete without new-agent steering
 		await agent.run("test goal");
 
 		// Now add a new agent to the genome (simulating fabricator creating an agent)
@@ -173,19 +211,32 @@ describe("Dynamic delegation list refresh", () => {
 			makeSpec("new-dynamic-agent", { description: "A dynamically created agent" }),
 		);
 
-		// Continue — the refresh should detect the new agent
 		await agent.continue("keep going", undefined);
+		await agent.continue("keep going again", undefined);
 
-		const steeringEvents = events.collected().filter((e) => e.kind === "steering");
-		const delegationSteering = steeringEvents.filter(
-			(e) => typeof e.data.text === "string" && e.data.text.includes("New agents"),
+		expect(events.collected().filter((event) => event.kind === "steering")).toHaveLength(0);
+		const delegationUpdates = events
+			.collected()
+			.filter((event) => event.kind === "delegation_update");
+		expect(delegationUpdates).toHaveLength(1);
+		expect(delegationUpdates[0]!.data.agents).toEqual([
+			{ name: "new-dynamic-agent", description: "A dynamically created agent" },
+		]);
+
+		expect(messageText(capturedRequests[1]!.messages[0]!)).toContain("<sprout:delegation-update>");
+		expect(
+			capturedRequests[1]!.messages.some(
+				(message) => message.role === "user" && messageText(message).includes("New agents"),
+			),
+		).toBe(false);
+		// The second request is in the same runLoop after a tool call.
+		expect(messageText(capturedRequests[2]!.messages[0]!)).not.toContain(
+			"<sprout:delegation-update>",
 		);
-		expect(delegationSteering.length).toBeGreaterThanOrEqual(1);
-
-		// Verify the steering message mentions the new agent
-		const text = delegationSteering[0]!.data.text as string;
-		expect(text).toContain("new-dynamic-agent");
-		expect(text).toContain("A dynamically created agent");
+		// A later continue() also must not receive the consumed update.
+		expect(messageText(capturedRequests[3]!.messages[0]!)).not.toContain(
+			"<sprout:delegation-update>",
+		);
 	});
 
 	test("resolvedTools updated after genome change", async () => {
@@ -289,5 +340,100 @@ describe("Dynamic delegation list refresh", () => {
 			(e) => typeof e.data.text === "string" && e.data.text.includes("New agents"),
 		);
 		expect(delegationSteering).toHaveLength(0);
+	});
+
+	test("reconstructs genome-only root delegates without flattening nested agents", async () => {
+		const fixtureDir = await mkdtemp(join(tmpdir(), "dyn-deleg-reconstruct-"));
+		const fixtureWorkDir = await mkdtemp(join(tmpdir(), "dyn-deleg-reconstruct-work-"));
+		try {
+			await mkdir(join(fixtureDir, "agents"), { recursive: true });
+			await mkdir(join(fixtureDir, "memories"), { recursive: true });
+
+			const rootSpec = makeSpec("root", {
+				constraints: {
+					max_turns: 1,
+					timeout_ms: 0,
+					can_spawn: true,
+					can_learn: false,
+				},
+				tools: ["read_file"],
+			});
+			const nestedSpec = makeSpec("nested-specialist");
+			await writeFile(join(fixtureDir, "agents", "root.md"), serializeAgentMarkdown(rootSpec));
+			await writeFile(
+				join(fixtureDir, "agents", "nested-specialist.md"),
+				serializeAgentMarkdown(nestedSpec),
+			);
+			Bun.spawnSync(["git", "init"], { cwd: fixtureDir });
+			Bun.spawnSync(["git", "add", "."], { cwd: fixtureDir });
+			Bun.spawnSync(["git", "commit", "-m", "init"], { cwd: fixtureDir });
+
+			const genome = new Genome(fixtureDir);
+			await genome.loadFromDisk();
+			const makeStaticTree = (rootChildren: string[]) =>
+				new Map([
+					["root", { spec: rootSpec, path: "", children: rootChildren, diskPath: "" }],
+					[
+						"team/nested-specialist",
+						{
+							spec: nestedSpec,
+							path: "team/nested-specialist",
+							children: [],
+							diskPath: "",
+						},
+					],
+				]);
+			const makeRoot = (rootChildren: string[], agentTree = makeStaticTree(rootChildren)) =>
+				new Agent({
+					spec: rootSpec,
+					env: new LocalExecutionEnvironment(fixtureWorkDir),
+					client: makeDoneClient(),
+					primitiveRegistry: createPrimitiveRegistry(new LocalExecutionEnvironment(fixtureWorkDir)),
+					availableAgents: genome.allAgents(),
+					genome,
+					depth: 0,
+					agentTree,
+					agentTreeChildren: rootChildren,
+					agentTreeSelfPath: "",
+				});
+			const delegatedNames = (agent: Agent) => {
+				const delegateTool = agent.resolvedTools().find((tool) => tool.name === "delegate");
+				const properties = delegateTool?.parameters.properties as
+					| Record<string, { description?: unknown }>
+					| undefined;
+				const description = properties?.agent_name?.description;
+				if (typeof description !== "string") return [];
+				const knownNames = description.split(" Known agents: ")[1];
+				if (!knownNames?.endsWith(".")) return [];
+				return knownNames.slice(0, -1).split(", ");
+			};
+
+			const liveAgent = makeRoot([]);
+			await liveAgent.run("test goal");
+			await genome.addAgent(makeSpec("persisted-agent"));
+			await liveAgent.continue("refresh delegates");
+
+			const reconstructedRootChildren: string[] = [];
+			const sharedTree = makeStaticTree(reconstructedRootChildren);
+			new Agent({
+				spec: nestedSpec,
+				env: new LocalExecutionEnvironment(fixtureWorkDir),
+				client: makeDoneClient(),
+				primitiveRegistry: createPrimitiveRegistry(new LocalExecutionEnvironment(fixtureWorkDir)),
+				availableAgents: genome.allAgents(),
+				genome,
+				depth: 1,
+				agentTree: sharedTree,
+				agentTreeChildren: [],
+				agentTreeSelfPath: "team/nested-specialist",
+			});
+			const reconstructedAgent = makeRoot(reconstructedRootChildren, sharedTree);
+			const reconstructedNames = delegatedNames(reconstructedAgent);
+			expect(reconstructedNames).toEqual(["persisted-agent"]);
+			expect(delegatedNames(liveAgent)).toEqual(reconstructedNames);
+		} finally {
+			await rm(fixtureDir, { recursive: true, force: true });
+			await rm(fixtureWorkDir, { recursive: true, force: true });
+		}
 	});
 });

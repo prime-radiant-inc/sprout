@@ -166,6 +166,20 @@ export function renderEvent(event: SessionEvent): string | null {
 		case "steering":
 			return `${ind}\u276F ${data.text}`;
 
+		case "delegation_update": {
+			const names = Array.isArray(data.agents)
+				? data.agents
+						.map((agent) =>
+							typeof agent === "object" && agent !== null && "name" in agent
+								? String(agent.name)
+								: "",
+						)
+						.filter(Boolean)
+						.join(", ")
+				: "";
+			return `${ind}\u25C7 Delegation updated${names ? `: ${names}` : ""}`;
+		}
+
 		case "agent_message":
 			return `${ind}\u25C7 ${agentAddressName(data.from)} -> ${agentAddressName(data.to)}: ${data.textPreview ?? ""}`;
 

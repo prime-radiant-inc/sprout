@@ -31,6 +31,27 @@ function parseJsonArgs(raw: string): Record<string, unknown> {
 	}
 }
 
+function resolveInternalToolArgs(
+	tool: AgentToolDefinition,
+	args: Record<string, unknown>,
+): Record<string, unknown> {
+	if (!tool.parameters) return parseJsonArgs((args.args as string) ?? "");
+	if (typeof args.args !== "string") return args;
+	const properties = tool.parameters.properties;
+	const declaresArgs =
+		properties !== null && typeof properties === "object" && Object.hasOwn(properties, "args");
+	if (Object.keys(args).length !== 1 || declaresArgs) return args;
+	try {
+		const parsed = JSON.parse(args.args);
+		if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+			return parsed as Record<string, unknown>;
+		}
+	} catch {
+		// Explicit-schema tools normally receive direct args; preserve malformed legacy input for validation.
+	}
+	return args;
+}
+
 /** Extract the error line number from a stack trace referencing tempPath. */
 export function extractLineFromStack(err: unknown, tempPath: string): number | null {
 	const stack = err instanceof Error ? err.stack : String(err);
@@ -156,7 +177,7 @@ export function buildAgentToolPrimitives(
 		name: tool.name,
 		displayName: getToolDisplayName(tool.name, tool.displayName),
 		description: tool.description,
-		parameters: {
+		parameters: tool.parameters ?? {
 			type: "object",
 			properties: {
 				args: {
@@ -179,7 +200,7 @@ export function buildAgentToolPrimitives(
 
 				const toolCtx: ToolContext = {
 					agentName: ctx.agentName,
-					args: parseJsonArgs(toolArgs),
+					args: resolveInternalToolArgs(tool, args),
 					genome: ctx.genome,
 					env: ctx.env,
 					projectDataDir: ctx.projectDataDir,
@@ -194,6 +215,7 @@ export function buildAgentToolPrimitives(
 			}
 
 			try {
+				const argv = parseCliArgs(toolArgs);
 				// Read the tool file and strip YAML frontmatter
 				const fileContent = await readFile(tool.scriptPath, "utf-8");
 				const script = extractScriptBody(fileContent);
@@ -203,11 +225,12 @@ export function buildAgentToolPrimitives(
 				const escapedScript = script.replace(/'/g, "'\\''");
 				const toolDir = tool.scriptPath.replace(/\/[^/]+$/, "");
 				const envPrefix = `SPROUT_TOOL_DIR='${toolDir}'`;
-				const command = toolArgs
-					? `echo '${escapedScript}' | ${envPrefix} ${tool.interpreter} /dev/stdin ${toolArgs}`
+				const quotedArgs = argv.map(shellQuoteArg).join(" ");
+				const command = quotedArgs
+					? `echo '${escapedScript}' | ${envPrefix} ${tool.interpreter} /dev/stdin ${quotedArgs}`
 					: `echo '${escapedScript}' | ${envPrefix} ${tool.interpreter} /dev/stdin`;
 
-				const result = await env.exec_command(command, { timeout_ms: 30_000 });
+				const result = await env.exec_command(command, { timeout_ms: tool.timeoutMs ?? 30_000 });
 				const output = [result.stdout, result.stderr ? `[stderr]\n${result.stderr}` : ""]
 					.filter(Boolean)
 					.join("\n");
@@ -227,4 +250,73 @@ export function buildAgentToolPrimitives(
 			}
 		},
 	}));
+}
+
+function parseCliArgs(input: string): string[] {
+	const argv: string[] = [];
+	let current = "";
+	let quote: "single" | "double" | undefined;
+	let escaping = false;
+	let tokenStarted = false;
+
+	for (const char of input) {
+		if (quote === "single") {
+			if (char === "'") {
+				quote = undefined;
+			} else {
+				current += char;
+			}
+			continue;
+		}
+		if (escaping) {
+			current += quote === "double" && char !== '"' && char !== "\\" ? `\\${char}` : char;
+			escaping = false;
+			tokenStarted = true;
+			continue;
+		}
+		if (quote === "double") {
+			if (char === '"') {
+				quote = undefined;
+			} else if (char === "\\") {
+				escaping = true;
+			} else {
+				current += char;
+			}
+			continue;
+		}
+		if (char === "\\") {
+			escaping = true;
+			tokenStarted = true;
+			continue;
+		}
+		if (char === "'") {
+			quote = "single";
+			tokenStarted = true;
+			continue;
+		}
+		if (char === '"') {
+			quote = "double";
+			tokenStarted = true;
+			continue;
+		}
+		if (/\s/.test(char)) {
+			if (tokenStarted) {
+				argv.push(current);
+				current = "";
+				tokenStarted = false;
+			}
+			continue;
+		}
+		current += char;
+		tokenStarted = true;
+	}
+
+	if (escaping) throw new Error("Invalid tool arguments: unterminated escape");
+	if (quote) throw new Error(`Invalid tool arguments: unterminated ${quote} quote`);
+	if (tokenStarted) argv.push(current);
+	return argv;
+}
+
+function shellQuoteArg(arg: string): string {
+	return `'${arg.replace(/'/g, `'\\''`)}'`;
 }

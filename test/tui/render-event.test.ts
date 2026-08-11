@@ -300,6 +300,18 @@ describe("renderEvent", () => {
 		expect(result).toBe("\u276F focus on tests");
 	});
 
+	test("delegation updates render as system status", () => {
+		const result = renderEvent(
+			makeEvent("delegation_update", {
+				agents: [
+					{ name: "qm-planner", description: "Plan delegated work" },
+					{ name: "engineer", description: "Implement a task" },
+				],
+			}),
+		);
+		expect(result).toBe("\u25C7 Delegation updated: qm-planner, engineer");
+	});
+
 	test("renders session_resume event", () => {
 		const result = renderEvent(makeEvent("session_resume", { turns: 5 }));
 		expect(result).toContain("Resumed session");

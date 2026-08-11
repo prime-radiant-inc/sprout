@@ -2,6 +2,17 @@
 name: load-transcript
 description: "Load and analyze session event logs. Pass agent_id or handle_id to filter to a specific agent, or omit both for all events. Returns structured JSON summary."
 interpreter: sprout-internal
+parameters:
+  type: object
+  properties:
+    agent_id:
+      type: string
+    handle_id:
+      type: string
+    kinds:
+      type: array
+      items:
+        type: string
 ---
 export default async function (ctx) {
   const { agent_id, handle_id, kinds } = ctx.args as {
@@ -10,31 +21,56 @@ export default async function (ctx) {
     kinds?: string[];
   };
 
+  if (handle_id && !/^[A-Za-z0-9_-]+$/.test(handle_id)) {
+    return {
+      output: JSON.stringify({ error: "Invalid handle_id" }),
+      success: false,
+      error: "Invalid handle_id: expected a simple identifier",
+    };
+  }
+
   // Step 1: Find the session logs directory
   // The genome is at ~/.local/share/sprout-genome (or similar)
   // Project data is at {genome}/projects/{slugified-project-dir}
   // Session logs are at {projectData}/logs/{sessionId}.jsonl
-  const cwd = ctx.env.working_directory();
+  const injectedProjectDataDir = ctx.projectDataDir;
+  const injectedSessionId = ctx.sessionId;
 
-  // Slugify the working directory path (replace / and spaces with -)
-  const slug = cwd.replace(/[\s/]/g, "-");
+  let logsDir: string;
+  let currentSessionLog: string | undefined;
+  if (typeof injectedProjectDataDir === "string" && injectedProjectDataDir.trim() &&
+      typeof injectedSessionId === "string" && injectedSessionId.trim()) {
+    logsDir = `${injectedProjectDataDir}/logs`;
+    currentSessionLog = `${logsDir}/${injectedSessionId}.jsonl`;
+  } else {
+    const cwd = ctx.env.working_directory();
 
-  const home = process.env.HOME || process.env.USERPROFILE || "~";
-  const genomePath = `${home}/.local/share/sprout-genome`;
+    // Legacy fallback for tool contexts created without runtime project metadata.
+    const slug = cwd.replace(/[\s/]/g, "-");
 
-  const projectDataDir = `${genomePath}/projects/${slug}`;
-  const logsDir = `${projectDataDir}/logs`;
+    const home = process.env.HOME || process.env.USERPROFILE || "~";
+    const genomePath = `${home}/.local/share/sprout-genome`;
+
+    const projectDataDir = `${genomePath}/projects/${slug}`;
+    logsDir = `${projectDataDir}/logs`;
+  }
 
   // Step 2: Find session log files
   let logFiles: string[];
-  try {
-    logFiles = await ctx.env.glob("*.jsonl", logsDir);
-  } catch {
-    return {
-      output: JSON.stringify({ error: "No session logs found", logsDir }),
-      success: false,
-      error: "Could not find session logs directory",
-    };
+  if (currentSessionLog) {
+    logFiles = [currentSessionLog];
+  } else {
+    try {
+      logFiles = (await ctx.env.glob("*.jsonl", logsDir)).filter(
+        (path) => !path.endsWith(".replay.jsonl"),
+      );
+    } catch {
+      return {
+        output: JSON.stringify({ error: "No session logs found", logsDir }),
+        success: false,
+        error: "Could not find session logs directory",
+      };
+    }
   }
 
   if (logFiles.length === 0) {
@@ -48,10 +84,10 @@ export default async function (ctx) {
   // Pick the most recent session log (lexicographic sort of ULIDs = chronological)
   logFiles.sort();
   const latestLog = logFiles[logFiles.length - 1];
-  const latestLogPath = `${logsDir}/${latestLog}`;
+  const latestLogPath = currentSessionLog ?? `${logsDir}/${latestLog}`;
 
   // Extract session ID from the log filename (e.g., "01KK4Y2D2VB1BT3CCQMMFFJWQ9.jsonl" -> "01KK4Y2D2VB1BT3CCQMMFFJWQ9")
-  const sessionId = latestLog.replace(".jsonl", "");
+  const sessionId = injectedSessionId ?? latestLog.replace(".jsonl", "");
   const childLogsDir = `${logsDir}/${sessionId}`;
 
   // Step 3: Read events

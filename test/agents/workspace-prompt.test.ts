@@ -58,6 +58,10 @@ describe("workspace prompt sections", () => {
 			expect(result).toContain("Run linter and auto-fix");
 			expect(result).toContain("format");
 			expect(result).toContain("Format code with prettier");
+			expect(result).toContain("structured primitives");
+			expect(result).toContain("args");
+			expect(result).not.toContain("PATH");
+			expect(result).not.toContain("exec");
 			expect(result).toContain("</agent_tools>");
 		});
 	});
@@ -67,6 +71,10 @@ describe("workspace prompt sections", () => {
 			const result = renderWorkspaceEncouragement();
 			expect(result).toContain("save_tool");
 			expect(result).toContain("persist");
+			expect(result).toContain("structured primitive");
+			expect(result).toContain("args");
+			expect(result).not.toContain("PATH");
+			expect(result).not.toContain("exec");
 		});
 	});
 });

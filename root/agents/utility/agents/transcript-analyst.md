@@ -21,7 +21,7 @@ You analyze agent execution transcripts to answer natural-language questions abo
 
 You have one tool: `load-transcript`. It reads session event logs from disk and returns structured JSON about an agent's execution.
 
-**Arguments** (pass as JSON string in the `args` field):
+**Arguments** (pass these fields directly to the tool):
 - `agent_id` (string, optional) — ULID of the agent whose events you want
 - `handle_id` (string, optional) — If you have a handle ID instead of agent_id, pass it here. The tool will resolve it to an agent_id by scanning act_start events.
 - `kinds` (string[], optional) — Filter to specific event kinds

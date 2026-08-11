@@ -84,6 +84,25 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 				/>
 			);
 
+		case "delegation_update": {
+			const names = Array.isArray(data.agents)
+				? data.agents
+						.map((agent) =>
+							typeof agent === "object" && agent !== null && "name" in agent
+								? String(agent.name)
+								: "",
+						)
+						.filter(Boolean)
+						.join(", ")
+				: "";
+			return (
+				<SystemMessage
+					kind="delegation_update"
+					message={`Delegation updated${names ? `: ${names}` : ""}`}
+				/>
+			);
+		}
+
 		case "plan_end": {
 			const text = data.text ? String(data.text) : undefined;
 			const reasoning = data.reasoning ? String(data.reasoning) : undefined;

@@ -64,6 +64,8 @@ function makeCtx(
 		args,
 		agentName: "transcript-analyst",
 		genome: {} as any,
+		projectDataDir: undefined as string | undefined,
+		sessionId: undefined as string | undefined,
 		env: {
 			working_directory: () => "/test/project",
 			glob: async (_pattern: string, _dir: string) => [] as string[],
@@ -79,6 +81,28 @@ describe("load-transcript tool", () => {
 	// ── Group 1: Basic filesystem behavior ───────────────────────────────────
 
 	describe("filesystem behavior", () => {
+		test("uses the injected project directory and current session log", async () => {
+			const readPaths: string[] = [];
+			const ctx = makeCtx(
+				{},
+				{
+					glob: async () => {
+						throw new Error("glob must not select a replay log");
+					},
+					read_file: async (path: string) => {
+						readPaths.push(path);
+						return makeLog(makeEvent("session_start", "root", {}, 1000));
+					},
+				},
+			);
+			ctx.projectDataDir = "/runtime/project-data";
+			ctx.sessionId = "01CURRENT";
+
+			const result = await loadTranscript(ctx);
+
+			expect(result.success).toBe(true);
+			expect(readPaths[0]).toBe("/runtime/project-data/logs/01CURRENT.jsonl");
+		});
 		test("glob throws → returns error about no session logs", async () => {
 			const ctx = makeCtx(
 				{},
@@ -273,6 +297,28 @@ describe("load-transcript tool", () => {
 	// ── Group 4: handle_id resolution ────────────────────────────────────────
 
 	describe("handle_id resolution", () => {
+		test("rejects replay suffixes and path traversal before reading a child log", async () => {
+			for (const handleId of ["01HANDLE.replay", "../01SESSION.replay"]) {
+				let readCalled = false;
+				const ctx = makeCtx(
+					{ handle_id: handleId },
+					{
+						read_file: async () => {
+							readCalled = true;
+							return "";
+						},
+					},
+				);
+				ctx.projectDataDir = "/runtime/project-data";
+				ctx.sessionId = "01SESSION";
+
+				const result = await loadTranscript(ctx);
+
+				expect(result.success).toBe(false);
+				expect(result.error).toContain("Invalid handle_id");
+				expect(readCalled).toBe(false);
+			}
+		});
 		test("resolves handle_id to child_id from act_start event", async () => {
 			const ctx = makeCtx(
 				{ handle_id: "handle-123" },

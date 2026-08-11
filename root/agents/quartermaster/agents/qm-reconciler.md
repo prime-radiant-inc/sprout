@@ -51,7 +51,7 @@ to the genome's agents directory explaining the improvement.
 
 ## Where to find things
 
-- Root agent specs: `root/agents/**/*.md`
+- Root agent specs: `{{SPROUT_ROOT}}/agents/**/*.md`
 - Genome agent specs: `~/.local/share/sprout-genome/agents/*.md`
 - Root manifest: `~/.local/share/sprout-genome/bootstrap-manifest.json`
 

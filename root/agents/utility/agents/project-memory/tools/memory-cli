@@ -2,6 +2,19 @@
 name: memory-cli
 description: "Manage project memory files: list, read, write, search"
 interpreter: sprout-internal
+parameters:
+  type: object
+  properties:
+    command:
+      type: string
+      enum: [list, read, write, search]
+    filename:
+      type: string
+    content:
+      type: string
+    keyword:
+      type: string
+  required: [command]
 ---
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";

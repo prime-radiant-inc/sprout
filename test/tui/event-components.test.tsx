@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Box } from "ink";
 import { render as inkRender } from "ink-testing-library";
+import { isValidElement } from "react";
 import type { SessionEvent } from "../../src/kernel/types.ts";
 import {
 	AssistantTextLine,
@@ -570,5 +571,22 @@ describe("renderEventComponent", () => {
 		const node = renderEventComponent(makeEvent("steering", { text: "focus on tests" }), null);
 		const { lastFrame } = render(<Box>{node}</Box>);
 		expect(lastFrame()).toContain("focus on tests");
+	});
+
+	test("delegation updates render as a system line, not a user message", () => {
+		const node = renderEventComponent(
+			makeEvent("delegation_update", {
+				agents: [
+					{ name: "qm-planner", description: "Plan delegated work" },
+					{ name: "engineer", description: "Implement a task" },
+				],
+			}),
+			null,
+		);
+		expect(isValidElement(node)).toBe(true);
+		if (!isValidElement(node)) throw new Error("Expected delegation update element");
+		expect(node.type).toBe(SystemLine);
+		const { lastFrame } = render(<Box>{node}</Box>);
+		expect(lastFrame()).toContain("Delegation updated: qm-planner, engineer");
 	});
 });

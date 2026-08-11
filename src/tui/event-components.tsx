@@ -235,6 +235,7 @@ const SYSTEM_ICONS: Record<string, string> = {
 	session_clear: "\u25C6",
 	compaction: "\u2298",
 	steering: "\u21AA",
+	delegation_update: "\u25C7",
 	learn_start: "\u25CB",
 	learn_mutation: "\u25CB",
 };
@@ -397,6 +398,26 @@ export function renderEventComponent(event: SessionEvent, durationMs: number | n
 
 		case "steering":
 			return <UserMessageLine depth={depth} text={String(data.text ?? "")} />;
+
+		case "delegation_update": {
+			const names = Array.isArray(data.agents)
+				? data.agents
+						.map((agent) =>
+							typeof agent === "object" && agent !== null && "name" in agent
+								? String(agent.name)
+								: "",
+						)
+						.filter(Boolean)
+						.join(", ")
+				: "";
+			return (
+				<SystemLine
+					depth={depth}
+					kind={kind}
+					message={`Delegation updated${names ? `: ${names}` : ""}`}
+				/>
+			);
+		}
 
 		case "perceive":
 			return <UserMessageLine depth={depth} text={String(data.goal ?? "")} />;

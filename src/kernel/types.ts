@@ -509,6 +509,7 @@ export const EVENT_KINDS = [
 	"learn_mutation",
 	"learn_end",
 	"steering",
+	"delegation_update",
 	"agent_message",
 	"warning",
 	"error",

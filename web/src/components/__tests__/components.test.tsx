@@ -870,6 +870,20 @@ describe("EventLine", () => {
 		expect(html).toContain('data-kind="agent_message"');
 	});
 
+	test("renders delegation_update as system status, not a user message", () => {
+		const event = makeEvent("delegation_update", {
+			agents: [
+				{ name: "qm-planner", description: "Plan delegated work" },
+				{ name: "engineer", description: "Implement a task" },
+			],
+		});
+		const html = renderToStaticMarkup(<EventLine event={event} durationMs={null} />);
+		expect(html).toContain("Delegation updated: qm-planner, engineer");
+		expect(html).toContain('data-kind="delegation_update"');
+		expect(html).not.toContain('data-kind="user"');
+		expect(html).not.toContain('data-kind="steering"');
+	});
+
 	test("renders observer frame perceive events collapsed by default", () => {
 		const event = makeEvent("perceive", {
 			goal: "<sprout:delegate-observer-frame>\nsecret frame\n</sprout:delegate-observer-frame>",

@@ -41,16 +41,24 @@ describe("settings paths", () => {
 	});
 
 	test("falls back to ~/.config/sprout/settings.json", () => {
-		expect(
-			resolveSettingsDir({
-				homeDir: "/Users/tester",
-			}),
-		).toBe("/Users/tester/.config/sprout");
-		expect(
-			resolveSettingsPath({
-				homeDir: "/Users/tester",
-			}),
-		).toBe("/Users/tester/.config/sprout/settings.json");
+		const original = process.env.XDG_CONFIG_HOME;
+		delete process.env.XDG_CONFIG_HOME;
+
+		try {
+			expect(
+				resolveSettingsDir({
+					homeDir: "/Users/tester",
+				}),
+			).toBe("/Users/tester/.config/sprout");
+			expect(
+				resolveSettingsPath({
+					homeDir: "/Users/tester",
+				}),
+			).toBe("/Users/tester/.config/sprout/settings.json");
+		} finally {
+			if (original === undefined) delete process.env.XDG_CONFIG_HOME;
+			else process.env.XDG_CONFIG_HOME = original;
+		}
 	});
 
 	test("builds a deterministic invalid-file path", () => {

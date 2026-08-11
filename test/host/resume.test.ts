@@ -127,6 +127,25 @@ describe("replayEventLog", () => {
 		expect(messageText(history[2]!)).toBe("Actually, use TypeScript instead.");
 	});
 
+	test("ignores delegation updates while still replaying actual steering", async () => {
+		const logPath = join(tempDir, "events.jsonl");
+		await writeEventLog(logPath, [
+			event("perceive", { goal: "Build a feature" }),
+			event("delegation_update", {
+				agents: [{ name: "qm-planner", description: "Plan delegated work" }],
+			}),
+			event("steering", { text: "Actually, use TypeScript instead." }),
+		]);
+
+		const history = await replayEventLog(logPath);
+
+		expect(history).toHaveLength(2);
+		expect(history[0]!.role).toBe("user");
+		expect(messageText(history[0]!)).toBe("Build a feature");
+		expect(history[1]!.role).toBe("user");
+		expect(messageText(history[1]!)).toBe("Actually, use TypeScript instead.");
+	});
+
 	test("returns empty history for empty log", async () => {
 		const logPath = join(tempDir, "events.jsonl");
 		await writeFile(logPath, "", "utf-8");

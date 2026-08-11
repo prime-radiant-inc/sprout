@@ -563,12 +563,12 @@ export function renderWorkspaceFiles(files: AgentFileInfo[], filesDir: string): 
 export function renderWorkspaceTools(tools: AgentToolDefinition[]): string {
 	if (tools.length === 0) return "";
 	const entries = tools.map((t) => `  - ${t.name}: ${t.description}`).join("\n");
-	return `\n\n<agent_tools>\n${entries}\n  These are tools you created. They are registered as primitives AND on your PATH for shell use.\n</agent_tools>`;
+	return `\n\n<agent_tools>\n${entries}\n  These are structured primitives. Call a tool by name and pass CLI-style text through its args property when needed.\n</agent_tools>`;
 }
 
 /** Return encouragement text for tool creation. */
 export function renderWorkspaceEncouragement(): string {
-	return `\n\nPrefer writing and saving tools over running ad-hoc commands. When you need to do something non-trivial, save a tool for it using save_tool — even if you'll only use it once this session. Tools persist across sessions and become part of your permanent capabilities. Your saved tools are on PATH and can be called directly from exec.`;
+	return `\n\nPrefer writing and saving tools over running ad-hoc commands. When you need to do something non-trivial, save a tool for it using save_tool — even if you'll only use it once this session. Tools persist across sessions and become part of your permanent capabilities. Each saved tool is a structured primitive: call it by name and pass CLI-style text through its args property.`;
 }
 
 /**

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, cp, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Genome } from "../../src/genome/genome.ts";
@@ -107,6 +107,84 @@ describe("tool loading", () => {
 		expect(result.output).toContain("from node");
 	});
 
+	test("loaded tool uses its explicit execution timeout", async () => {
+		const { genome } = await setupGenome("tool-timeout");
+		await genome.saveAgentTool("runner", {
+			name: "slow-tool",
+			description: "Run with a longer timeout",
+			script: 'echo "done"',
+			interpreter: "bash",
+		});
+		const toolDefs = await genome.loadAgentTools("runner");
+		toolDefs[0]!.timeoutMs = 120_000;
+		const env = new LocalExecutionEnvironment(tempDir);
+		const originalExecCommand = env.exec_command.bind(env);
+		let observedTimeout: number | undefined;
+		env.exec_command = async (command, options) => {
+			observedTimeout = options?.timeout_ms;
+			return originalExecCommand(command, options);
+		};
+
+		const result = await buildAgentToolPrimitives(toolDefs)[0]!.execute({}, env);
+
+		expect(result.success).toBe(true);
+		expect(observedTimeout).toBe(120_000);
+	});
+
+	test("sprout-internal tool with an explicit schema receives direct structured args", async () => {
+		const { genome } = await setupGenome("internal-structured-args");
+		await genome.saveAgentTool("runner", {
+			name: "structured-tool",
+			description: "Echo structured args",
+			script:
+				"export default async (ctx) => ({ output: JSON.stringify(ctx.args), success: true });",
+			interpreter: "sprout-internal",
+		});
+		const toolDefs = await genome.loadAgentTools("runner");
+		toolDefs[0]!.parameters = {
+			type: "object",
+			properties: { command: { type: "string" } },
+			required: ["command"],
+		};
+		const env = new LocalExecutionEnvironment(tempDir);
+		const primitive = buildAgentToolPrimitives(toolDefs, {
+			genome,
+			env,
+			agentName: "runner",
+		})[0]!;
+
+		const result = await primitive.execute({ command: "list" }, env);
+
+		expect(primitive.parameters).toEqual(toolDefs[0]!.parameters!);
+		expect(JSON.parse(result.output)).toEqual({ command: "list" });
+	});
+
+	test("sprout-internal schema may declare args without triggering legacy unwrapping", async () => {
+		const { genome } = await setupGenome("internal-explicit-args-field");
+		await genome.saveAgentTool("runner", {
+			name: "args-field-tool",
+			description: "Echo a legitimate args field",
+			script:
+				"export default async (ctx) => ({ output: JSON.stringify(ctx.args), success: true });",
+			interpreter: "sprout-internal",
+		});
+		const toolDefs = await genome.loadAgentTools("runner");
+		toolDefs[0]!.parameters = {
+			type: "object",
+			properties: { args: { type: "string" }, mode: { type: "string" } },
+		};
+		const env = new LocalExecutionEnvironment(tempDir);
+		const primitive = buildAgentToolPrimitives(toolDefs, {
+			genome,
+			env,
+			agentName: "runner",
+		})[0]!;
+
+		const result = await primitive.execute({ args: '{"x":1}', mode: "inspect" }, env);
+
+		expect(JSON.parse(result.output)).toEqual({ args: '{"x":1}', mode: "inspect" });
+	});
+
 	test("loaded tool passes args as positional parameters", async () => {
 		const { genome } = await setupGenome("args-tool");
 
@@ -124,6 +202,125 @@ describe("tool loading", () => {
 		const result = await prims[0]!.execute({ args: "foo bar" }, env);
 		expect(result.success).toBe(true);
 		expect(result.output).toContain("arg1=foo arg2=bar");
+	});
+
+	test("loaded tool passes shell metacharacters literally", async () => {
+		const { genome } = await setupGenome("literal-metacharacters");
+		const semicolonMarker = join(tempDir, "semicolon-marker");
+		const substitutionMarker = join(tempDir, "substitution-marker");
+
+		await genome.saveAgentTool("runner", {
+			name: "literal-args",
+			description: "Print every argument",
+			script: "#!/bin/bash\nprintf '%s\\n' \"$@\"",
+			interpreter: "bash",
+		});
+
+		const toolDefs = await genome.loadAgentTools("runner");
+		const prims = buildAgentToolPrimitives(toolDefs);
+		const env = new LocalExecutionEnvironment(tempDir);
+		const args = `safe; touch ${semicolonMarker} $(touch ${substitutionMarker})`;
+
+		const result = await prims[0]!.execute({ args }, env);
+		expect(result.success).toBe(true);
+		expect(result.output).toContain("safe;");
+		expect(result.output).toContain("$(touch");
+		expect(
+			await access(semicolonMarker)
+				.then(() => true)
+				.catch(() => false),
+		).toBe(false);
+		expect(
+			await access(substitutionMarker)
+				.then(() => true)
+				.catch(() => false),
+		).toBe(false);
+	});
+
+	test("loaded tool preserves a quoted JSON argument containing an apostrophe", async () => {
+		const { genome } = await setupGenome("quoted-json-arg");
+
+		await genome.saveAgentTool("runner", {
+			name: "inspect-args",
+			description: "Print argument count and first argument",
+			script: '#!/bin/bash\nprintf \'count=%s\\narg=%s\' "$#" "$1"',
+			interpreter: "bash",
+		});
+
+		const toolDefs = await genome.loadAgentTools("runner");
+		const prims = buildAgentToolPrimitives(toolDefs);
+		const env = new LocalExecutionEnvironment(tempDir);
+		const json = '{"publisher":"O\'Reilly"}';
+
+		const result = await prims[0]!.execute({ args: `"{\\"publisher\\":\\"O'Reilly\\"}"` }, env);
+		expect(result.success).toBe(true);
+		expect(result.output).toBe(`count=1\narg=${json}`);
+	});
+
+	test("loaded tool preserves backslashes inside single-quoted JSON", async () => {
+		const { genome } = await setupGenome("single-quoted-backslashes");
+
+		await genome.saveAgentTool("runner", {
+			name: "inspect-single-quoted-arg",
+			description: "Print argument count and first argument",
+			script: '#!/bin/bash\nprintf \'count=%s\\narg=%s\' "$#" "$1"',
+			interpreter: "bash",
+		});
+
+		const toolDefs = await genome.loadAgentTools("runner");
+		const prims = buildAgentToolPrimitives(toolDefs);
+		const env = new LocalExecutionEnvironment(tempDir);
+		const json = String.raw`{"regex":"^\\d+\\s+$","path":"C:\\Users\\ndn\\file.txt"}`;
+
+		const result = await prims[0]!.execute({ args: `'${json}'` }, env);
+		expect(result.success).toBe(true);
+		expect(result.output).toBe(`count=1\narg=${json}`);
+	});
+
+	test("loaded tool only unescapes quotes and backslashes inside double quotes", async () => {
+		const { genome } = await setupGenome("double-quoted-escapes");
+
+		await genome.saveAgentTool("runner", {
+			name: "inspect-double-quoted-arg",
+			description: "Print argument count and first argument",
+			script: '#!/bin/bash\nprintf \'count=%s\\narg=%s\' "$#" "$1"',
+			interpreter: "bash",
+		});
+
+		const toolDefs = await genome.loadAgentTools("runner");
+		const prims = buildAgentToolPrimitives(toolDefs);
+		const env = new LocalExecutionEnvironment(tempDir);
+		const args = String.raw`"quote:\" slash:\\ regex:\d path:C:\Users"`;
+		const expected = String.raw`quote:" slash:\ regex:\d path:C:\Users`;
+
+		const result = await prims[0]!.execute({ args }, env);
+		expect(result.success).toBe(true);
+		expect(result.output).toBe(`count=1\narg=${expected}`);
+	});
+
+	test("loaded tool rejects unterminated quoting without invoking the tool", async () => {
+		const { genome } = await setupGenome("unterminated-arg");
+		const marker = join(tempDir, "unterminated-marker");
+
+		await genome.saveAgentTool("runner", {
+			name: "must-not-run",
+			description: "Create a marker",
+			script: `#!/bin/bash\ntouch '${marker}'`,
+			interpreter: "bash",
+		});
+
+		const toolDefs = await genome.loadAgentTools("runner");
+		const prims = buildAgentToolPrimitives(toolDefs);
+		const env = new LocalExecutionEnvironment(tempDir);
+
+		const result = await prims[0]!.execute({ args: "'unterminated" }, env);
+		expect(result.success).toBe(false);
+		expect(result.error).toContain("Invalid tool arguments: unterminated single quote");
+		expect(
+			await access(marker)
+				.then(() => true)
+				.catch(() => false),
+		).toBe(false);
 	});
 
 	test("loaded tool reports non-zero exit as failure", async () => {

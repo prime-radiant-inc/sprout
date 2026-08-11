@@ -85,9 +85,10 @@ describe("subcortical recall eval", () => {
 				embeddingProvider: evalEmbeddingProvider(),
 			});
 			await genome.init();
-			for (let index = 0; index < CASE_COUNT; index++) {
-				await genome.addMemory(memory(index));
-			}
+			await genome.addMemories(
+				Array.from({ length: CASE_COUNT }, (_, index) => memory(index)),
+				"test: seed subcortical recall eval",
+			);
 
 			let baselineHits = 0;
 			let expandedHits = 0;
